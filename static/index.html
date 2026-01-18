@@ -1,0 +1,1816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FFXI Gear Optimizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Quattrocento+Sans:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/app.css">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'ffxi': {
+                            'dark': '#0a0e14',
+                            'darker': '#050709',
+                            'panel': '#12171f',
+                            'border': '#1e2630',
+                            'accent': '#c9a227',
+                            'accent-dim': '#8b7119',
+                            'blue': '#4a9eff',
+                            'green': '#5cb85c',
+                            'red': '#d9534f',
+                            'purple': '#9b59b6',
+                            'text': '#e8e6e3',
+                            'text-dim': '#8b9298',
+                        }
+                    },
+                    fontFamily: {
+                        'display': ['Cinzel', 'serif'],
+                        'body': ['Quattrocento Sans', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-ffxi-dark text-ffxi-text font-body min-h-screen">
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="fixed inset-0 bg-ffxi-darker z-50 flex items-center justify-center">
+        <div class="text-center">
+            <div class="loading-spinner mb-4"></div>
+            <p class="text-ffxi-accent font-display text-xl">Loading Optimizer...</p>
+        </div>
+    </div>
+
+    <div id="app" class="flex flex-col min-h-screen opacity-0 transition-opacity duration-500">
+        <!-- Header -->
+        <header class="bg-ffxi-panel border-b border-ffxi-border px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-4">
+                    <h1 class="font-display text-2xl text-ffxi-accent tracking-wide">FFXI Gear Optimizer</h1>
+                    <span id="status-indicator" class="text-xs px-2 py-1 rounded bg-ffxi-dark text-ffxi-text-dim">
+                        Loading...
+                    </span>
+                </div>
+                <div class="flex items-center gap-4">
+                    <button id="btn-upload" class="btn-secondary text-sm">
+                        <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                        </svg>
+                        Upload Data
+                    </button>
+                    <a href="/docs" target="_blank" class="text-ffxi-text-dim hover:text-ffxi-text text-sm">API Docs</a>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Layout -->
+        <div class="flex flex-1 overflow-hidden">
+            <!-- Sidebar: Job & Weapon Configuration Only -->
+            <aside id="sidebar" class="w-72 bg-ffxi-panel border-r border-ffxi-border flex flex-col overflow-y-auto">
+                <div class="p-4 space-y-6">
+                    <!-- Job Selection -->
+                    <div class="space-y-2">
+                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim">Job</label>
+                        <select id="job-select" class="input-field w-full">
+                            <option value="">Select Job...</option>
+                            <option value="WAR">WAR - Warrior</option>
+                            <option value="MNK">MNK - Monk</option>
+                            <option value="WHM">WHM - White Mage</option>
+                            <option value="BLM">BLM - Black Mage</option>
+                            <option value="RDM">RDM - Red Mage</option>
+                            <option value="THF">THF - Thief</option>
+                            <option value="PLD">PLD - Paladin</option>
+                            <option value="DRK">DRK - Dark Knight</option>
+                            <option value="BST">BST - Beastmaster</option>
+                            <option value="BRD">BRD - Bard</option>
+                            <option value="RNG">RNG - Ranger</option>
+                            <option value="SAM">SAM - Samurai</option>
+                            <option value="NIN">NIN - Ninja</option>
+                            <option value="DRG">DRG - Dragoon</option>
+                            <option value="SMN">SMN - Summoner</option>
+                            <option value="BLU">BLU - Blue Mage</option>
+                            <option value="COR">COR - Corsair</option>
+                            <option value="PUP">PUP - Puppetmaster</option>
+                            <option value="DNC">DNC - Dancer</option>
+                            <option value="SCH">SCH - Scholar</option>
+                            <option value="GEO">GEO - Geomancer</option>
+                            <option value="RUN">RUN - Rune Fencer</option>
+                        </select>
+                        
+                        <!-- Job Points Info -->
+                        <div id="job-jp-info" class="text-xs text-ffxi-text-dim hidden">
+                            <!-- Populated by JS based on job gifts data -->
+                        </div>
+                    </div>
+                    
+                    <!-- Master Level -->
+                    <div id="master-level-section" class="space-y-2 hidden">
+                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim">
+                            Master Level
+                            <span class="text-ffxi-accent ml-1">(2100 JP)</span>
+                        </label>
+                        <div class="flex items-center gap-3">
+                            <input type="range" id="master-level-slider" 
+                                   min="0" max="50" value="0" 
+                                   class="flex-1 accent-ffxi-accent">
+                            <input type="number" id="master-level-input" 
+                                   min="0" max="50" value="0"
+                                   class="input-field w-16 text-center">
+                        </div>
+                        <p class="text-xs text-ffxi-text-dim">
+                            +<span id="ml-stat-bonus">0</span> to all stats, +<span id="ml-hp-bonus">0</span> HP
+                        </p>
+                    </div>
+
+                    <!-- Main Weapon -->
+                    <div class="space-y-2">
+                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim">Main Weapon</label>
+                        <div id="main-weapon-container" class="relative">
+                            <!-- Populated by SearchableDropdown -->
+                        </div>
+                        <div id="weapon-info" class="text-sm text-ffxi-text-dim hidden">
+                            <!-- Weapon stats shown here -->
+                        </div>
+                    </div>
+
+                    <!-- Dual Wield Checkbox -->
+                    <div id="dw-checkbox-section" class="space-y-2 hidden">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="has-dual-wield" class="checkbox">
+                            <span class="text-sm">Has Dual Wield</span>
+                        </label>
+                        <p id="dw-hint" class="text-xs text-ffxi-text-dim">Enable if using /NIN, /DNC, or DW from gear</p>
+                    </div>
+
+                    <!-- Sub Item (Grip/Shield/Off-hand) -->
+                    <div id="sub-item-section" class="space-y-2 hidden">
+                        <label id="sub-section-label" class="block text-xs uppercase tracking-wider text-ffxi-text-dim">Off-Hand</label>
+                        <div id="sub-item-container" class="relative">
+                            <!-- Populated by SearchableDropdown -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Inventory Summary (bottom of sidebar) -->
+                <div class="mt-auto p-4 bg-ffxi-darker border-t border-ffxi-border">
+                    <h3 class="text-xs uppercase tracking-wider text-ffxi-text-dim mb-2">Inventory</h3>
+                    <div id="inventory-summary" class="text-sm">
+                        <p class="text-ffxi-text-dim">No inventory loaded</p>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Main Content -->
+            <main class="flex-1 flex flex-col overflow-hidden">
+                <!-- Tab Navigation -->
+                <nav class="bg-ffxi-panel border-b border-ffxi-border px-4">
+                    <div class="flex gap-1">
+                        <button class="tab-btn active" data-tab="tp">TP Set</button>
+                        <button class="tab-btn" data-tab="ws">WS Set</button>
+                        <button class="tab-btn" data-tab="magic">Magic</button>
+                        <button class="tab-btn" data-tab="dt">DT Set</button>
+                        <button class="tab-btn" data-tab="lua">Lua Template</button>
+                        <button class="tab-btn" data-tab="inventory">Inventory</button>
+                        <button class="tab-btn" data-tab="compare">Compare</button>
+                    </div>
+                </nav>
+
+                <!-- Tab Content -->
+                <div id="tab-content" class="flex-1 overflow-y-auto p-6">
+                    <!-- TP Set Tab -->
+                    <div id="tab-tp" class="tab-panel">
+                        <div class="max-w-5xl">
+                            <h2 class="font-display text-xl text-ffxi-accent mb-4">TP Set Optimization</h2>
+                            <p class="text-ffxi-text-dim mb-6">
+                                Optimize gear for maximum TP gain per second. Balance Store TP, multi-attack, and haste.
+                            </p>
+                            
+                            <div class="grid grid-cols-2 gap-6 mb-6">
+                                <!-- Left Column: Optimization Options -->
+                                <div class="space-y-4">
+                                    <!-- Priority Preset -->
+                                    <div>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                            Priority
+                                        </label>
+                                        <select id="tp-priority" class="input-field w-full">
+                                            <option value="pure_tp">Pure TP (Max TP Rate)</option>
+                                            <option value="hybrid_tp" selected>Hybrid TP (TP + Damage)</option>
+                                            <option value="acc_tp">Accuracy TP (High Acc + TP)</option>
+                                            <option value="dt_tp">DT TP (Survivability + TP)</option>
+                                            <option value="refresh_tp">Refresh TP (MP Sustain + TP)</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div id="tp-dw-trait-section" class="hidden">
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                            DW Trait (basis points)
+                                        </label>
+                                        <input type="number" id="tp-dw-trait" class="input-field w-full" 
+                                               value="0" min="0" max="3500">
+                                        <p class="text-xs text-ffxi-text-dim mt-1">NIN: 3500, DNC: 2500, THF: 500</p>
+                                    </div>
+                                    
+                                    <!-- Excluded Slots -->
+                                    <div>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                            Excluded Slots
+                                        </label>
+                                        <div id="tp-excluded-slots" class="flex flex-wrap gap-2">
+                                            <!-- Slot toggles populated by JS -->
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Right Column: Target & Debuffs -->
+                                <div class="space-y-4">
+                                    <!-- Target -->
+                                    <div>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">Target</label>
+                                        <select id="tp-target-preset" class="input-field w-full">
+                                            <optgroup label="Training">
+                                                <option value="training_dummy">Training Dummy</option>
+                                            </optgroup>
+                                            <optgroup label="Lower Tier Apex (Lv129)">
+                                                <option value="apex_leech">Apex Leech</option>
+                                                <option value="apex_crawler">Apex Crawler</option>
+                                                <option value="apex_lizard">Apex Lizard</option>
+                                            </optgroup>
+                                            <optgroup label="Standard Apex (Lv135)">
+                                                <option value="apex_toad" selected>Apex Toad</option>
+                                                <option value="apex_crab">Apex Crab</option>
+                                                <option value="apex_bat">Apex Bat</option>
+                                            </optgroup>
+                                            <optgroup label="Endgame">
+                                                <option value="odyssey_normal">Odyssey (Normal)</option>
+                                                <option value="odyssey_boss">Odyssey (Boss)</option>
+                                                <option value="dynamis_wave3">Dynamis Wave 3</option>
+                                            </optgroup>
+                                        </select>
+                                    </div>
+
+                                    <!-- Target Debuffs -->
+                                    <div>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">Target Debuffs</label>
+                                        <select id="tp-debuff-add" class="input-field w-full text-sm">
+                                            <option value="">Add debuff...</option>
+                                            <optgroup label="WHM">
+                                                <option value="Dia III">Dia III (Def-20%)</option>
+                                                <option value="Dia II">Dia II (Def-15%)</option>
+                                            </optgroup>
+                                            <optgroup label="GEO">
+                                                <option value="Geo-Frailty">Geo-Frailty (Def-15%)</option>
+                                                <option value="Geo-Torpor">Geo-Torpor (Eva-50)</option>
+                                                <option value="Geo-Malaise">Geo-Malaise (MDB-15)</option>
+                                            </optgroup>
+                                            <optgroup label="Misc">
+                                                <option value="Angon">Angon (Def-20%)</option>
+                                                <option value="Armor Break">Armor Break (Def-25%)</option>
+                                                <option value="Box Step">Box Step (Def-23%)</option>
+                                                <option value="Distract III">Distract III (Eva-280)</option>
+                                            </optgroup>
+                                        </select>
+                                        <div id="tp-debuffs-list" class="space-y-1 mt-2"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <hr class="border-ffxi-border mb-6">
+                            
+                            <!-- Buff Configuration -->
+                            <div class="space-y-4 mb-6">
+                                <h3 class="text-xs uppercase tracking-wider text-ffxi-accent font-semibold">Buff Configuration</h3>
+                                
+                                <div class="grid grid-cols-2 gap-6">
+                                    <!-- Left Column -->
+                                    <div class="space-y-4">
+                                        <!-- Food -->
+                                        <div class="space-y-1">
+                                            <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim">Food</label>
+                                            <select id="tp-food-select" class="input-field w-full text-sm">
+                                                <option value="">No Food</option>
+                                                <option value="Grape Daifuku">Grape Daifuku (STR+7 Atk+150 Acc+60)</option>
+                                                <option value="Sublime Sushi +1">Sublime Sushi +1 (STR+8 Acc+90)</option>
+                                                <option value="Red Curry Bun +1">Red Curry Bun +1 (STR+9 Atk+180)</option>
+                                                <option value="Miso Ramen +1">Miso Ramen +1 (DEX+8 Acc+90)</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <!-- BRD Songs -->
+                                        <div class="space-y-1">
+                                            <div class="flex items-center justify-between">
+                                                <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">BRD Songs</label>
+                                                <span id="tp-brd-song-count" class="text-xs text-ffxi-text-dim">0/4</span>
+                                            </div>
+                                            <select id="tp-brd-song-add" class="input-field w-full text-sm">
+                                                <option value="">Add song...</option>
+                                                <optgroup label="Marches">
+                                                    <option value="Honor March">Honor March (Haste+12%)</option>
+                                                    <option value="Victory March">Victory March (Haste+16%)</option>
+                                                    <option value="Advancing March">Advancing March (Haste+11%)</option>
+                                                </optgroup>
+                                                <optgroup label="Minuets">
+                                                    <option value="Minuet V">Minuet V (Atk+149)</option>
+                                                    <option value="Minuet IV">Minuet IV (Atk+137)</option>
+                                                    <option value="Minuet III">Minuet III (Atk+121)</option>
+                                                </optgroup>
+                                                <optgroup label="Madrigals">
+                                                    <option value="Blade Madrigal">Blade Madrigal (Acc+60)</option>
+                                                    <option value="Sword Madrigal">Sword Madrigal (Acc+45)</option>
+                                                </optgroup>
+                                                <optgroup label="Etudes">
+                                                    <option value="Herculean Etude">Herculean Etude (STR+15)</option>
+                                                    <option value="Uncanny Etude">Uncanny Etude (DEX+15)</option>
+                                                    <option value="Vital Etude">Vital Etude (VIT+15)</option>
+                                                </optgroup>
+                                                <optgroup label="Other">
+                                                    <option value="Aria of Passion">Aria of Passion (PDL+12)</option>
+                                                </optgroup>
+                                            </select>
+                                            <div id="tp-brd-songs-list" class="space-y-1"></div>
+                                        </div>
+                                        
+                                        <!-- COR Rolls -->
+                                        <div class="space-y-1">
+                                            <div class="flex items-center justify-between">
+                                                <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">COR Rolls</label>
+                                                <span id="tp-cor-roll-count" class="text-xs text-ffxi-text-dim">0/2</span>
+                                            </div>
+                                            <select id="tp-cor-roll-add" class="input-field w-full text-sm">
+                                                <option value="">Add roll...</option>
+                                                <option value="Chaos Roll XI">Chaos Roll XI (Atk+31%)</option>
+                                                <option value="Chaos Roll X">Chaos Roll X (Atk+19%)</option>
+                                                <option value="Samurai Roll XI">Samurai Roll XI (STP+40)</option>
+                                                <option value="Samurai Roll X">Samurai Roll X (STP+24)</option>
+                                                <option value="Fighter's Roll XI">Fighter's Roll XI (DA+15%)</option>
+                                                <option value="Fighter's Roll X">Fighter's Roll X (DA+7%)</option>
+                                                <option value="Rogue's Roll XI">Rogue's Roll XI (Crit+14%)</option>
+                                                <option value="Hunter's Roll XI">Hunter's Roll XI (Acc+50)</option>
+                                                <option value="Wizard's Roll XI">Wizard's Roll XI (MAB+30)</option>
+                                                <option value="Tactician's Roll XI">Tactician's Roll XI (Regain+40)</option>
+                                            </select>
+                                            <div id="tp-cor-rolls-list" class="space-y-1"></div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Right Column -->
+                                    <div class="space-y-4">
+                                        <!-- GEO Bubbles -->
+                                        <div class="space-y-1">
+                                            <div class="flex items-center justify-between">
+                                                <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">GEO Bubbles</label>
+                                                <span id="tp-geo-bubble-count" class="text-xs text-ffxi-text-dim">0/3</span>
+                                            </div>
+                                            <select id="tp-geo-bubble-add" class="input-field w-full text-sm">
+                                                <option value="">Add bubble...</option>
+                                                <optgroup label="Geo (Full)">
+                                                    <option value="Geo-Fury">Geo-Fury (Atk+35%)</option>
+                                                    <option value="Geo-Precision">Geo-Precision (Acc+50)</option>
+                                                    <option value="Geo-Haste">Geo-Haste (Haste+29%)</option>
+                                                    <option value="Geo-STR">Geo-STR (STR+25)</option>
+                                                    <option value="Geo-DEX">Geo-DEX (DEX+25)</option>
+                                                    <option value="Geo-Acumen">Geo-Acumen (MAB+15)</option>
+                                                </optgroup>
+                                                <optgroup label="Indi">
+                                                    <option value="Indi-Fury">Indi-Fury (Atk+20%)</option>
+                                                    <option value="Indi-Precision">Indi-Precision (Acc+30)</option>
+                                                    <option value="Indi-Haste">Indi-Haste (Haste+20%)</option>
+                                                </optgroup>
+                                                <optgroup label="Entrust">
+                                                    <option value="Entrust Indi-Fury">Entrust Indi-Fury (Atk+20%)</option>
+                                                    <option value="Entrust Indi-Haste">Entrust Indi-Haste (Haste+20%)</option>
+                                                </optgroup>
+                                            </select>
+                                            <div id="tp-geo-bubbles-list" class="space-y-1"></div>
+                                        </div>
+                                        
+                                        <!-- WHM Spells -->
+                                        <div class="space-y-1">
+                                            <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">WHM Spells</label>
+                                            <select id="tp-whm-spell-add" class="input-field w-full text-sm">
+                                                <option value="">Add spell...</option>
+                                                <optgroup label="Haste">
+                                                    <option value="Haste">Haste (15%)</option>
+                                                    <option value="Haste II">Haste II (30%)</option>
+                                                </optgroup>
+                                                <optgroup label="Boost">
+                                                    <option value="Boost-STR">Boost-STR (+25)</option>
+                                                    <option value="Boost-DEX">Boost-DEX (+25)</option>
+                                                    <option value="Boost-VIT">Boost-VIT (+25)</option>
+                                                </optgroup>
+                                                <optgroup label="Gain">
+                                                    <option value="Gain-STR">Gain-STR (+55)</option>
+                                                    <option value="Gain-DEX">Gain-DEX (+55)</option>
+                                                </optgroup>
+                                                <optgroup label="Storms">
+                                                    <option value="Firestorm II">Firestorm II (STR+7)</option>
+                                                    <option value="Thunderstorm II">Thunderstorm II (DEX+7)</option>
+                                                </optgroup>
+                                            </select>
+                                            <div id="tp-whm-spells-list" class="space-y-1"></div>
+                                        </div>
+                                        
+                                        <!-- Job Abilities -->
+                                        <div class="space-y-1">
+                                            <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">Job Abilities</label>
+                                            <div id="tp-job-abilities-container" class="grid grid-cols-2 gap-1 text-sm">
+                                                <label class="flex items-center gap-1 cursor-pointer">
+                                                    <input type="checkbox" class="checkbox tp-ability-checkbox" data-ability="Berserk">
+                                                    <span>Berserk</span>
+                                                </label>
+                                                <label class="flex items-center gap-1 cursor-pointer">
+                                                    <input type="checkbox" class="checkbox tp-ability-checkbox" data-ability="Aggressor">
+                                                    <span>Aggressor</span>
+                                                </label>
+                                                <label class="flex items-center gap-1 cursor-pointer">
+                                                    <input type="checkbox" class="checkbox tp-ability-checkbox" data-ability="Warcry">
+                                                    <span>Warcry</span>
+                                                </label>
+                                                <label class="flex items-center gap-1 cursor-pointer">
+                                                    <input type="checkbox" class="checkbox tp-ability-checkbox" data-ability="Hasso">
+                                                    <span>Hasso</span>
+                                                </label>
+                                                <label class="flex items-center gap-1 cursor-pointer">
+                                                    <input type="checkbox" class="checkbox tp-ability-checkbox" data-ability="Last Resort">
+                                                    <span>Last Resort</span>
+                                                </label>
+                                                <label class="flex items-center gap-1 cursor-pointer">
+                                                    <input type="checkbox" class="checkbox tp-ability-checkbox" data-ability="Innin">
+                                                    <span>Innin</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button id="btn-optimize-tp" class="btn-primary">
+                                Optimize TP Set
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- WS Set Tab -->
+                    <div id="tab-ws" class="tab-panel hidden">
+                        <div class="max-w-5xl">
+                            <h2 class="font-display text-xl text-ffxi-accent mb-4">Weaponskill Set Optimization</h2>
+                            <p class="text-ffxi-text-dim mb-6">
+                                Optimize gear for maximum weaponskill damage.
+                            </p>
+                            
+                            <div class="grid grid-cols-2 gap-6 mb-6">
+                                <!-- Left Column: WS Selection & Options -->
+                                <div class="space-y-4">
+                                    <!-- Weaponskill Selection -->
+                                    <div>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">Weaponskill</label>
+                                        <select id="ws-select" class="input-field w-full" disabled>
+                                            <option value="">Select weapon first...</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <!-- TP Level -->
+                                    <div>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                            TP Level
+                                        </label>
+                                        <input type="range" id="ws-tp-level" class="w-full" 
+                                               min="1000" max="3000" value="1000" step="50">
+                                        <div class="flex justify-between text-xs text-ffxi-text-dim">
+                                            <span>1000</span>
+                                            <span id="ws-tp-display" class="text-ffxi-accent">1000 TP</span>
+                                            <span>3000</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Simulation Toggle -->
+                                    <div class="space-y-2">
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                            <input type="checkbox" id="ws-use-simulation" class="checkbox" checked>
+                                            <span class="text-sm">Use Monte Carlo Simulation</span>
+                                        </label>
+                                        <p class="text-xs text-ffxi-text-dim">More accurate but slower</p>
+                                    </div>
+                                    
+                                    <!-- Excluded Slots -->
+                                    <div>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                            Excluded Slots
+                                        </label>
+                                        <div id="ws-excluded-slots" class="flex flex-wrap gap-2">
+                                            <!-- Slot toggles populated by JS -->
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Right Column: Target & Debuffs -->
+                                <div class="space-y-4">
+                                    <!-- Target -->
+                                    <div>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">Target</label>
+                                        <select id="ws-target-preset" class="input-field w-full">
+                                            <optgroup label="Training">
+                                                <option value="training_dummy">Training Dummy</option>
+                                            </optgroup>
+                                            <optgroup label="Lower Tier Apex (Lv129)">
+                                                <option value="apex_leech">Apex Leech</option>
+                                                <option value="apex_crawler">Apex Crawler</option>
+                                                <option value="apex_lizard">Apex Lizard</option>
+                                            </optgroup>
+                                            <optgroup label="Standard Apex (Lv135)">
+                                                <option value="apex_toad" selected>Apex Toad</option>
+                                                <option value="apex_crab">Apex Crab</option>
+                                                <option value="apex_bat">Apex Bat</option>
+                                            </optgroup>
+                                            <optgroup label="Endgame">
+                                                <option value="odyssey_normal">Odyssey (Normal)</option>
+                                                <option value="odyssey_boss">Odyssey (Boss)</option>
+                                                <option value="dynamis_wave3">Dynamis Wave 3</option>
+                                            </optgroup>
+                                        </select>
+                                    </div>
+
+                                    <!-- Target Debuffs -->
+                                    <div>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">Target Debuffs</label>
+                                        <select id="ws-debuff-add" class="input-field w-full text-sm">
+                                            <option value="">Add debuff...</option>
+                                            <optgroup label="WHM">
+                                                <option value="Dia III">Dia III (Def-20%)</option>
+                                                <option value="Dia II">Dia II (Def-15%)</option>
+                                            </optgroup>
+                                            <optgroup label="GEO">
+                                                <option value="Geo-Frailty">Geo-Frailty (Def-15%)</option>
+                                                <option value="Geo-Torpor">Geo-Torpor (Eva-50)</option>
+                                                <option value="Geo-Malaise">Geo-Malaise (MDB-15)</option>
+                                            </optgroup>
+                                            <optgroup label="Misc">
+                                                <option value="Angon">Angon (Def-20%)</option>
+                                                <option value="Armor Break">Armor Break (Def-25%)</option>
+                                                <option value="Box Step">Box Step (Def-23%)</option>
+                                                <option value="Distract III">Distract III (Eva-280)</option>
+                                            </optgroup>
+                                        </select>
+                                        <div id="ws-debuffs-list" class="space-y-1 mt-2"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <hr class="border-ffxi-border mb-6">
+                            
+                            <!-- Buff Configuration -->
+                            <div class="space-y-4 mb-6">
+                                <h3 class="text-xs uppercase tracking-wider text-ffxi-accent font-semibold">Buff Configuration</h3>
+                                
+                                <div class="grid grid-cols-2 gap-6">
+                                    <!-- Left Column -->
+                                    <div class="space-y-4">
+                                        <!-- Food -->
+                                        <div class="space-y-1">
+                                            <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim">Food</label>
+                                            <select id="ws-food-select" class="input-field w-full text-sm">
+                                                <option value="">No Food</option>
+                                                <option value="Grape Daifuku">Grape Daifuku (STR+7 Atk+150 Acc+60)</option>
+                                                <option value="Sublime Sushi +1">Sublime Sushi +1 (STR+8 Acc+90)</option>
+                                                <option value="Red Curry Bun +1">Red Curry Bun +1 (STR+9 Atk+180)</option>
+                                                <option value="Miso Ramen +1">Miso Ramen +1 (DEX+8 Acc+90)</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <!-- BRD Songs -->
+                                        <div class="space-y-1">
+                                            <div class="flex items-center justify-between">
+                                                <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">BRD Songs</label>
+                                                <span id="ws-brd-song-count" class="text-xs text-ffxi-text-dim">0/4</span>
+                                            </div>
+                                            <select id="ws-brd-song-add" class="input-field w-full text-sm">
+                                                <option value="">Add song...</option>
+                                                <optgroup label="Marches">
+                                                    <option value="Honor March">Honor March (Haste+12%)</option>
+                                                    <option value="Victory March">Victory March (Haste+16%)</option>
+                                                    <option value="Advancing March">Advancing March (Haste+11%)</option>
+                                                </optgroup>
+                                                <optgroup label="Minuets">
+                                                    <option value="Minuet V">Minuet V (Atk+149)</option>
+                                                    <option value="Minuet IV">Minuet IV (Atk+137)</option>
+                                                    <option value="Minuet III">Minuet III (Atk+121)</option>
+                                                </optgroup>
+                                                <optgroup label="Madrigals">
+                                                    <option value="Blade Madrigal">Blade Madrigal (Acc+60)</option>
+                                                    <option value="Sword Madrigal">Sword Madrigal (Acc+45)</option>
+                                                </optgroup>
+                                                <optgroup label="Etudes">
+                                                    <option value="Herculean Etude">Herculean Etude (STR+15)</option>
+                                                    <option value="Uncanny Etude">Uncanny Etude (DEX+15)</option>
+                                                    <option value="Vital Etude">Vital Etude (VIT+15)</option>
+                                                </optgroup>
+                                                <optgroup label="Other">
+                                                    <option value="Aria of Passion">Aria of Passion (PDL+12)</option>
+                                                </optgroup>
+                                            </select>
+                                            <div id="ws-brd-songs-list" class="space-y-1"></div>
+                                        </div>
+                                        
+                                        <!-- COR Rolls -->
+                                        <div class="space-y-1">
+                                            <div class="flex items-center justify-between">
+                                                <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">COR Rolls</label>
+                                                <span id="ws-cor-roll-count" class="text-xs text-ffxi-text-dim">0/2</span>
+                                            </div>
+                                            <select id="ws-cor-roll-add" class="input-field w-full text-sm">
+                                                <option value="">Add roll...</option>
+                                                <option value="Chaos Roll XI">Chaos Roll XI (Atk+31%)</option>
+                                                <option value="Chaos Roll X">Chaos Roll X (Atk+19%)</option>
+                                                <option value="Samurai Roll XI">Samurai Roll XI (STP+40)</option>
+                                                <option value="Samurai Roll X">Samurai Roll X (STP+24)</option>
+                                                <option value="Fighter's Roll XI">Fighter's Roll XI (DA+15%)</option>
+                                                <option value="Fighter's Roll X">Fighter's Roll X (DA+7%)</option>
+                                                <option value="Rogue's Roll XI">Rogue's Roll XI (Crit+14%)</option>
+                                                <option value="Hunter's Roll XI">Hunter's Roll XI (Acc+50)</option>
+                                                <option value="Wizard's Roll XI">Wizard's Roll XI (MAB+30)</option>
+                                                <option value="Tactician's Roll XI">Tactician's Roll XI (Regain+40)</option>
+                                            </select>
+                                            <div id="ws-cor-rolls-list" class="space-y-1"></div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Right Column -->
+                                    <div class="space-y-4">
+                                        <!-- GEO Bubbles -->
+                                        <div class="space-y-1">
+                                            <div class="flex items-center justify-between">
+                                                <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">GEO Bubbles</label>
+                                                <span id="ws-geo-bubble-count" class="text-xs text-ffxi-text-dim">0/3</span>
+                                            </div>
+                                            <select id="ws-geo-bubble-add" class="input-field w-full text-sm">
+                                                <option value="">Add bubble...</option>
+                                                <optgroup label="Geo (Full)">
+                                                    <option value="Geo-Fury">Geo-Fury (Atk+35%)</option>
+                                                    <option value="Geo-Precision">Geo-Precision (Acc+50)</option>
+                                                    <option value="Geo-Haste">Geo-Haste (Haste+29%)</option>
+                                                    <option value="Geo-STR">Geo-STR (STR+25)</option>
+                                                    <option value="Geo-DEX">Geo-DEX (DEX+25)</option>
+                                                    <option value="Geo-Acumen">Geo-Acumen (MAB+15)</option>
+                                                </optgroup>
+                                                <optgroup label="Indi">
+                                                    <option value="Indi-Fury">Indi-Fury (Atk+20%)</option>
+                                                    <option value="Indi-Precision">Indi-Precision (Acc+30)</option>
+                                                    <option value="Indi-Haste">Indi-Haste (Haste+20%)</option>
+                                                </optgroup>
+                                                <optgroup label="Entrust">
+                                                    <option value="Entrust Indi-Fury">Entrust Indi-Fury (Atk+20%)</option>
+                                                    <option value="Entrust Indi-Haste">Entrust Indi-Haste (Haste+20%)</option>
+                                                </optgroup>
+                                            </select>
+                                            <div id="ws-geo-bubbles-list" class="space-y-1"></div>
+                                        </div>
+                                        
+                                        <!-- WHM Spells -->
+                                        <div class="space-y-1">
+                                            <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">WHM Spells</label>
+                                            <select id="ws-whm-spell-add" class="input-field w-full text-sm">
+                                                <option value="">Add spell...</option>
+                                                <optgroup label="Haste">
+                                                    <option value="Haste">Haste (15%)</option>
+                                                    <option value="Haste II">Haste II (30%)</option>
+                                                </optgroup>
+                                                <optgroup label="Boost">
+                                                    <option value="Boost-STR">Boost-STR (+25)</option>
+                                                    <option value="Boost-DEX">Boost-DEX (+25)</option>
+                                                    <option value="Boost-VIT">Boost-VIT (+25)</option>
+                                                </optgroup>
+                                                <optgroup label="Gain">
+                                                    <option value="Gain-STR">Gain-STR (+55)</option>
+                                                    <option value="Gain-DEX">Gain-DEX (+55)</option>
+                                                </optgroup>
+                                                <optgroup label="Storms">
+                                                    <option value="Firestorm II">Firestorm II (STR+7)</option>
+                                                    <option value="Thunderstorm II">Thunderstorm II (DEX+7)</option>
+                                                </optgroup>
+                                            </select>
+                                            <div id="ws-whm-spells-list" class="space-y-1"></div>
+                                        </div>
+                                        
+                                        <!-- Job Abilities -->
+                                        <div class="space-y-1">
+                                            <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">Job Abilities</label>
+                                            <div id="ws-job-abilities-container" class="grid grid-cols-2 gap-1 text-sm">
+                                                <label class="flex items-center gap-1 cursor-pointer">
+                                                    <input type="checkbox" class="checkbox ws-ability-checkbox" data-ability="Berserk">
+                                                    <span>Berserk</span>
+                                                </label>
+                                                <label class="flex items-center gap-1 cursor-pointer">
+                                                    <input type="checkbox" class="checkbox ws-ability-checkbox" data-ability="Aggressor">
+                                                    <span>Aggressor</span>
+                                                </label>
+                                                <label class="flex items-center gap-1 cursor-pointer">
+                                                    <input type="checkbox" class="checkbox ws-ability-checkbox" data-ability="Warcry">
+                                                    <span>Warcry</span>
+                                                </label>
+                                                <label class="flex items-center gap-1 cursor-pointer">
+                                                    <input type="checkbox" class="checkbox ws-ability-checkbox" data-ability="Hasso">
+                                                    <span>Hasso</span>
+                                                </label>
+                                                <label class="flex items-center gap-1 cursor-pointer">
+                                                    <input type="checkbox" class="checkbox ws-ability-checkbox" data-ability="Last Resort">
+                                                    <span>Last Resort</span>
+                                                </label>
+                                                <label class="flex items-center gap-1 cursor-pointer">
+                                                    <input type="checkbox" class="checkbox ws-ability-checkbox" data-ability="Innin">
+                                                    <span>Innin</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button id="btn-optimize-ws" class="btn-primary">
+                                Optimize WS Set
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Magic Tab (unchanged) -->
+                    <div id="tab-magic" class="tab-panel hidden">
+                        <div class="max-w-4xl">
+                            <h2 class="font-display text-xl text-ffxi-accent mb-4">Magic Set Optimization</h2>
+                            <p class="text-ffxi-text-dim mb-6">
+                                Optimize gear for maximum magic damage, accuracy, or spell potency.
+                            </p>
+                            
+                            <div class="grid grid-cols-2 gap-6 mb-6">
+                                <!-- Left Column: Spell Selection -->
+                                <div class="space-y-4">
+                                    <!-- Spell Category Selection -->
+                                    <div>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                            Spell Category
+                                        </label>
+                                        <select id="magic-category-select" class="input-field w-full">
+                                            <option value="">Select Category...</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <!-- Spell Selection -->
+                                    <div>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                            Spell
+                                        </label>
+                                        <select id="magic-spell-select" class="input-field w-full" disabled>
+                                            <option value="">Select spell category first...</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <!-- Spell Info Display -->
+                                    <div id="magic-spell-info" class="bg-ffxi-dark rounded p-3 text-sm hidden">
+                                        <div class="grid grid-cols-2 gap-2">
+                                            <div><span class="text-ffxi-text-dim">Element:</span> <span id="spell-element" class="text-ffxi-accent">-</span></div>
+                                            <div><span class="text-ffxi-text-dim">Type:</span> <span id="spell-type">-</span></div>
+                                            <div><span class="text-ffxi-text-dim">MP Cost:</span> <span id="spell-mp">-</span></div>
+                                            <div><span class="text-ffxi-text-dim">Cast Time:</span> <span id="spell-cast">-</span>s</div>
+                                            <div><span class="text-ffxi-text-dim">Base V:</span> <span id="spell-base-v">-</span></div>
+                                            <div><span class="text-ffxi-text-dim">dINT Cap:</span> <span id="spell-dint-cap">-</span></div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Magic-Specific Buffs -->
+                                    <div>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                            Magic Buffs
+                                        </label>
+                                        <select id="magic-buff-add" class="input-field w-full text-sm">
+                                            <option value="">Add magic buff...</option>
+                                            <optgroup label="GEO (Self)">
+                                                <option value="geo:Geo-Acumen">Geo-Acumen (+35% MAB)</option>
+                                                <option value="geo:Indi-Acumen">Indi-Acumen (+20% MAB)</option>
+                                                <option value="geo:Geo-Focus">Geo-Focus (+75 M.Acc)</option>
+                                                <option value="geo:Indi-Focus">Indi-Focus (+45 M.Acc)</option>
+                                            </optgroup>
+                                            <optgroup label="COR">
+                                                <option value="cor:Wizard's Roll XI">Wizard's Roll XI (+50 MAB)</option>
+                                                <option value="cor:Wizard's Roll X">Wizard's Roll X (+30 MAB)</option>
+                                                <option value="cor:Warlock's Roll XI">Warlock's Roll XI (+52 M.Acc)</option>
+                                                <option value="cor:Warlock's Roll X">Warlock's Roll X (+32 M.Acc)</option>
+                                            </optgroup>
+                                            <optgroup label="SCH">
+                                                <option value="sch:Ebullience">Ebullience (+40% DMG)</option>
+                                                <option value="sch:Immanence">Immanence (SC Enabled)</option>
+                                            </optgroup>
+                                            <optgroup label="Food">
+                                                <option value="food:Tropical Crepe">Tropical Crepe (+60 MAB/M.Acc)</option>
+                                                <option value="food:Pear Crepe">Pear Crepe (+50 MAB/M.Acc)</option>
+                                                <option value="food:Seafood Stew">Seafood Stew (+40 MAB)</option>
+                                            </optgroup>
+                                        </select>
+                                        <div id="magic-buffs-list" class="space-y-1 mt-2"></div>
+                                    </div>
+                                    
+                                    <!-- Magic Debuffs on Target -->
+                                    <div>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                            Target Debuffs
+                                        </label>
+                                        <select id="magic-debuff-add" class="input-field w-full text-sm">
+                                            <option value="">Add debuff...</option>
+                                            <optgroup label="GEO (Target)">
+                                                <option value="Geo-Languor">Geo-Languor (-75 M.Eva)</option>
+                                                <option value="Indi-Languor">Indi-Languor (-45 M.Eva)</option>
+                                                <option value="Geo-Malaise">Geo-Malaise (-35 MDB)</option>
+                                                <option value="Indi-Malaise">Indi-Malaise (-20 MDB)</option>
+                                            </optgroup>
+                                            <optgroup label="RDM">
+                                                <option value="Frazzle III">Frazzle III (-45 M.Eva)</option>
+                                                <option value="Frazzle II">Frazzle II (-30 M.Eva)</option>
+                                                <option value="Frazzle">Frazzle (-15 M.Eva)</option>
+                                            </optgroup>
+                                        </select>
+                                        <div id="magic-debuffs-list" class="space-y-1 mt-2"></div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Right Column: Optimization Options -->
+                                <div class="space-y-4">
+                                    <!-- Optimization Type -->
+                                    <div>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                            Optimization Goal
+                                        </label>
+                                        <select id="magic-opt-type" class="input-field w-full">
+                                            <option value="damage">Damage (Maximize magic damage)</option>
+                                            <option value="burst">Magic Burst (Prioritize MBB)</option>
+                                            <option value="accuracy">Accuracy (Maximize hit rate)</option>
+                                            <option value="potency">Potency (Maximize effect strength)</option>
+                                        </select>
+                                        <p id="magic-opt-description" class="text-xs text-ffxi-text-dim mt-1">
+                                            Maximize magic damage output (INT, MAB, Magic Damage)
+                                        </p>
+                                    </div>
+                                    
+                                    <!-- Magic Burst Toggle -->
+                                    <div id="magic-burst-section">
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                            <input type="checkbox" id="magic-burst-toggle" class="checkbox" checked>
+                                            <span class="text-sm">Magic Burst Set</span>
+                                        </label>
+                                        <p id="magic-burst-hint" class="text-xs text-ffxi-text-dim mt-1">
+                                            Adds +100 M.Acc and MBB damage multipliers
+                                        </p>
+                                    </div>
+                                    
+                                    <!-- Skillchain Steps (for MB damage calc) -->
+                                    <div id="magic-sc-steps-section">
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                            Skillchain Steps
+                                        </label>
+                                        <select id="magic-sc-steps" class="input-field w-full">
+                                            <option value="2">2 (Standard MB)</option>
+                                            <option value="3">3 (Lv3 SC)</option>
+                                            <option value="4">4 (Lv4 SC)</option>
+                                        </select>
+                                        <p class="text-xs text-ffxi-text-dim mt-1">
+                                            More steps = higher MB multiplier
+                                        </p>
+                                    </div>
+                                    
+                                    <!-- Include Weapons Toggle -->
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" id="magic-include-weapons" class="checkbox">
+                                        <span class="text-sm">Include Weapons</span>
+                                    </label>
+                                    
+                                    <!-- Magic Target Selection -->
+                                    <div>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                            Target
+                                        </label>
+                                        <select id="magic-target-select" class="input-field w-full">
+                                            <option value="apex_mob">Apex Mob (M.Eva 600)</option>
+                                            <option value="odyssey_nm">Odyssey NM (M.Eva 750)</option>
+                                            <option value="sortie_boss">Sortie Boss (M.Eva 800)</option>
+                                            <option value="ambuscade_vd">Ambuscade VD (M.Eva 650)</option>
+                                            <option value="training_dummy">Training Dummy (M.Eva 300)</option>
+                                            <option value="high_resist">High Resist (M.Eva 900)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button id="btn-optimize-magic" class="btn-primary">
+                                Optimize Magic Set
+                            </button>
+                            
+                            <!-- Magic Results Section -->
+                            <div id="magic-results" class="mt-6 hidden">
+                                <h3 class="font-display text-lg text-ffxi-accent mb-4">Results</h3>
+                                <div id="magic-results-list" class="space-y-4">
+                                    <!-- Results populated by JS -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- DT Set Tab -->
+                    <div id="tab-dt" class="tab-panel hidden">
+                        <div class="max-w-4xl">
+                            <h2 class="font-display text-xl text-ffxi-accent mb-4">Damage Taken Set Optimization</h2>
+                            <p class="text-ffxi-text-dim mb-6">
+                                Optimize gear for damage reduction and survivability. Each DT type caps at -50% separately. DT + PDT stack multiplicatively for physical, DT + MDT for magical.
+                            </p>
+                            
+                            <div class="grid grid-cols-2 gap-6 mb-6">
+                                <div class="space-y-4">
+                                    <!-- DT Set Type -->
+                                    <div>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                            DT Set Type
+                                        </label>
+                                        <select id="dt-set-type" class="input-field w-full">
+                                            <option value="pure_dt">Pure DT (Maximum Survivability)</option>
+                                            <option value="dt_tp">DT + TP (Cap DT, then TP)</option>
+                                            <option value="dt_refresh">DT + Refresh (Mage Idle)</option>
+                                            <option value="dt_regen">DT + Regen (HP Recovery)</option>
+                                            <option value="pdt_only">PDT Only (Physical Focus)</option>
+                                            <option value="mdt_only">MDT Only (Magical Focus)</option>
+                                        </select>
+                                        <p id="dt-type-description" class="text-xs text-ffxi-text-dim mt-2">
+                                            Maximum damage reduction. Caps DT/PDT/MDT at -50% each.
+                                        </p>
+                                    </div>
+                                    
+                                    <!-- Include Weapons -->
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" id="dt-include-weapons" class="checkbox">
+                                        <span class="text-sm">Include Weapons in Optimization</span>
+                                    </label>
+                                </div>
+                                
+                                <div class="space-y-4">
+                                    <!-- DT Caps Info -->
+                                    <div class="bg-ffxi-dark-lighter p-3 rounded-lg">
+                                        <h3 class="text-sm font-medium text-ffxi-accent mb-2">DT Caps Reference</h3>
+                                        <div class="text-xs text-ffxi-text-dim space-y-1">
+                                            <p><span class="text-ffxi-text">DT (General):</span> -50% cap, affects all damage</p>
+                                            <p><span class="text-ffxi-text">PDT:</span> -50% cap, physical damage only</p>
+                                            <p><span class="text-ffxi-text">MDT:</span> -50% cap, magical damage only</p>
+                                            <p class="mt-2 text-ffxi-accent">At -50% DT + -50% PDT: 75% physical reduction</p>
+                                            <p class="text-ffxi-accent">At -50% DT + -50% MDT: 75% magical reduction</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button id="btn-optimize-dt" class="btn-primary">
+                                Optimize DT Set
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Inventory Tab -->
+                    <div id="tab-inventory" class="tab-panel hidden">
+                        <div class="max-w-6xl">
+                            <div class="flex items-center justify-between mb-4">
+                                <h2 class="font-display text-xl text-ffxi-accent">Item Browser</h2>
+                                <div class="flex gap-2">
+                                    <input type="text" id="inventory-search" 
+                                           class="input-field w-64" 
+                                           placeholder="Search items...">
+                                    <select id="inventory-slot-filter" class="input-field">
+                                        <option value="">All Slots</option>
+                                        <option value="main">Main Hand</option>
+                                        <option value="sub">Off Hand</option>
+                                        <option value="ranged">Ranged</option>
+                                        <option value="ammo">Ammo</option>
+                                        <option value="head">Head</option>
+                                        <option value="neck">Neck</option>
+                                        <option value="ear">Ears</option>
+                                        <option value="body">Body</option>
+                                        <option value="hands">Hands</option>
+                                        <option value="ring">Rings</option>
+                                        <option value="back">Back</option>
+                                        <option value="waist">Waist</option>
+                                        <option value="legs">Legs</option>
+                                        <option value="feet">Feet</option>
+                                    </select>
+                                    <select id="inventory-job-filter" class="input-field">
+                                        <option value="">All Jobs</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <!-- Compare Section -->
+                            <div id="item-compare-section" class="mb-6 p-4 bg-ffxi-panel rounded-lg border border-ffxi-border">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h3 class="text-sm uppercase tracking-wider text-ffxi-accent">Item Comparison</h3>
+                                    <button id="btn-clear-compare" class="text-xs text-ffxi-text-dim hover:text-ffxi-red">
+                                        Clear Comparison
+                                    </button>
+                                </div>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div id="compare-slot-a" class="bg-ffxi-dark rounded p-3 min-h-[120px] border-2 border-dashed border-ffxi-border hover:border-ffxi-accent transition-colors">
+                                        <p class="text-ffxi-text-dim text-sm text-center py-8">Click an item to add to Slot A</p>
+                                    </div>
+                                    <div id="compare-slot-b" class="bg-ffxi-dark rounded p-3 min-h-[120px] border-2 border-dashed border-ffxi-border hover:border-ffxi-accent transition-colors">
+                                        <p class="text-ffxi-text-dim text-sm text-center py-8">Click an item to add to Slot B</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Item Count -->
+                            <div class="flex items-center justify-between mb-2">
+                                <span id="inventory-count" class="text-sm text-ffxi-text-dim">0 items</span>
+                                <div class="flex gap-2">
+                                    <label class="flex items-center gap-1 text-sm text-ffxi-text-dim">
+                                        <input type="checkbox" id="inventory-show-all" class="checkbox">
+                                        <span>Show all game items</span>
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div id="inventory-grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                                <!-- Items populated by JS -->
+                                <p class="text-ffxi-text-dim col-span-full text-center py-8">
+                                    Upload an inventory CSV or check "Show all game items" to browse
+                                </p>
+                            </div>
+                            
+                            <!-- Pagination -->
+                            <div id="inventory-pagination" class="flex items-center justify-center gap-2 mt-4 hidden">
+                                <button id="btn-prev-page" class="btn-secondary text-sm">← Prev</button>
+                                <span id="page-info" class="text-sm text-ffxi-text-dim">Page 1 of 1</span>
+                                <button id="btn-next-page" class="btn-secondary text-sm">Next →</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Lua Template Tab -->
+                    <div id="tab-lua" class="tab-panel hidden">
+                        <div class="max-w-4xl">
+                            <h2 class="font-display text-xl text-ffxi-accent mb-4">GearSwap Lua Template Optimizer</h2>
+                            <p class="text-ffxi-text-dim mb-6">
+                                Upload a GearSwap Lua template file with placeholder sets (commented out gear) and automatically
+                                optimize all sets based on your inventory. The system will detect the set type and apply the appropriate
+                                optimization profile.
+                            </p>
+                            
+                            <!-- Requirements Notice -->
+                            <div id="lua-requirements" class="bg-ffxi-dark border border-ffxi-border rounded-lg p-4 mb-6">
+                                <h3 class="text-sm font-semibold text-ffxi-accent mb-2">Requirements</h3>
+                                <ul class="text-sm text-ffxi-text-dim space-y-1">
+                                    <li class="flex items-center gap-2">
+                                        <span id="lua-req-inventory" class="w-4 h-4 rounded-full bg-ffxi-red"></span>
+                                        <span>Inventory loaded</span>
+                                    </li>
+                                </ul>
+                            </div>
+                            
+                            <!-- Upload Section -->
+                            <div class="bg-ffxi-panel border border-ffxi-border rounded-lg p-6 mb-6">
+                                <h3 class="text-sm font-semibold text-ffxi-accent mb-4">Upload Lua Template</h3>
+                                
+                                <div id="lua-dropzone" class="border-2 border-dashed border-ffxi-border rounded-lg p-8 text-center cursor-pointer hover:border-ffxi-accent transition-colors mb-4">
+                                    <svg class="w-12 h-12 mx-auto mb-3 text-ffxi-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                    </svg>
+                                    <p class="text-ffxi-text mb-1">Drop your GearSwap .lua file here</p>
+                                    <p class="text-ffxi-text-dim text-sm">or click to browse</p>
+                                    <input type="file" id="lua-file-input" class="hidden" accept=".lua">
+                                </div>
+                                
+                                <!-- Options -->
+                                <div class="grid grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                            Override Job (optional)
+                                        </label>
+                                        <select id="lua-job-override" class="input-field w-full">
+                                            <option value="">Auto-detect from filename</option>
+                                            <option value="WAR">WAR</option>
+                                            <option value="MNK">MNK</option>
+                                            <option value="WHM">WHM</option>
+                                            <option value="BLM">BLM</option>
+                                            <option value="RDM">RDM</option>
+                                            <option value="THF">THF</option>
+                                            <option value="PLD">PLD</option>
+                                            <option value="DRK">DRK</option>
+                                            <option value="BST">BST</option>
+                                            <option value="BRD">BRD</option>
+                                            <option value="RNG">RNG</option>
+                                            <option value="SAM">SAM</option>
+                                            <option value="NIN">NIN</option>
+                                            <option value="DRG">DRG</option>
+                                            <option value="SMN">SMN</option>
+                                            <option value="BLU">BLU</option>
+                                            <option value="COR">COR</option>
+                                            <option value="PUP">PUP</option>
+                                            <option value="DNC">DNC</option>
+                                            <option value="SCH">SCH</option>
+                                            <option value="GEO">GEO</option>
+                                            <option value="RUN">RUN</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                            Beam Width
+                                        </label>
+                                        <input type="number" id="lua-beam-width" class="input-field w-full" value="50" min="5" max="100">
+                                        <p class="text-xs text-ffxi-text-dim mt-1">Higher = better results, slower</p>
+                                    </div>
+                                </div>
+                                
+                                <!-- Simulation Options -->
+                                <div class="bg-ffxi-dark border border-ffxi-border rounded-lg p-4 mb-4">
+                                    <div class="flex items-center justify-between mb-3">
+                                        <div class="flex items-center gap-2">
+                                            <input type="checkbox" id="lua-use-simulation" class="w-4 h-4 rounded bg-ffxi-darker border-ffxi-border text-ffxi-accent focus:ring-ffxi-accent" checked>
+                                            <label for="lua-use-simulation" class="text-sm text-ffxi-text">
+                                                Use Simulation-Based Optimization
+                                            </label>
+                                        </div>
+                                        <span class="text-xs text-ffxi-accent bg-ffxi-accent/20 px-2 py-0.5 rounded">Recommended</span>
+                                    </div>
+                                    <p class="text-xs text-ffxi-text-dim mb-3">
+                                        When enabled, WS/TP/Magic sets run actual damage simulations instead of just heuristic scoring.
+                                        DT and FC sets validate caps without overcapping.
+                                    </p>
+                                    
+                                    <div id="lua-sim-options" class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                                Master Level
+                                            </label>
+                                            <input type="number" id="lua-master-level" class="input-field w-full" value="50" min="0" max="50">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                                Sub Job
+                                            </label>
+                                            <select id="lua-sub-job" class="input-field w-full">
+                                                <option value="war">WAR</option>
+                                                <option value="mnk">MNK</option>
+                                                <option value="whm">WHM</option>
+                                                <option value="blm">BLM</option>
+                                                <option value="rdm">RDM</option>
+                                                <option value="thf">THF</option>
+                                                <option value="pld">PLD</option>
+                                                <option value="drk">DRK</option>
+                                                <option value="brd">BRD</option>
+                                                <option value="rng">RNG</option>
+                                                <option value="sam">SAM</option>
+                                                <option value="nin">NIN</option>
+                                                <option value="drg">DRG</option>
+                                                <option value="blu">BLU</option>
+                                                <option value="dnc">DNC</option>
+                                                <option value="sch">SCH</option>
+                                                <option value="run">RUN</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Simulation Info Tooltip -->
+                                    <div class="mt-3 text-xs text-ffxi-text-dim border-t border-ffxi-border pt-3">
+                                        <div class="font-semibold text-ffxi-text mb-1">Standard Simulation Buffs:</div>
+                                        <div class="grid grid-cols-2 gap-2">
+                                            <div>
+                                                <span class="text-ffxi-accent">WS/TP:</span> Grape Daifuku, Minuet V, Madrigal, Dia III
+                                            </div>
+                                            <div>
+                                                <span class="text-ffxi-accent">Magic:</span> Tropical Crepe, Wizard Roll, Geo-Acumen
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <button id="btn-lua-parse" class="btn-primary w-full" disabled>
+                                    <svg class="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+                                    </svg>
+                                    Parse Lua File
+                                </button>
+                            </div>
+                            
+                            <!-- Step 2: Weapon Selection (shown after parse) -->
+                            <div id="lua-weapon-section" class="hidden bg-ffxi-panel border border-ffxi-border rounded-lg p-6 mb-6">
+                                <h3 class="text-sm font-semibold text-ffxi-accent mb-4">Step 2: Configure Weapons for Simulation</h3>
+                                
+                                <!-- Parsed Sets Summary -->
+                                <div id="lua-parsed-summary" class="bg-ffxi-dark rounded-lg p-4 mb-4">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <span class="text-sm text-ffxi-text">Placeholder Sets Found:</span>
+                                        <span id="lua-parsed-count" class="text-ffxi-accent font-semibold">0</span>
+                                    </div>
+                                    <div id="lua-parsed-sets" class="text-xs text-ffxi-text-dim max-h-24 overflow-y-auto space-y-1">
+                                        <!-- Populated by JS -->
+                                    </div>
+                                </div>
+                                
+                                <!-- Weapon Selection -->
+                                <div class="space-y-4">
+                                    <p class="text-xs text-ffxi-text-dim">
+                                        Select weapons to use for simulations. These will be locked during optimization.
+                                        Melee weapons are used for TP/WS sets, Magic weapons for nuking/enfeebling sets.
+                                    </p>
+                                    
+                                    <!-- Melee Weapons Section -->
+                                    <div class="bg-ffxi-darker rounded-lg p-4">
+                                        <div class="flex items-center gap-2 mb-3">
+                                            <span class="text-xs bg-ffxi-blue/30 text-ffxi-blue px-2 py-0.5 rounded">TP</span>
+                                            <span class="text-xs bg-ffxi-red/30 text-ffxi-red px-2 py-0.5 rounded">WS</span>
+                                            <span class="text-xs bg-green-500/30 text-green-400 px-2 py-0.5 rounded">DT</span>
+                                            <h4 class="text-sm font-semibold text-ffxi-text">Melee Weapons</h4>
+                                        </div>
+                                        
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <!-- Main Hand -->
+                                            <div>
+                                                <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                                    Main Hand
+                                                </label>
+                                                <div class="relative">
+                                                    <input type="text" id="lua-weapon-melee-main" class="input-field w-full text-sm" 
+                                                           placeholder="Search weapons..." autocomplete="off">
+                                                    <input type="hidden" id="lua-weapon-melee-main-id">
+                                                    <div id="lua-weapon-melee-main-dropdown" class="dropdown-list hidden"></div>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Sub/Off-hand -->
+                                            <div>
+                                                <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                                    Sub/Off-Hand
+                                                </label>
+                                                <div class="relative">
+                                                    <input type="text" id="lua-weapon-melee-sub" class="input-field w-full text-sm" 
+                                                           placeholder="Optional..." autocomplete="off">
+                                                    <input type="hidden" id="lua-weapon-melee-sub-id">
+                                                    <div id="lua-weapon-melee-sub-dropdown" class="dropdown-list hidden"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Magic Weapons Section -->
+                                    <div class="bg-ffxi-darker rounded-lg p-4">
+                                        <div class="flex items-center gap-2 mb-3">
+                                            <span class="text-xs bg-purple-500/30 text-purple-400 px-2 py-0.5 rounded">Magic</span>
+                                            <span class="text-xs bg-cyan-500/30 text-cyan-400 px-2 py-0.5 rounded">M.Acc</span>
+                                            <h4 class="text-sm font-semibold text-ffxi-text">Magic Weapons</h4>
+                                        </div>
+                                        
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <!-- Main Hand -->
+                                            <div>
+                                                <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                                    Main Hand
+                                                </label>
+                                                <div class="relative">
+                                                    <input type="text" id="lua-weapon-magic-main" class="input-field w-full text-sm" 
+                                                           placeholder="Search weapons..." autocomplete="off">
+                                                    <input type="hidden" id="lua-weapon-magic-main-id">
+                                                    <div id="lua-weapon-magic-main-dropdown" class="dropdown-list hidden"></div>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Sub/Off-hand (Shield/Grip) -->
+                                            <div>
+                                                <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                                    Sub/Shield/Grip
+                                                </label>
+                                                <div class="relative">
+                                                    <input type="text" id="lua-weapon-magic-sub" class="input-field w-full text-sm" 
+                                                           placeholder="Optional..." autocomplete="off">
+                                                    <input type="hidden" id="lua-weapon-magic-sub-id">
+                                                    <div id="lua-weapon-magic-sub-dropdown" class="dropdown-list hidden"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Ranged/Ammo Section (shared) -->
+                                    <div class="bg-ffxi-darker rounded-lg p-4">
+                                        <div class="flex items-center gap-2 mb-3">
+                                            <h4 class="text-sm font-semibold text-ffxi-text">Ranged / Ammo</h4>
+                                            <span class="text-xs text-ffxi-text-dim">(shared across all sets)</span>
+                                        </div>
+                                        
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <!-- Ranged -->
+                                            <div>
+                                                <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                                    Ranged
+                                                </label>
+                                                <div class="relative">
+                                                    <input type="text" id="lua-weapon-ranged" class="input-field w-full text-sm" 
+                                                           placeholder="Optional..." autocomplete="off">
+                                                    <input type="hidden" id="lua-weapon-ranged-id">
+                                                    <div id="lua-weapon-ranged-dropdown" class="dropdown-list hidden"></div>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Ammo -->
+                                            <div>
+                                                <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
+                                                    Ammo
+                                                </label>
+                                                <div class="relative">
+                                                    <input type="text" id="lua-weapon-ammo" class="input-field w-full text-sm" 
+                                                           placeholder="Optional..." autocomplete="off">
+                                                    <input type="hidden" id="lua-weapon-ammo-id">
+                                                    <div id="lua-weapon-ammo-dropdown" class="dropdown-list hidden"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <button id="btn-lua-optimize" class="btn-primary w-full mt-4">
+                                    <svg class="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                                    </svg>
+                                    Optimize All Placeholder Sets
+                                </button>
+                            </div>
+                            
+                            <!-- Status & Progress -->
+                            <div id="lua-status" class="hidden mb-6">
+                                <div class="bg-ffxi-dark border border-ffxi-border rounded-lg p-4">
+                                    <div class="flex items-center gap-3 mb-3">
+                                        <div id="lua-spinner" class="loading-spinner"></div>
+                                        <span id="lua-status-text" class="text-sm text-ffxi-text">Processing...</span>
+                                    </div>
+                                    <div class="w-full bg-ffxi-border rounded-full h-2">
+                                        <div id="lua-progress" class="bg-ffxi-accent h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Results -->
+                            <div id="lua-results" class="hidden">
+                                <div class="bg-ffxi-panel border border-ffxi-border rounded-lg p-6">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <h3 class="text-sm font-semibold text-ffxi-accent">Optimization Complete</h3>
+                                        <button id="btn-lua-download" class="btn-primary text-sm">
+                                            <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                                            </svg>
+                                            Download Optimized Lua
+                                        </button>
+                                    </div>
+                                    
+                                    <div class="grid grid-cols-3 gap-4 mb-4">
+                                        <div class="bg-ffxi-dark p-3 rounded text-center">
+                                            <div id="lua-result-job" class="text-ffxi-accent font-display text-lg">-</div>
+                                            <div class="text-xs text-ffxi-text-dim">Job</div>
+                                        </div>
+                                        <div class="bg-ffxi-dark p-3 rounded text-center">
+                                            <div id="lua-result-optimized" class="text-ffxi-green font-display text-lg">0</div>
+                                            <div class="text-xs text-ffxi-text-dim">Sets Optimized</div>
+                                        </div>
+                                        <div class="bg-ffxi-dark p-3 rounded text-center">
+                                            <div id="lua-result-skipped" class="text-ffxi-text-dim font-display text-lg">0</div>
+                                            <div class="text-xs text-ffxi-text-dim">Skipped</div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Optimized Sets List -->
+                                    <div class="max-h-96 overflow-y-auto">
+                                        <h4 class="text-xs uppercase tracking-wider text-ffxi-text-dim mb-2">Optimized Sets</h4>
+                                        <div id="lua-sets-list" class="space-y-2">
+                                            <!-- Populated by JS -->
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Set Details Modal/Expandable -->
+                                    <div id="lua-set-details" class="hidden mt-4 bg-ffxi-dark border border-ffxi-border rounded-lg p-4">
+                                        <div class="flex items-center justify-between mb-3">
+                                            <h4 id="lua-set-details-name" class="text-sm font-semibold text-ffxi-accent">Set Details</h4>
+                                            <button id="btn-close-set-details" class="text-ffxi-text-dim hover:text-ffxi-text">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                        <div id="lua-set-details-content" class="text-xs space-y-2">
+                                            <!-- Populated by JS -->
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Errors -->
+                                    <div id="lua-errors" class="hidden mt-4">
+                                        <h4 class="text-xs uppercase tracking-wider text-ffxi-red mb-2">Warnings/Errors</h4>
+                                        <div id="lua-errors-list" class="text-xs text-ffxi-text-dim space-y-1">
+                                            <!-- Populated by JS -->
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Compare Tab -->
+                    <div id="tab-compare" class="tab-panel hidden">
+                        <div class="max-w-6xl">
+                            <h2 class="font-display text-xl text-ffxi-accent mb-4">Set Comparison</h2>
+                            <p class="text-ffxi-text-dim mb-6">
+                                Compare optimized sets side-by-side with simulated DPS.
+                            </p>
+                            
+                            <div id="compare-container" class="grid grid-cols-2 gap-6">
+                                <div class="bg-ffxi-panel p-4 rounded border border-ffxi-border">
+                                    <h3 class="text-ffxi-accent font-display mb-4">Set A</h3>
+                                    <p class="text-ffxi-text-dim text-sm">Run an optimization to compare sets</p>
+                                </div>
+                                <div class="bg-ffxi-panel p-4 rounded border border-ffxi-border">
+                                    <h3 class="text-ffxi-accent font-display mb-4">Set B</h3>
+                                    <p class="text-ffxi-text-dim text-sm">Run an optimization to compare sets</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+
+            <!-- Results Panel -->
+            <aside id="results-panel" class="w-[420px] bg-ffxi-panel border-l border-ffxi-border flex flex-col overflow-hidden">
+                <!-- Stats Panel -->
+                <div id="stats-panel" class="bg-ffxi-darker border-b border-ffxi-border">
+                    <div class="p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center gap-2">
+                                <h3 class="text-sm uppercase tracking-wider text-ffxi-accent">Gear Stats</h3>
+                                <span id="stats-job-info" class="text-xs text-ffxi-text-dim"></span>
+                                <span id="stats-jp-status" class="text-xs px-1.5 py-0.5 rounded bg-ffxi-green/20 text-ffxi-green hidden"></span>
+                            </div>
+                            <button id="btn-toggle-stats" class="text-xs text-ffxi-text-dim hover:text-ffxi-text">
+                                [collapse]
+                            </button>
+                        </div>
+                        
+                        <div id="stats-content" class="space-y-3">
+                            <!-- Core Stats -->
+                            <div>
+                                <h4 class="text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">Core</h4>
+                                <div class="grid grid-cols-3 gap-1 text-xs">
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">STR</span>
+                                        <span id="stat-str" class="text-ffxi-text font-medium">0</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">DEX</span>
+                                        <span id="stat-dex" class="text-ffxi-text font-medium">0</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">VIT</span>
+                                        <span id="stat-vit" class="text-ffxi-text font-medium">0</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">AGI</span>
+                                        <span id="stat-agi" class="text-ffxi-text font-medium">0</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">INT</span>
+                                        <span id="stat-int" class="text-ffxi-text font-medium">0</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">MND</span>
+                                        <span id="stat-mnd" class="text-ffxi-text font-medium">0</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">CHR</span>
+                                        <span id="stat-chr" class="text-ffxi-text font-medium">0</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded col-span-2">
+                                        <span class="text-ffxi-text-dim">Store TP</span>
+                                        <span id="stat-stp" class="text-ffxi-text font-medium">0</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Speed Stats -->
+                            <div>
+                                <h4 class="text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">Speed</h4>
+                                <div class="grid grid-cols-2 gap-1 text-xs">
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">Gear Haste</span>
+                                        <span id="stat-gear-haste" class="text-ffxi-text font-medium">0%</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">Dual Wield</span>
+                                        <span id="stat-dw" class="text-ffxi-text font-medium">0%</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">DA</span>
+                                        <span id="stat-da" class="text-ffxi-text font-medium">0%</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">TA</span>
+                                        <span id="stat-ta" class="text-ffxi-text font-medium">0%</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">QA</span>
+                                        <span id="stat-qa" class="text-ffxi-text font-medium">0%</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Offensive Stats -->
+                            <div>
+                                <h4 class="text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">Offensive</h4>
+                                <div class="grid grid-cols-2 gap-1 text-xs">
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">Accuracy</span>
+                                        <span id="stat-acc" class="text-ffxi-text font-medium">0</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">Attack</span>
+                                        <span id="stat-atk" class="text-ffxi-text font-medium">0</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">Crit Rate</span>
+                                        <span id="stat-crit-rate" class="text-ffxi-text font-medium">0%</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">Crit Dmg</span>
+                                        <span id="stat-crit-dmg" class="text-ffxi-text font-medium">0%</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">WS Dmg</span>
+                                        <span id="stat-wsd" class="text-ffxi-text font-medium">0%</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">PDL</span>
+                                        <span id="stat-pdl" class="text-ffxi-text font-medium">0%</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Defensive Stats -->
+                            <div>
+                                <h4 class="text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">Defensive</h4>
+                                <div class="grid grid-cols-2 gap-1 text-xs">
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">HP</span>
+                                        <span id="stat-hp" class="text-ffxi-text font-medium">0</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">Defense</span>
+                                        <span id="stat-def" class="text-ffxi-text font-medium">0</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">Evasion</span>
+                                        <span id="stat-eva" class="text-ffxi-text font-medium">0</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">DT</span>
+                                        <span id="stat-dt" class="text-ffxi-text font-medium">0%</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">PDT</span>
+                                        <span id="stat-pdt" class="text-ffxi-text font-medium">0%</span>
+                                    </div>
+                                    <div class="flex justify-between bg-ffxi-dark px-2 py-1 rounded">
+                                        <span class="text-ffxi-text-dim">MDT</span>
+                                        <span id="stat-mdt" class="text-ffxi-text font-medium">0%</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Accuracy Breakdown -->
+                            <div id="acc-breakdown-section" class="border-t border-ffxi-border pt-3">
+                                <h4 class="text-xs uppercase tracking-wider text-ffxi-accent mb-2">⚔️ Accuracy vs <span id="acc-target-name">Target</span></h4>
+                                
+                                <div class="space-y-2">
+                                    <div class="text-xs">
+                                        <div class="text-ffxi-text-dim mb-1">Accuracy Components</div>
+                                        <div class="space-y-0.5 pl-2">
+                                            <div class="flex justify-between">
+                                                <span class="text-ffxi-text-dim">From DEX (<span id="acc-dex-val">0</span>)</span>
+                                                <span id="acc-from-dex" class="text-ffxi-text">+0</span>
+                                            </div>
+                                            <div class="flex justify-between">
+                                                <span class="text-ffxi-text-dim">From <span id="acc-skill-type">Skill</span> (<span id="acc-skill-val">0</span>)</span>
+                                                <span id="acc-from-skill" class="text-ffxi-text">+0</span>
+                                            </div>
+                                            <div class="flex justify-between">
+                                                <span class="text-ffxi-text-dim">From Gear</span>
+                                                <span id="acc-from-gear" class="text-ffxi-text">+0</span>
+                                            </div>
+                                            <div class="flex justify-between">
+                                                <span class="text-ffxi-text-dim">From JP Gifts</span>
+                                                <span id="acc-from-jp" class="text-ffxi-text">+0</span>
+                                            </div>
+                                            <div class="flex justify-between">
+                                                <span class="text-ffxi-text-dim">From Buffs</span>
+                                                <span id="acc-from-buffs" class="text-ffxi-text">+0</span>
+                                            </div>
+                                            <div class="flex justify-between border-t border-ffxi-border pt-1 mt-1">
+                                                <span class="text-ffxi-text font-medium">Total Accuracy</span>
+                                                <span id="acc-total" class="text-ffxi-accent font-bold">0</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="text-xs">
+                                        <div class="text-ffxi-text-dim mb-1">vs Target</div>
+                                        <div class="space-y-0.5 pl-2">
+                                            <div class="flex justify-between">
+                                                <span class="text-ffxi-text-dim">Target Evasion</span>
+                                                <span id="target-eva" class="text-ffxi-text">0</span>
+                                            </div>
+                                            <div class="flex justify-between">
+                                                <span class="text-ffxi-text-dim">Acc Differential</span>
+                                                <span id="acc-diff" class="text-ffxi-text">+0</span>
+                                            </div>
+                                            <div class="flex justify-between font-medium">
+                                                <span class="text-ffxi-text">Hit Rate</span>
+                                                <span id="hit-rate" class="text-ffxi-green">95.0%</span>
+                                            </div>
+                                            <div class="flex justify-between font-medium">
+                                                <span class="text-ffxi-text">WS 1st Hit Rate</span>
+                                                <span id="ws-hit-rate" class="text-ffxi-green">95.0%</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div id="acc-status" class="text-center py-1 rounded text-xs font-medium bg-ffxi-green/20 text-ffxi-green">
+                                        ✓ Accuracy Capped!
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="results-content" class="flex-1 overflow-y-auto p-4">
+                    <div class="text-center text-ffxi-text-dim py-8">
+                        <p>Run an optimization to see results</p>
+                    </div>
+                </div>
+                
+                <!-- Lua Output -->
+                <div id="lua-section" class="border-t border-ffxi-border hidden">
+                    <div class="p-4 flex items-center justify-between">
+                        <h3 class="text-sm uppercase tracking-wider text-ffxi-text-dim">GearSwap Lua</h3>
+                        <button id="btn-copy-lua" class="text-xs text-ffxi-accent hover:text-ffxi-text">
+                            Copy to Clipboard
+                        </button>
+                    </div>
+                    <pre id="lua-output" class="bg-ffxi-darker p-4 text-xs font-mono overflow-x-auto max-h-48"></pre>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <!-- Upload Modal -->
+    <div id="upload-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content max-w-xl">
+            <h3 class="font-display text-xl text-ffxi-accent mb-4">Upload Character Data</h3>
+            
+            <div class="space-y-6">
+                <!-- Inventory Upload -->
+                <div class="space-y-3">
+                    <div class="flex items-center gap-2">
+                        <h4 class="text-sm font-semibold text-ffxi-text">Inventory CSV</h4>
+                        <span id="inventory-upload-status" class="text-xs px-2 py-0.5 rounded bg-ffxi-dark text-ffxi-text-dim">
+                            Not loaded
+                        </span>
+                    </div>
+                    <div id="upload-dropzone" class="border-2 border-dashed border-ffxi-border rounded-lg p-6 text-center cursor-pointer hover:border-ffxi-accent transition-colors">
+                        <svg class="w-8 h-8 mx-auto mb-2 text-ffxi-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/>
+                        </svg>
+                        <p class="text-ffxi-text text-sm mb-1">Drop inventory_*.csv here</p>
+                        <p class="text-ffxi-text-dim text-xs">Your gear and equipment data</p>
+                        <input type="file" id="file-input" class="hidden" accept=".csv">
+                    </div>
+                    <div id="upload-status" class="hidden">
+                        <p class="text-sm"></p>
+                    </div>
+                </div>
+                
+                <!-- Job Gifts Upload -->
+                <div class="space-y-3">
+                    <div class="flex items-center gap-2">
+                        <h4 class="text-sm font-semibold text-ffxi-text">Job Points CSV</h4>
+                        <span id="jobgifts-upload-status" class="text-xs px-2 py-0.5 rounded bg-ffxi-dark text-ffxi-text-dim">
+                            Not loaded
+                        </span>
+                    </div>
+                    <div id="jobgifts-dropzone" class="border-2 border-dashed border-ffxi-border rounded-lg p-6 text-center cursor-pointer hover:border-ffxi-accent transition-colors">
+                        <svg class="w-8 h-8 mx-auto mb-2 text-ffxi-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>
+                        </svg>
+                        <p class="text-ffxi-text text-sm mb-1">Drop jobgifts_*.csv here</p>
+                        <p class="text-ffxi-text-dim text-xs">Job Points and gift bonuses</p>
+                        <input type="file" id="jobgifts-file-input" class="hidden" accept=".csv">
+                    </div>
+                    <div id="jobgifts-status" class="hidden">
+                        <p class="text-sm"></p>
+                    </div>
+                </div>
+                
+                <!-- Character Info Summary -->
+                <div id="character-summary" class="bg-ffxi-dark rounded-lg p-4 hidden">
+                    <h4 class="text-sm font-semibold text-ffxi-accent mb-2">Character Summary</h4>
+                    <div class="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                            <span class="text-ffxi-text-dim">Character:</span>
+                            <span id="char-name" class="text-ffxi-text ml-2">-</span>
+                        </div>
+                        <div>
+                            <span class="text-ffxi-text-dim">Items:</span>
+                            <span id="char-items" class="text-ffxi-text ml-2">0</span>
+                        </div>
+                        <div class="col-span-2">
+                            <span class="text-ffxi-text-dim">Master Eligible:</span>
+                            <span id="char-master-jobs" class="text-ffxi-accent ml-2">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="flex justify-end gap-2 mt-6">
+                <button id="btn-cancel-upload" class="btn-secondary">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Item Detail Modal -->
+    <div id="item-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content max-w-2xl">
+            <div class="flex items-start gap-4 mb-4">
+                <div id="item-modal-icon" class="w-16 h-16 bg-ffxi-dark rounded flex items-center justify-center">
+                    <img src="" alt="" class="w-12 h-12 object-contain" onerror="this.style.display='none'">
+                </div>
+                <div class="flex-1">
+                    <h3 id="item-modal-name" class="font-display text-xl text-ffxi-accent"></h3>
+                    <div class="flex gap-2 mt-1">
+                        <span id="item-modal-type" class="text-xs px-2 py-0.5 rounded bg-ffxi-dark text-ffxi-text-dim"></span>
+                        <span id="item-modal-ilvl" class="text-xs px-2 py-0.5 rounded bg-ffxi-dark text-ffxi-text-dim"></span>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button id="btn-add-compare-a" class="btn-secondary text-xs">Add to A</button>
+                    <button id="btn-add-compare-b" class="btn-secondary text-xs">Add to B</button>
+                </div>
+            </div>
+            
+            <div id="item-modal-jobs" class="mb-4">
+                <span class="text-xs text-ffxi-text-dim">Jobs: </span>
+                <span id="item-modal-jobs-list" class="text-xs text-ffxi-text"></span>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4">
+                <!-- Primary Stats -->
+                <div>
+                    <h4 class="text-xs uppercase tracking-wider text-ffxi-text-dim mb-2">Primary Stats</h4>
+                    <div id="item-modal-primary-stats" class="space-y-1 text-sm">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+                
+                <!-- Combat Stats -->
+                <div>
+                    <h4 class="text-xs uppercase tracking-wider text-ffxi-text-dim mb-2">Combat Stats</h4>
+                    <div id="item-modal-combat-stats" class="space-y-1 text-sm">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+                
+                <!-- Magic Stats -->
+                <div>
+                    <h4 class="text-xs uppercase tracking-wider text-ffxi-text-dim mb-2">Magic Stats</h4>
+                    <div id="item-modal-magic-stats" class="space-y-1 text-sm">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+                
+                <!-- Other Stats -->
+                <div>
+                    <h4 class="text-xs uppercase tracking-wider text-ffxi-text-dim mb-2">Other Stats</h4>
+                    <div id="item-modal-other-stats" class="space-y-1 text-sm">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+            
+            <div class="flex justify-end gap-2 mt-6">
+                <button id="btn-close-item-modal" class="btn-secondary">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
+
+    <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

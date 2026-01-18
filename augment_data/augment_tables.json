@@ -1,0 +1,2058 @@
+{
+  "items": {
+    "25441": {
+      "name": "Duelist's Torque",
+      "item_type": "jse_neck",
+      "category": "jse_neck",
+      "max_rank": 15,
+      "source_url": "https://www.bg-wiki.com/ffxi/Duelist%27s_Torque",
+      "has_full_wiki_table": false,
+      "interpolation_applied": true,
+      "paths": {
+        "A": {
+          "tiers": {
+            "1": {
+              "stats": {
+                "INT": 1,
+                "MND": 1,
+                "enhancing_duration": 1,
+                "enfeebling_duration": 1
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "2": {
+              "stats": {
+                "INT": 2,
+                "MND": 2,
+                "enhancing_duration": 2,
+                "enfeebling_duration": 2
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "3": {
+              "stats": {
+                "INT": 2,
+                "MND": 2,
+                "enhancing_duration": 3,
+                "enfeebling_duration": 3
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "4": {
+              "stats": {
+                "INT": 3,
+                "MND": 3,
+                "enhancing_duration": 4,
+                "enfeebling_duration": 4
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "5": {
+              "stats": {
+                "INT": 4,
+                "MND": 4,
+                "enhancing_duration": 5,
+                "enfeebling_duration": 5
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "6": {
+              "stats": {
+                "INT": 4,
+                "MND": 4,
+                "enhancing_duration": 6,
+                "enfeebling_duration": 6
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "7": {
+              "stats": {
+                "INT": 5,
+                "MND": 5,
+                "enhancing_duration": 7,
+                "enfeebling_duration": 7
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "8": {
+              "stats": {
+                "INT": 6,
+                "MND": 6,
+                "enhancing_duration": 8,
+                "enfeebling_duration": 8
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "9": {
+              "stats": {
+                "INT": 6,
+                "MND": 6,
+                "enhancing_duration": 9,
+                "enfeebling_duration": 9
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "10": {
+              "stats": {
+                "INT": 7,
+                "MND": 7,
+                "enhancing_duration": 10,
+                "enfeebling_duration": 10
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "11": {
+              "stats": {
+                "INT": 8,
+                "MND": 8,
+                "enhancing_duration": 11,
+                "enfeebling_duration": 11
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "12": {
+              "stats": {
+                "INT": 8,
+                "MND": 8,
+                "enhancing_duration": 12,
+                "enfeebling_duration": 12
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "13": {
+              "stats": {
+                "INT": 9,
+                "MND": 9,
+                "enhancing_duration": 13,
+                "enfeebling_duration": 13
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "14": {
+              "stats": {
+                "INT": 10,
+                "MND": 10,
+                "enhancing_duration": 14,
+                "enfeebling_duration": 14
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "15": {
+              "stats": {
+                "INT": 10,
+                "MND": 10,
+                "enhancing_duration": 15,
+                "enfeebling_duration": 15
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            }
+          },
+          "is_complete": true
+        }
+      }
+    },
+    "25442": {
+      "name": "Duelist's Torque +1",
+      "item_type": "jse_neck",
+      "category": "jse_neck",
+      "max_rank": 20,
+      "source_url": "https://www.bg-wiki.com/ffxi/Duelist%27s_Torque_%2B1",
+      "has_full_wiki_table": false,
+      "interpolation_applied": true,
+      "paths": {
+        "A": {
+          "tiers": {
+            "1": {
+              "stats": {
+                "INT": 1,
+                "MND": 1,
+                "enhancing_duration": 1,
+                "enfeebling_duration": 1
+              },
+              "description": "Interpolated from R20 values",
+              "interpolated": true
+            },
+            "2": {
+              "stats": {
+                "INT": 2,
+                "MND": 2,
+                "enhancing_duration": 2,
+                "enfeebling_duration": 2
+              },
+              "description": "Interpolated from R20 values",
+              "interpolated": true
+            },
+            "3": {
+              "stats": {
+                "INT": 2,
+                "MND": 2,
+                "enhancing_duration": 3,
+                "enfeebling_duration": 3
+              },
+              "description": "Interpolated from R20 values",
+              "interpolated": true
+            },
+            "4": {
+              "stats": {
+                "INT": 3,
+                "MND": 3,
+                "enhancing_duration": 4,
+                "enfeebling_duration": 4
+              },
+              "description": "Interpolated from R20 values",
+              "interpolated": true
+            },
+            "5": {
+              "stats": {
+                "INT": 3,
+                "MND": 3,
+                "enhancing_duration": 5,
+                "enfeebling_duration": 5
+              },
+              "description": "Interpolated from R20 values",
+              "interpolated": true
+            },
+            "6": {
+              "stats": {
+                "INT": 4,
+                "MND": 4,
+                "enhancing_duration": 6,
+                "enfeebling_duration": 6
+              },
+              "description": "Interpolated from R20 values",
+              "interpolated": true
+            },
+            "7": {
+              "stats": {
+                "INT": 5,
+                "MND": 5,
+                "enhancing_duration": 7,
+                "enfeebling_duration": 7
+              },
+              "description": "Interpolated from R20 values",
+              "interpolated": true
+            },
+            "8": {
+              "stats": {
+                "INT": 5,
+                "MND": 5,
+                "enhancing_duration": 8,
+                "enfeebling_duration": 8
+              },
+              "description": "Interpolated from R20 values",
+              "interpolated": true
+            },
+            "9": {
+              "stats": {
+                "INT": 6,
+                "MND": 6,
+                "enhancing_duration": 9,
+                "enfeebling_duration": 9
+              },
+              "description": "Interpolated from R20 values",
+              "interpolated": true
+            },
+            "10": {
+              "stats": {
+                "INT": 6,
+                "MND": 6,
+                "enhancing_duration": 10,
+                "enfeebling_duration": 10
+              },
+              "description": "Interpolated from R20 values",
+              "interpolated": true
+            },
+            "11": {
+              "stats": {
+                "INT": 7,
+                "MND": 7,
+                "enhancing_duration": 11,
+                "enfeebling_duration": 11
+              },
+              "description": "Interpolated from R20 values",
+              "interpolated": true
+            },
+            "12": {
+              "stats": {
+                "INT": 8,
+                "MND": 8,
+                "enhancing_duration": 12,
+                "enfeebling_duration": 12
+              },
+              "description": "Interpolated from R20 values",
+              "interpolated": true
+            },
+            "13": {
+              "stats": {
+                "INT": 8,
+                "MND": 8,
+                "enhancing_duration": 13,
+                "enfeebling_duration": 13
+              },
+              "description": "Interpolated from R20 values",
+              "interpolated": true
+            },
+            "14": {
+              "stats": {
+                "INT": 9,
+                "MND": 9,
+                "enhancing_duration": 14,
+                "enfeebling_duration": 14
+              },
+              "description": "Interpolated from R20 values",
+              "interpolated": true
+            },
+            "15": {
+              "stats": {
+                "INT": 9,
+                "MND": 9,
+                "enhancing_duration": 15,
+                "enfeebling_duration": 15
+              },
+              "description": "Interpolated from R20 values",
+              "interpolated": true
+            },
+            "16": {
+              "stats": {
+                "INT": 10,
+                "MND": 10,
+                "enhancing_duration": 16,
+                "enfeebling_duration": 16
+              },
+              "description": "Interpolated from R20 values",
+              "interpolated": true
+            },
+            "17": {
+              "stats": {
+                "INT": 11,
+                "MND": 11,
+                "enhancing_duration": 17,
+                "enfeebling_duration": 17
+              },
+              "description": "Interpolated from R20 values",
+              "interpolated": true
+            },
+            "18": {
+              "stats": {
+                "INT": 11,
+                "MND": 11,
+                "enhancing_duration": 18,
+                "enfeebling_duration": 18
+              },
+              "description": "Interpolated from R20 values",
+              "interpolated": true
+            },
+            "19": {
+              "stats": {
+                "INT": 12,
+                "MND": 12,
+                "enhancing_duration": 19,
+                "enfeebling_duration": 19
+              },
+              "description": "Interpolated from R20 values",
+              "interpolated": true
+            },
+            "20": {
+              "stats": {
+                "INT": 12,
+                "MND": 12,
+                "enhancing_duration": 20,
+                "enfeebling_duration": 20
+              },
+              "description": "Interpolated from R20 values",
+              "interpolated": true
+            }
+          },
+          "is_complete": true
+        }
+      }
+    },
+    "25443": {
+      "name": "Duelist's Torque +2",
+      "item_type": "jse_neck",
+      "category": "jse_neck",
+      "max_rank": 25,
+      "source_url": "https://www.bg-wiki.com/ffxi/Duelist%27s_Torque_%2B2",
+      "has_full_wiki_table": false,
+      "interpolation_applied": true,
+      "paths": {
+        "A": {
+          "tiers": {
+            "1": {
+              "stats": {
+                "INT": 1,
+                "MND": 1,
+                "enhancing_duration": 1,
+                "enfeebling_duration": 1
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "2": {
+              "stats": {
+                "INT": 2,
+                "MND": 2,
+                "enhancing_duration": 2,
+                "enfeebling_duration": 2
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "3": {
+              "stats": {
+                "INT": 2,
+                "MND": 2,
+                "enhancing_duration": 3,
+                "enfeebling_duration": 3
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "4": {
+              "stats": {
+                "INT": 3,
+                "MND": 3,
+                "enhancing_duration": 4,
+                "enfeebling_duration": 4
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "5": {
+              "stats": {
+                "INT": 3,
+                "MND": 3,
+                "enhancing_duration": 5,
+                "enfeebling_duration": 5
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "6": {
+              "stats": {
+                "INT": 4,
+                "MND": 4,
+                "enhancing_duration": 6,
+                "enfeebling_duration": 6
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "7": {
+              "stats": {
+                "INT": 5,
+                "MND": 5,
+                "enhancing_duration": 7,
+                "enfeebling_duration": 7
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "8": {
+              "stats": {
+                "INT": 5,
+                "MND": 5,
+                "enhancing_duration": 8,
+                "enfeebling_duration": 8
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "9": {
+              "stats": {
+                "INT": 6,
+                "MND": 6,
+                "enhancing_duration": 9,
+                "enfeebling_duration": 9
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "10": {
+              "stats": {
+                "INT": 6,
+                "MND": 6,
+                "enhancing_duration": 10,
+                "enfeebling_duration": 10
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "11": {
+              "stats": {
+                "INT": 7,
+                "MND": 7,
+                "enhancing_duration": 11,
+                "enfeebling_duration": 11
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "12": {
+              "stats": {
+                "INT": 8,
+                "MND": 8,
+                "enhancing_duration": 12,
+                "enfeebling_duration": 12
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "13": {
+              "stats": {
+                "INT": 8,
+                "MND": 8,
+                "enhancing_duration": 13,
+                "enfeebling_duration": 13
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "14": {
+              "stats": {
+                "INT": 9,
+                "MND": 9,
+                "enhancing_duration": 14,
+                "enfeebling_duration": 14
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "15": {
+              "stats": {
+                "INT": 9,
+                "MND": 9,
+                "enhancing_duration": 15,
+                "enfeebling_duration": 15
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "16": {
+              "stats": {
+                "INT": 10,
+                "MND": 10,
+                "enhancing_duration": 16,
+                "enfeebling_duration": 16
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "17": {
+              "stats": {
+                "INT": 11,
+                "MND": 11,
+                "enhancing_duration": 17,
+                "enfeebling_duration": 17
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "18": {
+              "stats": {
+                "INT": 11,
+                "MND": 11,
+                "enhancing_duration": 18,
+                "enfeebling_duration": 18
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "19": {
+              "stats": {
+                "INT": 12,
+                "MND": 12,
+                "enhancing_duration": 19,
+                "enfeebling_duration": 19
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "20": {
+              "stats": {
+                "INT": 12,
+                "MND": 12,
+                "enhancing_duration": 20,
+                "enfeebling_duration": 20
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "21": {
+              "stats": {
+                "INT": 13,
+                "MND": 13,
+                "enhancing_duration": 21,
+                "enfeebling_duration": 21
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "22": {
+              "stats": {
+                "INT": 14,
+                "MND": 14,
+                "enhancing_duration": 22,
+                "enfeebling_duration": 22
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "23": {
+              "stats": {
+                "INT": 14,
+                "MND": 14,
+                "enhancing_duration": 23,
+                "enfeebling_duration": 23
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "24": {
+              "stats": {
+                "INT": 15,
+                "MND": 15,
+                "enhancing_duration": 24,
+                "enfeebling_duration": 24
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            },
+            "25": {
+              "stats": {
+                "INT": 15,
+                "MND": 15,
+                "enhancing_duration": 25,
+                "enfeebling_duration": 25
+              },
+              "description": "Interpolated from R25 values",
+              "interpolated": true
+            }
+          },
+          "is_complete": true
+        }
+      }
+    },
+    "25459": {
+      "name": "Abyssal Beads",
+      "item_type": "jse_neck",
+      "category": "jse_neck",
+      "max_rank": 15,
+      "source_url": "https://www.bg-wiki.com/ffxi/Abyssal_Beads",
+      "has_full_wiki_table": false,
+      "interpolation_applied": true,
+      "paths": {
+        "A": {
+          "tiers": {
+            "1": {
+              "stats": {
+                "STR": 1,
+                "store_tp": 1,
+                "physical_damage_limit": 1
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "2": {
+              "stats": {
+                "STR": 2,
+                "store_tp": 1,
+                "physical_damage_limit": 1
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "3": {
+              "stats": {
+                "STR": 3,
+                "store_tp": 1,
+                "physical_damage_limit": 2
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "4": {
+              "stats": {
+                "STR": 4,
+                "store_tp": 2,
+                "physical_damage_limit": 2
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "5": {
+              "stats": {
+                "STR": 5,
+                "store_tp": 2,
+                "physical_damage_limit": 2
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "6": {
+              "stats": {
+                "STR": 6,
+                "store_tp": 2,
+                "physical_damage_limit": 3
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "7": {
+              "stats": {
+                "STR": 7,
+                "store_tp": 3,
+                "physical_damage_limit": 3
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "8": {
+              "stats": {
+                "STR": 8,
+                "store_tp": 3,
+                "physical_damage_limit": 4
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "9": {
+              "stats": {
+                "STR": 9,
+                "store_tp": 3,
+                "physical_damage_limit": 4
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "10": {
+              "stats": {
+                "STR": 10,
+                "store_tp": 4,
+                "physical_damage_limit": 4
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "11": {
+              "stats": {
+                "STR": 11,
+                "store_tp": 4,
+                "physical_damage_limit": 5
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "12": {
+              "stats": {
+                "STR": 12,
+                "store_tp": 4,
+                "physical_damage_limit": 5
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "13": {
+              "stats": {
+                "STR": 13,
+                "store_tp": 5,
+                "physical_damage_limit": 6
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "14": {
+              "stats": {
+                "STR": 14,
+                "store_tp": 5,
+                "physical_damage_limit": 6
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            },
+            "15": {
+              "stats": {
+                "STR": 15,
+                "store_tp": 5,
+                "physical_damage_limit": 6
+              },
+              "description": "Interpolated from R15 values",
+              "interpolated": true
+            }
+          },
+          "is_complete": true
+        }
+      }
+    },
+    "23761": {
+      "name": "Nyame Helm",
+      "item_type": "odyssey_armor",
+      "category": "odyssey_armor",
+      "max_rank": 30,
+      "source_url": "https://www.bg-wiki.com/ffxi/Nyame_Helm",
+      "has_full_wiki_table": true,
+      "interpolation_applied": false,
+      "paths": {
+        "A": {
+          "tiers": {
+            "1": {
+              "stats": {
+                "magic_accuracy": 1,
+                "ranged_accuracy": 1,
+                "accuracy": 1,
+                "store_tp": 1
+              },
+              "description": "Accuracy+1 Rng. Acc.+1 Mag. Acc.+1 \"Store TP\"+1",
+              "interpolated": false
+            },
+            "2": {
+              "stats": {
+                "magic_accuracy": 2,
+                "ranged_accuracy": 2,
+                "accuracy": 2,
+                "store_tp": 1
+              },
+              "description": "Accuracy+2 Rng. Acc.+2 Mag. Acc.+2 \"Store TP\"+1",
+              "interpolated": false
+            },
+            "3": {
+              "stats": {
+                "magic_accuracy": 3,
+                "ranged_accuracy": 3,
+                "accuracy": 3,
+                "store_tp": 2
+              },
+              "description": "Accuracy+3 Rng. Acc.+3 Mag. Acc.+3 \"Store TP\"+2",
+              "interpolated": false
+            },
+            "4": {
+              "stats": {
+                "magic_accuracy": 4,
+                "ranged_accuracy": 4,
+                "accuracy": 4,
+                "store_tp": 2
+              },
+              "description": "Accuracy+4 Rng. Acc.+4 Mag. Acc.+4 \"Store TP\"+2",
+              "interpolated": false
+            },
+            "5": {
+              "stats": {
+                "magic_accuracy": 5,
+                "ranged_accuracy": 5,
+                "accuracy": 5,
+                "store_tp": 3
+              },
+              "description": "Accuracy+5 Rng. Acc.+5 Mag. Acc.+5 \"Store TP\"+3",
+              "interpolated": false
+            },
+            "6": {
+              "stats": {
+                "magic_accuracy": 6,
+                "ranged_accuracy": 6,
+                "accuracy": 6,
+                "store_tp": 3
+              },
+              "description": "Accuracy+6 Rng. Acc.+6 Mag. Acc.+6 \"Store TP\"+3",
+              "interpolated": false
+            },
+            "7": {
+              "stats": {
+                "magic_accuracy": 7,
+                "ranged_accuracy": 7,
+                "accuracy": 7,
+                "store_tp": 4
+              },
+              "description": "Accuracy+7 Rng. Acc.+7 Mag. Acc.+7 \"Store TP\"+4",
+              "interpolated": false
+            },
+            "8": {
+              "stats": {
+                "magic_accuracy": 8,
+                "ranged_accuracy": 8,
+                "accuracy": 8,
+                "store_tp": 4
+              },
+              "description": "Accuracy+8 Rng. Acc.+8 Mag. Acc.+8 \"Store TP\"+4",
+              "interpolated": false
+            },
+            "9": {
+              "stats": {
+                "magic_accuracy": 9,
+                "ranged_accuracy": 9,
+                "accuracy": 9,
+                "store_tp": 5
+              },
+              "description": "Accuracy+9 Rng. Acc.+9 Mag. Acc.+9 \"Store TP\"+5",
+              "interpolated": false
+            },
+            "10": {
+              "stats": {
+                "magic_accuracy": 10,
+                "ranged_accuracy": 10,
+                "accuracy": 10,
+                "store_tp": 5
+              },
+              "description": "Accuracy+10 Rng. Acc.+10 Mag. Acc.+10 \"Store TP\"+5",
+              "interpolated": false
+            },
+            "11": {
+              "stats": {
+                "magic_accuracy": 11,
+                "ranged_accuracy": 11,
+                "accuracy": 11,
+                "store_tp": 6
+              },
+              "description": "Accuracy+11 Rng. Acc.+11 Mag. Acc.+11 \"Store TP\"+6",
+              "interpolated": false
+            },
+            "12": {
+              "stats": {
+                "magic_accuracy": 12,
+                "ranged_accuracy": 12,
+                "accuracy": 12,
+                "store_tp": 6
+              },
+              "description": "Accuracy+12 Rng. Acc.+12 Mag. Acc.+12 \"Store TP\"+6",
+              "interpolated": false
+            },
+            "13": {
+              "stats": {
+                "magic_accuracy": 13,
+                "ranged_accuracy": 13,
+                "accuracy": 13,
+                "store_tp": 7
+              },
+              "description": "Accuracy+13 Rng. Acc.+13 Mag. Acc.+13 \"Store TP\"+7",
+              "interpolated": false
+            },
+            "14": {
+              "stats": {
+                "magic_accuracy": 14,
+                "ranged_accuracy": 14,
+                "accuracy": 14,
+                "store_tp": 7
+              },
+              "description": "Accuracy+14 Rng. Acc.+14 Mag. Acc.+14 \"Store TP\"+7",
+              "interpolated": false
+            },
+            "15": {
+              "stats": {
+                "magic_accuracy": 15,
+                "ranged_accuracy": 15,
+                "accuracy": 15,
+                "store_tp": 8
+              },
+              "description": "Accuracy+15 Rng. Acc.+15 Mag. Acc.+15 \"Store TP\"+8",
+              "interpolated": false
+            },
+            "16": {
+              "stats": {
+                "magic_accuracy": 16,
+                "ranged_accuracy": 16,
+                "accuracy": 16,
+                "store_tp": 8,
+                "physical_damage_limit": 1
+              },
+              "description": "Accuracy+16 Rng. Acc.+16 Mag. Acc.+16 \"Store TP\"+8 Physical damage limit +1%",
+              "interpolated": false
+            },
+            "17": {
+              "stats": {
+                "magic_accuracy": 17,
+                "ranged_accuracy": 17,
+                "accuracy": 17,
+                "store_tp": 8,
+                "physical_damage_limit": 1
+              },
+              "description": "Accuracy+17 Rng. Acc.+17 Mag. Acc.+17 \"Store TP\"+8 Physical damage limit +1%",
+              "interpolated": false
+            },
+            "18": {
+              "stats": {
+                "magic_accuracy": 18,
+                "ranged_accuracy": 18,
+                "accuracy": 18,
+                "store_tp": 9,
+                "physical_damage_limit": 1
+              },
+              "description": "Accuracy+18 Rng. Acc.+18 Mag. Acc.+18 \"Store TP\"+9 Physical damage limit +1%",
+              "interpolated": false
+            },
+            "19": {
+              "stats": {
+                "magic_accuracy": 19,
+                "ranged_accuracy": 19,
+                "accuracy": 19,
+                "store_tp": 9,
+                "physical_damage_limit": 2
+              },
+              "description": "Accuracy+19 Rng. Acc.+19 Mag. Acc.+19 \"Store TP\"+9 Physical damage limit +2%",
+              "interpolated": false
+            },
+            "20": {
+              "stats": {
+                "magic_accuracy": 20,
+                "ranged_accuracy": 20,
+                "accuracy": 20,
+                "store_tp": 9,
+                "physical_damage_limit": 2
+              },
+              "description": "Accuracy+20 Rng. Acc.+20 Mag. Acc.+20 \"Store TP\"+9 Physical damage limit +2%",
+              "interpolated": false
+            },
+            "21": {
+              "stats": {
+                "magic_accuracy": 21,
+                "ranged_accuracy": 21,
+                "accuracy": 21,
+                "store_tp": 10,
+                "physical_damage_limit": 2,
+                "crit_rate": 1
+              },
+              "description": "Accuracy+21 Rng. Acc.+21 Mag. Acc.+21 \"Store TP\"+10 Physical damage limit +2% Critical hit rate +1%",
+              "interpolated": false
+            },
+            "22": {
+              "stats": {
+                "magic_accuracy": 22,
+                "ranged_accuracy": 22,
+                "accuracy": 22,
+                "store_tp": 10,
+                "physical_damage_limit": 3,
+                "crit_rate": 2
+              },
+              "description": "Accuracy+22 Rng. Acc.+22 Mag. Acc.+22 \"Store TP\"+10 Physical damage limit +3% Critical hit rate +2%",
+              "interpolated": false
+            },
+            "23": {
+              "stats": {
+                "magic_accuracy": 23,
+                "ranged_accuracy": 23,
+                "accuracy": 23,
+                "store_tp": 10,
+                "physical_damage_limit": 3,
+                "crit_rate": 3
+              },
+              "description": "Accuracy+23 Rng. Acc.+23 Mag. Acc.+23 \"Store TP\"+10 Physical damage limit +3% Critical hit rate +3%",
+              "interpolated": false
+            },
+            "24": {
+              "stats": {
+                "magic_accuracy": 24,
+                "ranged_accuracy": 24,
+                "accuracy": 24,
+                "store_tp": 11,
+                "physical_damage_limit": 3,
+                "crit_rate": 4
+              },
+              "description": "Accuracy+24 Rng. Acc.+24 Mag. Acc.+24 \"Store TP\"+11 Physical damage limit +3% Critical hit rate +4%",
+              "interpolated": false
+            },
+            "25": {
+              "stats": {
+                "magic_accuracy": 25,
+                "ranged_accuracy": 25,
+                "accuracy": 25,
+                "store_tp": 11,
+                "physical_damage_limit": 4,
+                "crit_rate": 5
+              },
+              "description": "Accuracy+25 Rng. Acc.+25 Mag. Acc.+25 \"Store TP\"+11 Physical damage limit +4% Critical hit rate +5%",
+              "interpolated": false
+            },
+            "26": {
+              "stats": {
+                "magic_accuracy": 26,
+                "ranged_accuracy": 26,
+                "accuracy": 26,
+                "store_tp": 11,
+                "physical_damage_limit": 4,
+                "crit_rate": 6
+              },
+              "description": "Accuracy+26 Rng. Acc.+26 Mag. Acc.+26 \"Store TP\"+11 Physical damage limit +4% Critical hit rate +6%",
+              "interpolated": false
+            },
+            "27": {
+              "stats": {
+                "magic_accuracy": 27,
+                "ranged_accuracy": 27,
+                "accuracy": 27,
+                "store_tp": 12,
+                "physical_damage_limit": 4,
+                "crit_rate": 7
+              },
+              "description": "Accuracy+27 Rng. Acc.+27 Mag. Acc.+27 \"Store TP\"+12 Physical damage limit +4% Critical hit rate +7%",
+              "interpolated": false
+            },
+            "28": {
+              "stats": {
+                "magic_accuracy": 28,
+                "ranged_accuracy": 28,
+                "accuracy": 28,
+                "store_tp": 12,
+                "physical_damage_limit": 5,
+                "crit_rate": 8
+              },
+              "description": "Accuracy+28 Rng. Acc.+28 Mag. Acc.+28 \"Store TP\"+12 Physical damage limit +5% Critical hit rate +8%",
+              "interpolated": false
+            },
+            "29": {
+              "stats": {
+                "magic_accuracy": 29,
+                "ranged_accuracy": 29,
+                "accuracy": 29,
+                "store_tp": 12,
+                "physical_damage_limit": 5,
+                "crit_rate": 9
+              },
+              "description": "Accuracy+29 Rng. Acc.+29 Mag. Acc.+29 \"Store TP\"+12 Physical damage limit +5% Critical hit rate +9%",
+              "interpolated": false
+            },
+            "30": {
+              "stats": {
+                "magic_accuracy": 30,
+                "ranged_accuracy": 30,
+                "accuracy": 30,
+                "store_tp": 13,
+                "physical_damage_limit": 5,
+                "crit_rate": 10
+              },
+              "description": "Accuracy+30 Rng. Acc.+30 Mag. Acc.+30 \"Store TP\"+13 Physical damage limit +5% Critical hit rate +10%",
+              "interpolated": false
+            }
+          },
+          "is_complete": true
+        },
+        "B": {
+          "tiers": {
+            "1": {
+              "stats": {
+                "ranged_attack": 2,
+                "attack": 2,
+                "ws_damage": 1
+              },
+              "description": "Attack+2 Rng. Atk.+2 Weapon skill damage +1%",
+              "interpolated": false
+            },
+            "2": {
+              "stats": {
+                "ranged_attack": 4,
+                "attack": 4,
+                "ws_damage": 1
+              },
+              "description": "Attack+4 Rng. Atk.+4 Weapon skill damage +1%",
+              "interpolated": false
+            },
+            "3": {
+              "stats": {
+                "ranged_attack": 6,
+                "attack": 6,
+                "ws_damage": 2
+              },
+              "description": "Attack+6 Rng. Atk.+6 Weapon skill damage +2%",
+              "interpolated": false
+            },
+            "4": {
+              "stats": {
+                "ranged_attack": 8,
+                "attack": 8,
+                "ws_damage": 2
+              },
+              "description": "Attack+8 Rng. Atk.+8 Weapon skill damage +2%",
+              "interpolated": false
+            },
+            "5": {
+              "stats": {
+                "ranged_attack": 10,
+                "attack": 10,
+                "ws_damage": 3
+              },
+              "description": "Attack+10 Rng. Atk.+10 Weapon skill damage +3%",
+              "interpolated": false
+            },
+            "6": {
+              "stats": {
+                "ranged_attack": 11,
+                "attack": 11,
+                "ws_damage": 3
+              },
+              "description": "Attack+11 Rng. Atk.+11 Weapon skill damage +3%",
+              "interpolated": false
+            },
+            "7": {
+              "stats": {
+                "ranged_attack": 12,
+                "attack": 12,
+                "ws_damage": 4
+              },
+              "description": "Attack+12 Rng. Atk.+12 Weapon skill damage +4%",
+              "interpolated": false
+            },
+            "8": {
+              "stats": {
+                "ranged_attack": 13,
+                "attack": 13,
+                "ws_damage": 4
+              },
+              "description": "Attack+13 Rng. Atk.+13 Weapon skill damage +4%",
+              "interpolated": false
+            },
+            "9": {
+              "stats": {
+                "ranged_attack": 14,
+                "attack": 14,
+                "ws_damage": 4
+              },
+              "description": "Attack+14 Rng. Atk.+14 Weapon skill damage +4%",
+              "interpolated": false
+            },
+            "10": {
+              "stats": {
+                "ranged_attack": 15,
+                "attack": 15,
+                "ws_damage": 5
+              },
+              "description": "Attack+15 Rng. Atk.+15 Weapon skill damage +5%",
+              "interpolated": false
+            },
+            "11": {
+              "stats": {
+                "ranged_attack": 16,
+                "attack": 16,
+                "ws_damage": 5
+              },
+              "description": "Attack+16 Rng. Atk.+16 Weapon skill damage +5%",
+              "interpolated": false
+            },
+            "12": {
+              "stats": {
+                "ranged_attack": 17,
+                "attack": 17,
+                "ws_damage": 5
+              },
+              "description": "Attack+17 Rng. Atk.+17 Weapon skill damage +5%",
+              "interpolated": false
+            },
+            "13": {
+              "stats": {
+                "ranged_attack": 18,
+                "attack": 18,
+                "ws_damage": 6
+              },
+              "description": "Attack+18 Rng. Atk.+18 Weapon skill damage +6%",
+              "interpolated": false
+            },
+            "14": {
+              "stats": {
+                "ranged_attack": 19,
+                "attack": 19,
+                "ws_damage": 6
+              },
+              "description": "Attack+19 Rng. Atk.+19 Weapon skill damage +6%",
+              "interpolated": false
+            },
+            "15": {
+              "stats": {
+                "ranged_attack": 20,
+                "attack": 20,
+                "ws_damage": 6
+              },
+              "description": "Attack+20 Rng. Atk.+20 Weapon skill damage +6%",
+              "interpolated": false
+            },
+            "16": {
+              "stats": {
+                "ranged_attack": 21,
+                "attack": 21,
+                "ws_damage": 7,
+                "double_attack": 1
+              },
+              "description": "Attack+21 Rng. Atk.+21 Weapon skill damage +7% \"Double Attack\"+1%",
+              "interpolated": false
+            },
+            "17": {
+              "stats": {
+                "ranged_attack": 22,
+                "attack": 22,
+                "ws_damage": 7,
+                "double_attack": 1
+              },
+              "description": "Attack+22 Rng. Atk.+22 Weapon skill damage +7% \"Double Attack\"+1%",
+              "interpolated": false
+            },
+            "18": {
+              "stats": {
+                "ranged_attack": 23,
+                "attack": 23,
+                "ws_damage": 7,
+                "double_attack": 1
+              },
+              "description": "Attack+23 Rng. Atk.+23 Weapon skill damage +7% \"Double Attack\"+1%",
+              "interpolated": false
+            },
+            "19": {
+              "stats": {
+                "ranged_attack": 24,
+                "attack": 24,
+                "ws_damage": 8,
+                "double_attack": 2
+              },
+              "description": "Attack+24 Rng. Atk.+24 Weapon skill damage +8% \"Double Attack\"+2%",
+              "interpolated": false
+            },
+            "20": {
+              "stats": {
+                "ranged_attack": 25,
+                "attack": 25,
+                "ws_damage": 8,
+                "double_attack": 2
+              },
+              "description": "Attack+25 Rng. Atk.+25 Weapon skill damage +8% \"Double Attack\"+2%",
+              "interpolated": false
+            },
+            "21": {
+              "stats": {
+                "ranged_accuracy": 1,
+                "ranged_attack": 26,
+                "accuracy": 1,
+                "attack": 26,
+                "ws_damage": 8,
+                "double_attack": 2
+              },
+              "description": "Attack+26 Rng. Atk.+26 Weapon skill damage +8% \"Double Attack\"+2% Accuracy+1 Rng. Acc.+1",
+              "interpolated": false
+            },
+            "22": {
+              "stats": {
+                "ranged_accuracy": 2,
+                "ranged_attack": 27,
+                "accuracy": 2,
+                "attack": 27,
+                "ws_damage": 9,
+                "double_attack": 3
+              },
+              "description": "Attack+27 Rng. Atk.+27 Weapon skill damage +9% \"Double Attack\"+3% Accuracy+2 Rng. Acc.+2",
+              "interpolated": false
+            },
+            "23": {
+              "stats": {
+                "ranged_accuracy": 3,
+                "ranged_attack": 28,
+                "accuracy": 3,
+                "attack": 28,
+                "ws_damage": 9,
+                "double_attack": 3
+              },
+              "description": "Attack+28 Rng. Atk.+28 Weapon skill damage +9% \"Double Attack\"+3% Accuracy+3 Rng. Acc.+3",
+              "interpolated": false
+            },
+            "24": {
+              "stats": {
+                "ranged_accuracy": 4,
+                "ranged_attack": 29,
+                "accuracy": 4,
+                "attack": 29,
+                "ws_damage": 9,
+                "double_attack": 3
+              },
+              "description": "Attack+29 Rng. Atk.+29 Weapon skill damage +9% \"Double Attack\"+3% Accuracy+4 Rng. Acc.+4",
+              "interpolated": false
+            },
+            "25": {
+              "stats": {
+                "ranged_accuracy": 5,
+                "ranged_attack": 30,
+                "accuracy": 5,
+                "attack": 30,
+                "ws_damage": 10,
+                "double_attack": 4
+              },
+              "description": "Attack+30 Rng. Atk.+30 Weapon skill damage +10% \"Double Attack\"+4% Accuracy+5 Rng. Acc.+5",
+              "interpolated": false
+            },
+            "26": {
+              "stats": {
+                "ranged_accuracy": 6,
+                "ranged_attack": 31,
+                "accuracy": 6,
+                "attack": 31,
+                "ws_damage": 10,
+                "double_attack": 4
+              },
+              "description": "Attack+31 Rng. Atk.+31 Weapon skill damage +10% \"Double Attack\"+4% Accuracy+6 Rng. Acc.+6",
+              "interpolated": false
+            },
+            "27": {
+              "stats": {
+                "ranged_accuracy": 7,
+                "ranged_attack": 32,
+                "accuracy": 7,
+                "attack": 32,
+                "ws_damage": 10,
+                "double_attack": 4
+              },
+              "description": "Attack+32 Rng. Atk.+32 Weapon skill damage +10% \"Double Attack\"+4% Accuracy+7 Rng. Acc.+7",
+              "interpolated": false
+            },
+            "28": {
+              "stats": {
+                "ranged_accuracy": 8,
+                "ranged_attack": 33,
+                "accuracy": 8,
+                "attack": 33,
+                "ws_damage": 11,
+                "double_attack": 5
+              },
+              "description": "Attack+33 Rng. Atk.+33 Weapon skill damage +11% \"Double Attack\"+5% Accuracy+8 Rng. Acc.+8",
+              "interpolated": false
+            },
+            "29": {
+              "stats": {
+                "ranged_accuracy": 9,
+                "ranged_attack": 34,
+                "accuracy": 9,
+                "attack": 34,
+                "ws_damage": 11,
+                "double_attack": 5
+              },
+              "description": "Attack+34 Rng. Atk.+34 Weapon skill damage +11% \"Double Attack\"+5% Accuracy+9 Rng. Acc.+9",
+              "interpolated": false
+            },
+            "30": {
+              "stats": {
+                "ranged_accuracy": 10,
+                "ranged_attack": 35,
+                "accuracy": 10,
+                "attack": 35,
+                "ws_damage": 11,
+                "double_attack": 5
+              },
+              "description": "Attack+35 Rng. Atk.+35 Weapon skill damage +11% \"Double Attack\"+5% Accuracy+10 Rng. Acc.+10",
+              "interpolated": false
+            }
+          },
+          "is_complete": true
+        },
+        "C": {
+          "tiers": {
+            "1": {
+              "stats": {
+                "magic_damage": 1,
+                "magic_attack": 2
+              },
+              "description": "\"Mag. Atk. Bns.\"+2 Magic Damage+1",
+              "interpolated": false
+            },
+            "2": {
+              "stats": {
+                "magic_damage": 2,
+                "magic_attack": 4
+              },
+              "description": "\"Mag. Atk. Bns.\"+4 Magic Damage+2",
+              "interpolated": false
+            },
+            "3": {
+              "stats": {
+                "magic_damage": 3,
+                "magic_attack": 6
+              },
+              "description": "\"Mag. Atk. Bns.\"+6 Magic Damage+3",
+              "interpolated": false
+            },
+            "4": {
+              "stats": {
+                "magic_damage": 4,
+                "magic_attack": 8
+              },
+              "description": "\"Mag. Atk. Bns.\"+8 Magic Damage+4",
+              "interpolated": false
+            },
+            "5": {
+              "stats": {
+                "magic_damage": 5,
+                "magic_attack": 10
+              },
+              "description": "\"Mag. Atk. Bns.\"+10 Magic Damage+5",
+              "interpolated": false
+            },
+            "6": {
+              "stats": {
+                "magic_damage": 6,
+                "magic_attack": 11
+              },
+              "description": "\"Mag. Atk. Bns.\"+11 Magic Damage+6",
+              "interpolated": false
+            },
+            "7": {
+              "stats": {
+                "magic_damage": 7,
+                "magic_attack": 12
+              },
+              "description": "\"Mag. Atk. Bns.\"+12 Magic Damage+7",
+              "interpolated": false
+            },
+            "8": {
+              "stats": {
+                "magic_damage": 8,
+                "magic_attack": 13
+              },
+              "description": "\"Mag. Atk. Bns.\"+13 Magic Damage+8",
+              "interpolated": false
+            },
+            "9": {
+              "stats": {
+                "magic_damage": 9,
+                "magic_attack": 14
+              },
+              "description": "\"Mag. Atk. Bns.\"+14 Magic Damage+9",
+              "interpolated": false
+            },
+            "10": {
+              "stats": {
+                "magic_damage": 10,
+                "magic_attack": 15
+              },
+              "description": "\"Mag. Atk. Bns.\"+15 Magic Damage+10",
+              "interpolated": false
+            },
+            "11": {
+              "stats": {
+                "magic_damage": 11,
+                "magic_attack": 16
+              },
+              "description": "\"Mag. Atk. Bns.\"+16 Magic Damage+11",
+              "interpolated": false
+            },
+            "12": {
+              "stats": {
+                "magic_damage": 12,
+                "magic_attack": 17
+              },
+              "description": "\"Mag. Atk. Bns.\"+17 Magic Damage+12",
+              "interpolated": false
+            },
+            "13": {
+              "stats": {
+                "magic_damage": 13,
+                "magic_attack": 18
+              },
+              "description": "\"Mag. Atk. Bns.\"+18 Magic Damage+13",
+              "interpolated": false
+            },
+            "14": {
+              "stats": {
+                "magic_damage": 14,
+                "magic_attack": 19
+              },
+              "description": "\"Mag. Atk. Bns.\"+19 Magic Damage+14",
+              "interpolated": false
+            },
+            "15": {
+              "stats": {
+                "magic_damage": 15,
+                "magic_attack": 20
+              },
+              "description": "\"Mag. Atk. Bns.\"+20 Magic Damage+15",
+              "interpolated": false
+            },
+            "16": {
+              "stats": {
+                "magic_damage": 16,
+                "magic_burst_bonus_ii": 1,
+                "magic_attack": 21
+              },
+              "description": "\"Mag. Atk. Bns.\"+21 Magic Damage+16 Magic burst damage II +1",
+              "interpolated": false
+            },
+            "17": {
+              "stats": {
+                "magic_damage": 17,
+                "magic_burst_bonus_ii": 1,
+                "magic_attack": 22
+              },
+              "description": "\"Mag. Atk. Bns.\"+22 Magic Damage+17 Magic burst damage II +1",
+              "interpolated": false
+            },
+            "18": {
+              "stats": {
+                "magic_damage": 18,
+                "magic_burst_bonus_ii": 2,
+                "magic_attack": 23
+              },
+              "description": "\"Mag. Atk. Bns.\"+23 Magic Damage+18 Magic burst damage II +2",
+              "interpolated": false
+            },
+            "19": {
+              "stats": {
+                "magic_damage": 19,
+                "magic_burst_bonus_ii": 2,
+                "magic_attack": 24
+              },
+              "description": "\"Mag. Atk. Bns.\"+24 Magic Damage+19 Magic burst damage II +2",
+              "interpolated": false
+            },
+            "20": {
+              "stats": {
+                "magic_damage": 20,
+                "magic_burst_bonus_ii": 2,
+                "magic_attack": 25
+              },
+              "description": "\"Mag. Atk. Bns.\"+25 Magic Damage+20 Magic burst damage II +2",
+              "interpolated": false
+            },
+            "21": {
+              "stats": {
+                "magic_accuracy": 1,
+                "magic_damage": 21,
+                "magic_burst_bonus_ii": 3,
+                "magic_attack": 26
+              },
+              "description": "\"Mag. Atk. Bns.\"+26 Magic Damage+21 Magic burst damage II +3 Mag. Acc.+1",
+              "interpolated": false
+            },
+            "22": {
+              "stats": {
+                "magic_accuracy": 2,
+                "magic_damage": 22,
+                "magic_burst_bonus_ii": 3,
+                "magic_attack": 27
+              },
+              "description": "\"Mag. Atk. Bns.\"+27 Magic Damage+22 Magic burst damage II +3 Mag. Acc.+2",
+              "interpolated": false
+            },
+            "23": {
+              "stats": {
+                "magic_accuracy": 3,
+                "magic_damage": 23,
+                "magic_burst_bonus_ii": 3,
+                "magic_attack": 28
+              },
+              "description": "\"Mag. Atk. Bns.\"+28 Magic Damage+23 Magic burst damage II +3 Mag. Acc.+3",
+              "interpolated": false
+            },
+            "24": {
+              "stats": {
+                "magic_accuracy": 4,
+                "magic_damage": 24,
+                "magic_burst_bonus_ii": 4,
+                "magic_attack": 29
+              },
+              "description": "\"Mag. Atk. Bns.\"+29 Magic Damage+24 Magic burst damage II +4 Mag. Acc.+4",
+              "interpolated": false
+            },
+            "25": {
+              "stats": {
+                "magic_accuracy": 5,
+                "magic_damage": 25,
+                "magic_burst_bonus_ii": 4,
+                "magic_attack": 30
+              },
+              "description": "\"Mag. Atk. Bns.\"+30 Magic Damage+25 Magic burst damage II +4 Mag. Acc.+5",
+              "interpolated": false
+            },
+            "26": {
+              "stats": {
+                "magic_accuracy": 6,
+                "magic_damage": 26,
+                "magic_burst_bonus_ii": 4,
+                "magic_attack": 31
+              },
+              "description": "\"Mag. Atk. Bns.\"+31 Magic Damage+26 Magic burst damage II +4 Mag. Acc.+6",
+              "interpolated": false
+            },
+            "27": {
+              "stats": {
+                "magic_accuracy": 7,
+                "magic_damage": 27,
+                "magic_burst_bonus_ii": 5,
+                "magic_attack": 32
+              },
+              "description": "\"Mag. Atk. Bns.\"+32 Magic Damage+27 Magic burst damage II +5 Mag. Acc.+7",
+              "interpolated": false
+            },
+            "28": {
+              "stats": {
+                "magic_accuracy": 8,
+                "magic_damage": 28,
+                "magic_burst_bonus_ii": 5,
+                "magic_attack": 33
+              },
+              "description": "\"Mag. Atk. Bns.\"+33 Magic Damage+28 Magic burst damage II +5 Mag. Acc.+8",
+              "interpolated": false
+            },
+            "29": {
+              "stats": {
+                "magic_accuracy": 9,
+                "magic_damage": 29,
+                "magic_burst_bonus_ii": 5,
+                "magic_attack": 34
+              },
+              "description": "\"Mag. Atk. Bns.\"+34 Magic Damage+29 Magic burst damage II +5 Mag. Acc.+9",
+              "interpolated": false
+            },
+            "30": {
+              "stats": {
+                "magic_accuracy": 10,
+                "magic_damage": 30,
+                "magic_burst_bonus_ii": 6,
+                "magic_attack": 35
+              },
+              "description": "\"Mag. Atk. Bns.\"+35 Magic Damage+30 Magic burst damage II +6 Mag. Acc.+10",
+              "interpolated": false
+            }
+          },
+          "is_complete": true
+        },
+        "D": {
+          "tiers": {
+            "1": {
+              "stats": {
+                "magic_accuracy": 1,
+                "pet_magic_accuracy": 1,
+                "accuracy": 1,
+                "pet_accuracy": 1
+              },
+              "description": "Accuracy+1 Mag. Acc.+1 Pet: Accuracy+1 Mag. Acc.+1",
+              "interpolated": false
+            },
+            "2": {
+              "stats": {
+                "magic_accuracy": 2,
+                "pet_magic_accuracy": 2,
+                "accuracy": 2,
+                "pet_accuracy": 2
+              },
+              "description": "Accuracy+2 Mag. Acc.+2 Pet: Accuracy+2 Mag. Acc.+2",
+              "interpolated": false
+            },
+            "3": {
+              "stats": {
+                "magic_accuracy": 3,
+                "pet_magic_accuracy": 3,
+                "accuracy": 3,
+                "pet_accuracy": 3
+              },
+              "description": "Accuracy+3 Mag. Acc.+3 Pet: Accuracy+3 Mag. Acc.+3",
+              "interpolated": false
+            },
+            "4": {
+              "stats": {
+                "magic_accuracy": 4,
+                "pet_magic_accuracy": 4,
+                "accuracy": 4,
+                "pet_accuracy": 4
+              },
+              "description": "Accuracy+4 Mag. Acc.+4 Pet: Accuracy+4 Mag. Acc.+4",
+              "interpolated": false
+            },
+            "5": {
+              "stats": {
+                "magic_accuracy": 5,
+                "pet_magic_accuracy": 5,
+                "accuracy": 5,
+                "pet_accuracy": 5
+              },
+              "description": "Accuracy+5 Mag. Acc.+5 Pet: Accuracy+5 Mag. Acc.+5",
+              "interpolated": false
+            },
+            "6": {
+              "stats": {
+                "magic_accuracy": 6,
+                "pet_magic_accuracy": 6,
+                "accuracy": 6,
+                "pet_accuracy": 6
+              },
+              "description": "Accuracy+6 Mag. Acc.+6 Pet: Accuracy+6 Mag. Acc.+6",
+              "interpolated": false
+            },
+            "7": {
+              "stats": {
+                "magic_accuracy": 7,
+                "pet_magic_accuracy": 7,
+                "accuracy": 7,
+                "pet_accuracy": 7
+              },
+              "description": "Accuracy+7 Mag. Acc.+7 Pet: Accuracy+7 Mag. Acc.+7",
+              "interpolated": false
+            },
+            "8": {
+              "stats": {
+                "magic_accuracy": 8,
+                "pet_magic_accuracy": 8,
+                "accuracy": 8,
+                "pet_accuracy": 8
+              },
+              "description": "Accuracy+8 Mag. Acc.+8 Pet: Accuracy+8 Mag. Acc.+8",
+              "interpolated": false
+            },
+            "9": {
+              "stats": {
+                "magic_accuracy": 9,
+                "pet_magic_accuracy": 9,
+                "accuracy": 9,
+                "pet_accuracy": 9
+              },
+              "description": "Accuracy+9 Mag. Acc.+9 Pet: Accuracy+9 Mag. Acc.+9",
+              "interpolated": false
+            },
+            "10": {
+              "stats": {
+                "magic_accuracy": 10,
+                "pet_magic_accuracy": 10,
+                "accuracy": 10,
+                "pet_accuracy": 10
+              },
+              "description": "Accuracy+10 Mag. Acc.+10 Pet: Accuracy+10 Mag. Acc.+10",
+              "interpolated": false
+            },
+            "11": {
+              "stats": {
+                "magic_accuracy": 11,
+                "pet_magic_accuracy": 11,
+                "accuracy": 11,
+                "pet_accuracy": 11
+              },
+              "description": "Accuracy+11 Mag. Acc.+11 Pet: Accuracy+11 Mag. Acc.+11",
+              "interpolated": false
+            },
+            "12": {
+              "stats": {
+                "magic_accuracy": 12,
+                "pet_magic_accuracy": 12,
+                "accuracy": 12,
+                "pet_accuracy": 12
+              },
+              "description": "Accuracy+12 Mag. Acc.+12 Pet: Accuracy+12 Mag. Acc.+12",
+              "interpolated": false
+            },
+            "13": {
+              "stats": {
+                "magic_accuracy": 13,
+                "pet_magic_accuracy": 13,
+                "accuracy": 13,
+                "pet_accuracy": 13
+              },
+              "description": "Accuracy+13 Mag. Acc.+13 Pet: Accuracy+13 Mag. Acc.+13",
+              "interpolated": false
+            },
+            "14": {
+              "stats": {
+                "magic_accuracy": 14,
+                "pet_magic_accuracy": 14,
+                "accuracy": 14,
+                "pet_accuracy": 14
+              },
+              "description": "Accuracy+14 Mag. Acc.+14 Pet: Accuracy+14 Mag. Acc.+14",
+              "interpolated": false
+            },
+            "15": {
+              "stats": {
+                "magic_accuracy": 15,
+                "pet_magic_accuracy": 15,
+                "accuracy": 15,
+                "pet_accuracy": 15
+              },
+              "description": "Accuracy+15 Mag. Acc.+15 Pet: Accuracy+15 Mag. Acc.+15",
+              "interpolated": false
+            },
+            "16": {
+              "stats": {
+                "magic_accuracy": 16,
+                "pet_magic_accuracy": 16,
+                "pet_all_attributes": 1,
+                "accuracy": 16,
+                "pet_accuracy": 16
+              },
+              "description": "Accuracy+16 Mag. Acc.+16 Pet: Accuracy+16 Mag. Acc.+16 Pet: All Attr.+1",
+              "interpolated": false
+            },
+            "17": {
+              "stats": {
+                "magic_accuracy": 17,
+                "pet_magic_accuracy": 17,
+                "pet_all_attributes": 2,
+                "accuracy": 17,
+                "pet_accuracy": 17
+              },
+              "description": "Accuracy+17 Mag. Acc.+17 Pet: Accuracy+17 Mag. Acc.+17 Pet: All Attr.+2",
+              "interpolated": false
+            },
+            "18": {
+              "stats": {
+                "magic_accuracy": 18,
+                "pet_magic_accuracy": 18,
+                "pet_all_attributes": 3,
+                "accuracy": 18,
+                "pet_accuracy": 18
+              },
+              "description": "Accuracy+18 Mag. Acc.+18 Pet: Accuracy+18 Mag. Acc.+18 Pet: All Attr.+3",
+              "interpolated": false
+            },
+            "19": {
+              "stats": {
+                "magic_accuracy": 19,
+                "pet_magic_accuracy": 19,
+                "pet_all_attributes": 4,
+                "accuracy": 19,
+                "pet_accuracy": 19
+              },
+              "description": "Accuracy+19 Mag. Acc.+19 Pet: Accuracy+19 Mag. Acc.+19 Pet: All Attr.+4",
+              "interpolated": false
+            },
+            "20": {
+              "stats": {
+                "magic_accuracy": 20,
+                "pet_magic_accuracy": 20,
+                "pet_all_attributes": 5,
+                "accuracy": 20,
+                "pet_accuracy": 20
+              },
+              "description": "Accuracy+20 Mag. Acc.+20 Pet: Accuracy+20 Mag. Acc.+20 Pet: All Attr.+5",
+              "interpolated": false
+            },
+            "21": {
+              "stats": {
+                "magic_accuracy": 21,
+                "pet_magic_accuracy": 21,
+                "pet_all_attributes": 6,
+                "pet_damage_taken": -1,
+                "accuracy": 21,
+                "pet_accuracy": 21
+              },
+              "description": "Accuracy+21 Mag. Acc.+21 Pet: Accuracy+21 Mag. Acc.+21 Pet: All Attr.+6 Pet: Damage taken -1%",
+              "interpolated": false
+            },
+            "22": {
+              "stats": {
+                "magic_accuracy": 22,
+                "pet_magic_accuracy": 22,
+                "pet_all_attributes": 7,
+                "pet_damage_taken": -2,
+                "accuracy": 22,
+                "pet_accuracy": 22
+              },
+              "description": "Accuracy+22 Mag. Acc.+22 Pet: Accuracy+22 Mag. Acc.+22 Pet: All Attr.+7 Pet: Damage taken -2%",
+              "interpolated": false
+            },
+            "23": {
+              "stats": {
+                "magic_accuracy": 23,
+                "pet_magic_accuracy": 23,
+                "pet_all_attributes": 8,
+                "pet_damage_taken": -3,
+                "accuracy": 23,
+                "pet_accuracy": 23
+              },
+              "description": "Accuracy+23 Mag. Acc.+23 Pet: Accuracy+23 Mag. Acc.+23 Pet: All Attr.+8 Pet: Damage taken -3%",
+              "interpolated": false
+            },
+            "24": {
+              "stats": {
+                "magic_accuracy": 24,
+                "pet_magic_accuracy": 24,
+                "pet_all_attributes": 9,
+                "pet_damage_taken": -4,
+                "accuracy": 24,
+                "pet_accuracy": 24
+              },
+              "description": "Accuracy+24 Mag. Acc.+24 Pet: Accuracy+24 Mag. Acc.+24 Pet: All Attr.+9 Pet: Damage taken -4%",
+              "interpolated": false
+            },
+            "25": {
+              "stats": {
+                "magic_accuracy": 25,
+                "pet_magic_accuracy": 25,
+                "pet_all_attributes": 10,
+                "pet_damage_taken": -5,
+                "accuracy": 25,
+                "pet_accuracy": 25
+              },
+              "description": "Accuracy+25 Mag. Acc.+25 Pet: Accuracy+25 Mag. Acc.+25 Pet: All Attr.+10 Pet: Damage taken -5%",
+              "interpolated": false
+            },
+            "26": {
+              "stats": {
+                "magic_accuracy": 26,
+                "pet_magic_accuracy": 26,
+                "pet_all_attributes": 11,
+                "pet_damage_taken": -6,
+                "accuracy": 26,
+                "pet_accuracy": 26
+              },
+              "description": "Accuracy+26 Mag. Acc.+26 Pet: Accuracy+26 Mag. Acc.+26 Pet: All Attr.+11 Pet: Damage taken -6%",
+              "interpolated": false
+            },
+            "27": {
+              "stats": {
+                "magic_accuracy": 27,
+                "pet_magic_accuracy": 27,
+                "pet_all_attributes": 12,
+                "pet_damage_taken": -6,
+                "accuracy": 27,
+                "pet_accuracy": 27
+              },
+              "description": "Accuracy+27 Mag. Acc.+27 Pet: Accuracy+27 Mag. Acc.+27 Pet: All Attr.+12 Pet: Damage taken -6%",
+              "interpolated": false
+            },
+            "28": {
+              "stats": {
+                "magic_accuracy": 28,
+                "pet_magic_accuracy": 28,
+                "pet_all_attributes": 13,
+                "pet_damage_taken": -7,
+                "accuracy": 28,
+                "pet_accuracy": 28
+              },
+              "description": "Accuracy+28 Mag. Acc.+28 Pet: Accuracy+28 Mag. Acc.+28 Pet: All Attr.+13 Pet: Damage taken -7%",
+              "interpolated": false
+            },
+            "29": {
+              "stats": {
+                "magic_accuracy": 29,
+                "pet_magic_accuracy": 29,
+                "pet_all_attributes": 14,
+                "pet_damage_taken": -7,
+                "accuracy": 29,
+                "pet_accuracy": 29
+              },
+              "description": "Accuracy+29 Mag. Acc.+29 Pet: Accuracy+29 Mag. Acc.+29 Pet: All Attr.+14 Pet: Damage taken -7%",
+              "interpolated": false
+            },
+            "30": {
+              "stats": {
+                "magic_accuracy": 30,
+                "pet_magic_accuracy": 30,
+                "pet_all_attributes": 15,
+                "pet_damage_taken": -8,
+                "accuracy": 30,
+                "pet_accuracy": 30
+              },
+              "description": "Accuracy+30 Mag. Acc.+30 Pet: Accuracy+30 Mag. Acc.+30 Pet: All Attr.+15 Pet: Damage taken -8%",
+              "interpolated": false
+            }
+          },
+          "is_complete": true
+        }
+      }
+    }
+  },
+  "metadata": {
+    "version": "2.0",
+    "interpolation_note": "Items with interpolation_applied=true have generated rank data based on max values"
+  }
+}

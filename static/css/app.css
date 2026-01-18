@@ -1,0 +1,596 @@
+/**
+ * FFXI Gear Set Optimizer - Custom Styles
+ * 
+ * Additional styles beyond Tailwind for the FFXI-themed UI
+ */
+
+/* =============================================================================
+   BASE STYLES
+   ============================================================================= */
+
+* {
+    scrollbar-width: thin;
+    scrollbar-color: #1e2630 #0a0e14;
+}
+
+*::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+    background: #0a0e14;
+}
+
+*::-webkit-scrollbar-thumb {
+    background: #1e2630;
+    border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background: #2a3640;
+}
+
+::selection {
+    background: rgba(201, 162, 39, 0.3);
+    color: #fff;
+}
+
+/* =============================================================================
+   FORM ELEMENTS
+   ============================================================================= */
+
+.input-field {
+    background: #0a0e14;
+    border: 1px solid #1e2630;
+    border-radius: 0.375rem;
+    padding: 0.5rem 0.75rem;
+    color: #e8e6e3;
+    font-size: 0.875rem;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.input-field:focus {
+    outline: none;
+    border-color: #c9a227;
+    box-shadow: 0 0 0 2px rgba(201, 162, 39, 0.2);
+}
+
+.input-field:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.input-field option {
+    background: #12171f;
+    color: #e8e6e3;
+}
+
+.checkbox {
+    width: 1rem;
+    height: 1rem;
+    accent-color: #c9a227;
+    cursor: pointer;
+}
+
+/* =============================================================================
+   BUTTONS
+   ============================================================================= */
+
+.btn-primary {
+    background: linear-gradient(135deg, #c9a227 0%, #8b7119 100%);
+    color: #0a0e14;
+    font-weight: 600;
+    padding: 0.625rem 1.25rem;
+    border-radius: 0.375rem;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.1s, box-shadow 0.2s, opacity 0.2s;
+    font-family: 'Cinzel', serif;
+    letter-spacing: 0.025em;
+}
+
+.btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(201, 162, 39, 0.3);
+}
+
+.btn-primary:active {
+    transform: translateY(0);
+}
+
+.btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.btn-secondary {
+    background: #1e2630;
+    color: #e8e6e3;
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    border: 1px solid #2a3640;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+    font-size: 0.875rem;
+}
+
+.btn-secondary:hover {
+    background: #2a3640;
+    border-color: #c9a227;
+}
+
+/* =============================================================================
+   TABS
+   ============================================================================= */
+
+.tab-btn {
+    padding: 0.75rem 1.25rem;
+    color: #8b9298;
+    font-size: 0.875rem;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+    cursor: pointer;
+    background: transparent;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+}
+
+.tab-btn:hover {
+    color: #e8e6e3;
+}
+
+.tab-btn.active {
+    color: #c9a227;
+    border-bottom-color: #c9a227;
+}
+
+.tab-panel {
+    animation: fadeIn 0.2s ease-out;
+}
+
+/* =============================================================================
+   SEARCHABLE DROPDOWN
+   ============================================================================= */
+
+.searchable-dropdown {
+    position: relative;
+}
+
+.dropdown-list {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: #12171f;
+    border: 1px solid #1e2630;
+    border-radius: 0.375rem;
+    margin-top: 0.25rem;
+    max-height: 300px;
+    overflow-y: auto;
+    z-index: 50;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.dropdown-item {
+    padding: 0.625rem 0.75rem;
+    cursor: pointer;
+    transition: background 0.15s;
+    border-bottom: 1px solid #1e2630;
+}
+
+.dropdown-item:last-child {
+    border-bottom: none;
+}
+
+.dropdown-item:hover {
+    background: #1e2630;
+}
+
+.dropdown-item .font-medium {
+    color: #e8e6e3;
+}
+
+/* =============================================================================
+   MODAL
+   ============================================================================= */
+
+.modal {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.modal.hidden {
+    display: none;
+}
+
+.modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(4px);
+}
+
+.modal-content {
+    position: relative;
+    background: #12171f;
+    border: 1px solid #1e2630;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    max-height: 90vh;
+    overflow-y: auto;
+    width: 100%;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    animation: slideUp 0.3s ease-out;
+}
+
+/* =============================================================================
+   LOADING SPINNER
+   ============================================================================= */
+
+.loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #1e2630;
+    border-top-color: #c9a227;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+/* =============================================================================
+   RESULT CARDS
+   ============================================================================= */
+
+.result-card {
+    position: relative;
+    overflow: hidden;
+}
+
+.result-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #c9a227, transparent);
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.result-card:hover::before {
+    opacity: 1;
+}
+
+/* =============================================================================
+   BUFF/DEBUFF ITEMS
+   ============================================================================= */
+
+.buff-item,
+.debuff-item {
+    animation: fadeIn 0.2s ease-out;
+}
+
+.buff-item button,
+.debuff-item button {
+    opacity: 0.6;
+    font-size: 1.25rem;
+    line-height: 1;
+    transition: opacity 0.2s;
+}
+
+.buff-item:hover button,
+.debuff-item:hover button {
+    opacity: 1;
+}
+
+/* =============================================================================
+   GEAR SLOT GRID
+   ============================================================================= */
+
+.gear-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem;
+}
+
+.gear-slot {
+    background: #0a0e14;
+    border: 1px solid #1e2630;
+    border-radius: 0.375rem;
+    padding: 0.5rem;
+    text-align: center;
+    font-size: 0.75rem;
+    transition: border-color 0.2s;
+}
+
+.gear-slot:hover {
+    border-color: #c9a227;
+}
+
+.gear-slot .slot-name {
+    color: #8b9298;
+    text-transform: uppercase;
+    font-size: 0.625rem;
+    margin-bottom: 0.25rem;
+}
+
+.gear-slot .item-name {
+    color: #e8e6e3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* =============================================================================
+   TOAST NOTIFICATIONS
+   ============================================================================= */
+
+.toast {
+    animation: slideIn 0.3s ease-out;
+}
+
+.animate-slide-out {
+    animation: slideOut 0.3s ease-out forwards;
+}
+
+/* =============================================================================
+   INVENTORY GRID
+   ============================================================================= */
+
+.inventory-item {
+    background: #0a0e14;
+    border: 1px solid #1e2630;
+    border-radius: 0.375rem;
+    padding: 0.75rem;
+    transition: border-color 0.2s, transform 0.2s;
+}
+
+.inventory-item:hover {
+    border-color: #c9a227;
+    transform: translateY(-2px);
+}
+
+.inventory-item .item-icon {
+    width: 32px;
+    height: 32px;
+    background: #1e2630;
+    border-radius: 0.25rem;
+}
+
+/* =============================================================================
+   RANGE SLIDER
+   ============================================================================= */
+
+input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 6px;
+    background: #1e2630;
+    border-radius: 3px;
+    cursor: pointer;
+    outline: none;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 6px;
+    background: #1e2630;
+    border-radius: 3px;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    background: #c9a227;
+    border-radius: 50%;
+    cursor: pointer;
+    margin-top: -6px;
+    transition: transform 0.1s, box-shadow 0.1s;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+    box-shadow: 0 0 8px rgba(201, 162, 39, 0.5);
+}
+
+input[type="range"]::-moz-range-track {
+    width: 100%;
+    height: 6px;
+    background: #1e2630;
+    border-radius: 3px;
+}
+
+input[type="range"]::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    background: #c9a227;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+input[type="range"]::-moz-range-thumb:hover {
+    box-shadow: 0 0 8px rgba(201, 162, 39, 0.5);
+}
+
+input[type="range"]:focus {
+    outline: none;
+}
+
+input[type="range"]:focus::-webkit-slider-thumb {
+    box-shadow: 0 0 8px rgba(201, 162, 39, 0.6);
+}
+
+/* =============================================================================
+   ANIMATIONS
+   ============================================================================= */
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(100%);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes slideOut {
+    from {
+        opacity: 1;
+        transform: translateX(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateX(100%);
+    }
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* =============================================================================
+   RESPONSIVE ADJUSTMENTS
+   ============================================================================= */
+
+@media (max-width: 1024px) {
+    #sidebar {
+        width: 260px;
+    }
+    
+    #results-panel {
+        width: 320px;
+    }
+}
+
+@media (max-width: 768px) {
+    .flex-1.flex.overflow-hidden {
+        flex-direction: column;
+    }
+    
+    #sidebar,
+    #results-panel {
+        width: 100%;
+        max-height: 50vh;
+    }
+    
+    .gear-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* =============================================================================
+   CODE/LUA OUTPUT
+   ============================================================================= */
+
+#lua-output {
+    font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: #a0c4ff;
+    white-space: pre;
+    tab-size: 4;
+}
+
+/* =============================================================================
+   DECORATIVE ELEMENTS
+   ============================================================================= */
+
+/* Subtle grain texture overlay */
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+    opacity: 0.02;
+    pointer-events: none;
+    z-index: 1000;
+}
+
+/* Gold accent line at top of page */
+body::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, 
+        transparent, 
+        #8b7119 20%, 
+        #c9a227 50%, 
+        #8b7119 80%, 
+        transparent
+    );
+    z-index: 1001;
+}
+
+/* Header shadow */
+header {
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+/* Panel shadows */
+#sidebar,
+#results-panel {
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.2);
+}
+
+/* Stats Panel */
+#stats-panel {
+    background: #0d1117;
+    min-height: 100px;
+}
+
+#stats-panel .bg-ffxi-darker {
+    background: #161b22;
+}
+
+#stats-panel .bg-ffxi-dark {
+    background: #1e2630;
+}
+
+#stats-content {
+    background: #0d1117;
+}
