@@ -25,7 +25,7 @@ A web-based interface for the FFXI Gear Set Optimizer that uses beam search and 
 - Python 3.10+
 - Required packages (install via pip):
   ```bash
-  pip install fastapi uvicorn python-multipart numba numpy
+  pip install fastapi pydantic uvicorn python-multipart numba numpy
   ```
 
 ## Quick Start
