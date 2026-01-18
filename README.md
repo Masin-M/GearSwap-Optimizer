@@ -13,3 +13,6 @@ Also, this code is not completed. I'll come back to it eventually, but right now
 I'd like to thank bg-wiki, kastra for ws-dist, and all the people that worked to figure out the equations and quirks of the game. This simulator wouldn't be possible without wsdist as the TP and WS simulations just run a compatability layer and item stat parser that feeds the original wsdist.
 
 The augments field is not quite completed yet, but i'll make a note of it when I upload the completed set after i've finished parsing it.
+
+
+For a full walkthrough of installation requirements and other details please see README_WEBUI.md.
