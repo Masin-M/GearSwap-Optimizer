@@ -6,9 +6,9 @@
     <title>FFXI Gear Optimizer</title>
     <!-- Favicons -->
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
-    <link rel="icon" type="image/png" sizes="32x32" href="/static/icons_app/icon_32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="/static/icons_app/icon_16.png">
-    <link rel="apple-touch-icon" sizes="256x256" href="/static/icons_app/icon_256.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon_32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon_16.png">
+    <link rel="apple-touch-icon" sizes="256x256" href="/static/icons/icon_256.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1390,12 +1390,20 @@
                                 <div class="bg-ffxi-panel border border-ffxi-border rounded-lg p-6">
                                     <div class="flex items-center justify-between mb-4">
                                         <h3 class="text-sm font-semibold text-ffxi-accent">Optimization Complete</h3>
-                                        <button id="btn-lua-download" class="btn-primary text-sm">
-                                            <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                                            </svg>
-                                            Download Optimized Lua
-                                        </button>
+                                        <div class="flex items-center gap-4">
+                                            <div class="flex items-center gap-2">
+                                                <input type="checkbox" id="lua-comment-weapons" class="w-4 h-4 rounded bg-ffxi-darker border-ffxi-border text-ffxi-accent focus:ring-ffxi-accent" checked>
+                                                <label for="lua-comment-weapons" class="text-xs text-ffxi-text-dim" title="Comment out main/sub weapons to prevent TP loss from weapon swapping">
+                                                    Comment out weapons
+                                                </label>
+                                            </div>
+                                            <button id="btn-lua-download" class="btn-primary text-sm">
+                                                <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                                                </svg>
+                                                Download Optimized Lua
+                                            </button>
+                                        </div>
                                     </div>
                                     
                                     <div class="grid grid-cols-3 gap-4 mb-4">
