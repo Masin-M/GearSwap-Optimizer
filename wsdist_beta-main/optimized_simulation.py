@@ -908,6 +908,285 @@ def simulate_attack_round(player, enemy, starting_tp, ws_threshold):
 
 
 # =============================================================================
+# Time to WS Monte Carlo simulation
+# =============================================================================
+
+def simulate_time_to_ws(player, enemy, starting_tp, ws_threshold, n_rounds=1000):
+    """
+    Calculate time_to_ws using Monte Carlo simulation.
+    
+    Runs n_rounds simulations of attack rounds and averages the TP return
+    to calculate the expected time to reach WS threshold.
+    
+    Args:
+        player: Player object with stats and gearset
+        enemy: Enemy object with stats
+        starting_tp: Starting TP value
+        ws_threshold: TP threshold for using WS (usually 1000)
+        n_rounds: Number of simulation rounds (default 1000)
+    
+    Returns:
+        Tuple matching average_attack_round's simulation=False format:
+        (time_to_ws, [damage, tp_per_round, time_per_round, invert], magic_damage)
+    """
+    from get_fstr import get_fstr, get_fstr2
+    from get_hit_rate import get_hit_rate
+    from get_dex_crit import get_dex_crit
+    from get_delay_timing import get_delay_timing
+    
+    # ===================
+    # Extract parameters once (same as simulate_attack_round)
+    # ===================
+    
+    dual_wield = (player.gearset["sub"].get("Type", None) == "Weapon") or (player.gearset["main"]["Skill Type"] == "Hand-to-Hand")
+    main_skill_type = player.gearset["main"]["Skill Type"]
+    sub_skill_type = player.gearset["sub"].get("Skill Type", None) if main_skill_type != "Hand-to-Hand" else "Hand-to-Hand"
+    
+    # Convert skill types to IDs
+    main_skill_id = get_weapon_skill_id(main_skill_type)
+    sub_skill_id = get_weapon_skill_id(sub_skill_type) if sub_skill_type else 0
+    ammo_skill_type = player.gearset["ammo"].get("Skill Type", "None")
+    ammo_skill_id = get_ranged_skill_id(ammo_skill_type)
+    
+    # Damage values
+    main_dmg = player.stats["DMG1"]
+    sub_dmg = player.stats["DMG2"]
+    kick_dmg = player.stats.get("Kick DMG", 0)
+    ammo_dmg = player.stats.get("Ammo DMG", 0)
+    
+    # fSTR
+    fstr_main = get_fstr(main_dmg, player.stats["STR"], enemy.stats["VIT"])
+    fstr_sub = get_fstr(sub_dmg, player.stats["STR"], enemy.stats["VIT"])
+    fstr_kick = get_fstr(kick_dmg, player.stats["STR"], enemy.stats.get("VIT", 0))
+    fstr_ammo = get_fstr2(ammo_dmg, player.stats["STR"], enemy.stats["VIT"])
+    
+    # Attack values
+    attack1 = player.stats["Attack1"]
+    attack2 = player.stats["Attack2"]
+    if main_skill_type == "Hand-to-Hand":
+        attack2 = attack1
+    ranged_attack = player.stats.get("Ranged Attack", 0)
+    kick_attack = attack1 + player.stats.get("Kick Attacks Attack", 0)
+    
+    # PDL
+    pdl_trait = player.stats.get("PDL Trait", 0) / 100
+    pdl_gear = player.stats.get("PDL", 0) / 100
+    
+    # Hit rates
+    enemy_evasion = enemy.stats["Evasion"]
+    enemy_defense = enemy.stats["Defense"]
+    
+    one_handed = ["Axe", "Club", "Dagger", "Sword", "Katana"]
+    hit_rate_cap_main = 0.99 if main_skill_type in one_handed or main_skill_type == "Hand-to-Hand" else 0.95
+    hit_rate_cap_sub = 0.99 if sub_skill_type == "Hand-to-Hand" else 0.95
+    
+    accuracy1 = player.stats["Accuracy1"]
+    accuracy2 = player.stats["Accuracy2"]
+    
+    hit_rate11 = get_hit_rate(accuracy1, enemy_evasion, hit_rate_cap_main)
+    hit_rate12 = get_hit_rate(accuracy1, enemy_evasion, hit_rate_cap_main)
+    hit_rate21 = get_hit_rate(accuracy2, enemy_evasion, hit_rate_cap_sub) if dual_wield else 0.0
+    hit_rate22 = get_hit_rate(accuracy2, enemy_evasion, hit_rate_cap_sub) if dual_wield else 0.0
+    
+    ranged_accuracy = player.stats.get("Ranged Accuracy", 0) + 100 * (player.stats.get("Daken", 0) > 0)
+    hit_rate_ranged = get_hit_rate(ranged_accuracy, enemy_evasion, 0.95)
+    
+    zanshin_hit_rate = get_hit_rate(accuracy1 + 34, enemy_evasion, 0.95)
+    
+    # Crit
+    crit_rate = player.stats.get("Crit Rate", 0) / 100 + get_dex_crit(player.stats["DEX"], enemy.stats["AGI"])
+    crit_rate = min(1.0, crit_rate)
+    crit_dmg = player.stats.get("Crit Damage", 0) / 100
+    
+    # Tauret crit bonus
+    tauret_crit_bonus = 0.5 * (1 - starting_tp / 3000) if player.gearset["main"]["Name"] == "Tauret" else 0.0
+    
+    # Multi-attack rates
+    qa = min(1.0, player.stats.get("QA", 0) / 100)
+    ta = min(1.0, player.stats.get("TA", 0) / 100)
+    da = min(1.0, player.stats.get("DA", 0) / 100)
+    
+    oa3_main = player.stats.get("OA3 main", 0) / 100
+    oa2_main = player.stats.get("OA2 main", 0) / 100
+    oa8_sub = player.stats.get("OA8 sub", 0) / 100
+    oa7_sub = player.stats.get("OA7 sub", 0) / 100
+    oa6_sub = player.stats.get("OA6 sub", 0) / 100
+    oa5_sub = player.stats.get("OA5 sub", 0) / 100
+    oa4_sub = player.stats.get("OA4 sub", 0) / 100
+    oa3_sub = player.stats.get("OA3 sub", 0) / 100
+    oa2_sub = player.stats.get("OA2 sub", 0) / 100
+    
+    # Special attacks
+    daken = min(1.0, player.stats.get("Daken", 0) / 100)
+    kickattacks = min(1.0, player.stats.get("Kick Attacks", 0) / 100)
+    zanshin = min(1.0, player.stats.get("Zanshin", 0) / 100)
+    zanhasso = player.stats.get("Zanhasso", 0) / 100
+    zanshin_oa2 = player.stats.get("Zanshin OA2", 0) / 100
+    
+    # Flags
+    is_h2h = main_skill_type == "Hand-to-Hand"
+    two_handed = ["Great Sword", "Great Katana", "Great Axe", "Polearm", "Scythe", "Staff"]
+    is_two_handed = main_skill_type in two_handed
+    
+    # Delay/TP
+    base_delay = (player.stats["Delay1"] + player.stats["Delay2"]) / 2
+    mdelay = (base_delay - player.stats.get("Martial Arts", 0)) * (1 - player.stats.get("Dual Wield", 0) / 100)
+    stp = player.stats.get("Store TP", 0) / 100
+    
+    # Karambit STP bonus
+    if player.gearset["main"]["Name"] == "Karambit":
+        stp += 0.5 * crit_rate
+    
+    is_sam_main = player.main_job.lower() == "sam"
+    
+    # EnSpell damage
+    enspell_active = player.abilities.get("EnSpell", False) or player.abilities.get("Endark II", False) or player.abilities.get("Enlight II", False)
+    main_enspell_damage = 0.0
+    sub_enspell_damage = 0.0
+    if enspell_active:
+        enhancing_skill = player.abilities.get("Enhancing Skill", 0)
+        main_enspell_damage = 3 + enhancing_skill * 0.1  # Placeholder
+        sub_enspell_damage = main_enspell_damage * 0.5 if dual_wield else 0.0
+    
+    # Special weapon procs
+    relic_weapons30 = ["Mandau", "Excalibur", "Ragnarok", "Guttler", "Bravura", "Apocalypse", 
+                       "Gungnir", "Kikoku", "Amanomurakumo", "Mjollnir", "Claustrum", "Yoichinoyumi"]
+    relic_proc_rate = 0.13 if player.gearset["main"]["Name"] in relic_weapons30 else 0.0
+    relic_damage_mult = 3.0 if relic_proc_rate > 0 else 1.0
+    
+    prime_weapons3 = ["Varga Purnikawa V", "Mpu Gandring V", "Caliburnus V", "Helheim V", "Spalirisos V",
+                      "Laphria V", "Foenaria V", "Gae Buide V", "Dokoku V", "Kusanagi no Tsurugi V",
+                      "Lorg Mor V", "Opashoro V"]
+    prime_weapons2 = ["Varga Purnikawa IV", "Mpu Gandring IV", "Caliburnus IV", "Helheim IV", "Spalirisos IV",
+                      "Laphria IV", "Foenaria IV", "Gae Buide IV", "Dokoku IV", "Kusanagi no Tsurugi IV",
+                      "Lorg Mor IV", "Opashoro IV"]
+    main_name2 = player.gearset["main"].get("Name2", "")
+    if main_name2 in prime_weapons3:
+        prime_proc_rate = 0.3
+        prime_damage_mult = 3.0
+    elif main_name2 in prime_weapons2:
+        prime_proc_rate = 0.3
+        prime_damage_mult = 2.0
+    else:
+        prime_proc_rate = 0.0
+        prime_damage_mult = 1.0
+    
+    # Empyrean aftermath
+    empyrean_weapons = ["Twashtar", "Almace", "Caladbolg", "Farsha", "Ukonvasara", "Redemption",
+                        "Rhongomiant", "Kannagi", "Masamune", "Gambanteinn", "Hvergelmir", "Gandiva"]
+    aftermath = player.abilities.get("Aftermath", 0)
+    empyrean_am = [0.3, 0.4, 0.5]  # AM1, AM2, AM3
+    if player.gearset["main"]["Name"] in empyrean_weapons and aftermath > 0:
+        empyrean_am_rate = empyrean_am[aftermath - 1]
+        empyrean_damage_mult = 3.0
+    else:
+        empyrean_am_rate = 0.0
+        empyrean_damage_mult = 1.0
+    
+    # DA/TA damage bonuses
+    da_dmg = player.stats.get("DA Damage%", 0) / 100
+    ta_dmg = player.stats.get("TA Damage%", 0) / 100
+    
+    # Dragon Fangs kick bonus
+    dragon_fangs_kick_mult = 1.0
+    if player.gearset["main"].get("Name2", "") == "Dragon Fangs":
+        dragon_fangs_kick_mult = 1.0 + 1.0 * 0.2  # 20% chance to double
+    
+    # ===================
+    # Calculate time_per_round (deterministic)
+    # ===================
+    delay2_for_timing = player.stats["Delay2"] if dual_wield and main_skill_type != "Hand-to-Hand" else 0
+    time_per_round = get_delay_timing(
+        player.stats["Delay1"],
+        delay2_for_timing,
+        player.stats.get("Dual Wield", 0) / 100,
+        player.stats.get("Martial Arts", 0),
+        player.stats.get("Magic Haste", 0),
+        player.stats.get("JA Haste", 0),
+        player.stats.get("Gear Haste", 0),
+    )
+    time_per_round = max(0, time_per_round)
+    
+    # ===================
+    # Pre-generate random numbers for all rounds
+    # ===================
+    all_randoms = np.random.uniform(0, 1, (n_rounds, 200))
+    
+    # ===================
+    # Run simulation loop
+    # ===================
+    tp_returns = np.empty(n_rounds)
+    phys_damages = np.empty(n_rounds)
+    magic_damages = np.empty(n_rounds)
+    
+    for i in range(n_rounds):
+        phys, magic, tp_ret = simulate_attack_round_kernel(
+            main_dmg, sub_dmg, fstr_main, fstr_sub, kick_dmg, fstr_kick, ammo_dmg, fstr_ammo,
+            attack1, attack2, ranged_attack, kick_attack,
+            main_skill_id, sub_skill_id, ammo_skill_id,
+            pdl_trait, pdl_gear,
+            hit_rate11, hit_rate12, hit_rate21, hit_rate22, hit_rate_ranged, zanshin_hit_rate,
+            crit_rate, crit_dmg,
+            qa, ta, da,
+            oa3_main, oa2_main,
+            oa8_sub, oa7_sub, oa6_sub, oa5_sub, oa4_sub, oa3_sub, oa2_sub,
+            daken, kickattacks, zanshin, zanhasso, zanshin_oa2,
+            dual_wield, is_h2h, is_two_handed,
+            mdelay, stp, is_sam_main,
+            main_enspell_damage, sub_enspell_damage, enspell_active,
+            enemy_defense,
+            relic_proc_rate, relic_damage_mult,
+            prime_proc_rate, prime_damage_mult,
+            empyrean_am_rate, empyrean_damage_mult,
+            tauret_crit_bonus,
+            da_dmg, ta_dmg,
+            dragon_fangs_kick_mult,
+            all_randoms[i]
+        )
+        tp_returns[i] = tp_ret
+        phys_damages[i] = phys
+        magic_damages[i] = magic
+    
+    # ===================
+    # Calculate averages
+    # ===================
+    avg_tp_return = np.mean(tp_returns)
+    avg_phys_damage = np.mean(phys_damages)
+    avg_magic_damage = np.mean(magic_damages)
+    
+    # ===================
+    # Add regain contribution
+    # ===================
+    regain = player.stats.get("Regain", 0)
+    # Gokotai special case
+    regain += player.stats.get("Dual Wield", 0) * (player.gearset["main"]["Name"] == "Gokotai")
+    # Regain ticks every 3 seconds
+    regain_per_round = (time_per_round / 3) * regain
+    avg_tp_return += regain_per_round
+    
+    # ===================
+    # Calculate time to WS
+    # ===================
+    tp_needed = ws_threshold - starting_tp
+    if avg_tp_return > 0:
+        attacks_to_ws = tp_needed / avg_tp_return
+        time_to_ws = time_per_round * attacks_to_ws
+    else:
+        time_to_ws = 9999  # Fallback for zero TP return
+    
+    # ===================
+    # Calculate total damage per round
+    # ===================
+    damage_per_round = avg_phys_damage + avg_magic_damage
+    
+    # ===================
+    # Return in expected format: (metric, [damage, tp_per_round, time_per_round, invert], magic_damage)
+    # For "Time to WS", invert = -1 (lower is better)
+    # ===================
+    return (time_to_ws, [damage_per_round, avg_tp_return, time_per_round, -1], avg_magic_damage)
+
+
+# =============================================================================
 # Weapon Skill simulation kernel
 # =============================================================================
 

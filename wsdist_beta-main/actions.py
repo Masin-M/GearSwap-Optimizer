@@ -189,6 +189,12 @@ def average_attack_round(player, enemy, starting_tp, ws_threshold, input_metric,
     # starting_tp = starting TP value.
     # ending_tp = TP threshold (use WS after this TP value is reached)
     #
+    
+    # Dispatch to optimized Monte Carlo simulation for Time to WS
+    if simulation and input_metric == "Time to WS":
+        from optimized_simulation import simulate_time_to_ws
+        return simulate_time_to_ws(player, enemy, starting_tp, ws_threshold)
+    
     dual_wield = (player.gearset["sub"].get("Type",None) == "Weapon") or (player.gearset["main"]["Skill Type"] == "Hand-to-Hand")
 
     verbose_dps = player.abilities.get("Verbose DPS", False)
