@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FFXI Gear Optimizer</title>
+    <!-- Favicons -->
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/icons_app/icon_32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/icons_app/icon_16.png">
+    <link rel="apple-touch-icon" sizes="256x256" href="/static/icons_app/icon_256.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -107,6 +112,36 @@
                         <div id="job-jp-info" class="text-xs text-ffxi-text-dim hidden">
                             <!-- Populated by JS based on job gifts data -->
                         </div>
+                    </div>
+                    
+                    <!-- Sub Job Selection -->
+                    <div class="space-y-2">
+                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim">Sub Job</label>
+                        <select id="subjob-select" class="input-field w-full">
+                            <option value="WAR">WAR - Warrior</option>
+                            <option value="MNK">MNK - Monk</option>
+                            <option value="WHM">WHM - White Mage</option>
+                            <option value="BLM">BLM - Black Mage</option>
+                            <option value="RDM">RDM - Red Mage</option>
+                            <option value="THF">THF - Thief</option>
+                            <option value="PLD">PLD - Paladin</option>
+                            <option value="DRK">DRK - Dark Knight</option>
+                            <option value="BST">BST - Beastmaster</option>
+                            <option value="BRD">BRD - Bard</option>
+                            <option value="RNG">RNG - Ranger</option>
+                            <option value="SAM">SAM - Samurai</option>
+                            <option value="NIN">NIN - Ninja</option>
+                            <option value="DRG">DRG - Dragoon</option>
+                            <option value="SMN">SMN - Summoner</option>
+                            <option value="BLU">BLU - Blue Mage</option>
+                            <option value="COR">COR - Corsair</option>
+                            <option value="PUP">PUP - Puppetmaster</option>
+                            <option value="DNC">DNC - Dancer</option>
+                            <option value="SCH">SCH - Scholar</option>
+                            <option value="GEO">GEO - Geomancer</option>
+                            <option value="RUN">RUN - Rune Fencer</option>
+                        </select>
+                        <p id="subjob-hint" class="text-xs text-ffxi-text-dim">Affects DW trait, stats, and simulation</p>
                     </div>
                     
                     <!-- Master Level -->
@@ -1119,7 +1154,7 @@
                                         <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
                                             Beam Width
                                         </label>
-                                        <input type="number" id="lua-beam-width" class="input-field w-full" value="50" min="5" max="100">
+                                        <input type="number" id="lua-beam-width" class="input-field w-full" value="50" min="5" max="10000">
                                         <p class="text-xs text-ffxi-text-dim mt-1">Higher = better results, slower</p>
                                     </div>
                                 </div>
@@ -1689,6 +1724,18 @@
                         <p class="text-ffxi-text text-sm mb-1">Drop inventory_*.csv here</p>
                         <p class="text-ffxi-text-dim text-xs">Your gear and equipment data</p>
                         <input type="file" id="file-input" class="hidden" accept=".csv">
+                    </div>
+                    <!-- Cached Data Notice -->
+                    <div id="cached-data-notice" class="hidden bg-ffxi-blue/10 border border-ffxi-blue/30 rounded-lg p-3">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-ffxi-blue">📦 Inventory data cached in browser</p>
+                                <p class="text-xs text-ffxi-text-dim mt-1">Data will be restored automatically on reload</p>
+                            </div>
+                            <button id="btn-clear-cache" class="text-xs px-2 py-1 rounded bg-ffxi-red/20 text-ffxi-red hover:bg-ffxi-red/30 transition-colors">
+                                Clear Cache
+                            </button>
+                        </div>
                     </div>
                     <div id="upload-status" class="hidden">
                         <p class="text-sm"></p>

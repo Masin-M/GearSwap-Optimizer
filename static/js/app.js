@@ -49,6 +49,7 @@ const AppState = {
         food: '',
         debuffs: [],
         target: 'apex_toad',
+        beamWidth: 10000,
     },
     
     // WS Tab State (separate from TP)
@@ -63,6 +64,7 @@ const AppState = {
         food: '',
         debuffs: [],
         target: 'apex_toad',
+        beamWidth: 10000,
         useSimulation: true,
     },
     
@@ -76,7 +78,7 @@ const AppState = {
         skillchainSteps: 2,
         includeWeapons: false,
         target: 'apex_mob',
-        beamWidth: 100,
+        beamWidth: 10000,
         buffs: {
             geo: [],
             cor: [],
@@ -90,6 +92,126 @@ const AppState = {
     spellCategories: [],
     spellsByCategory: {},
 };
+
+// =============================================================================
+// LOCAL STORAGE PERSISTENCE
+// =============================================================================
+
+const STORAGE_KEYS = {
+    JOB: 'ffxi_selected_job',
+    SUBJOB: 'ffxi_selected_subjob',
+    MAIN_WEAPON: 'ffxi_main_weapon',
+    SUB_WEAPON: 'ffxi_sub_weapon',
+    MASTER_LEVEL: 'ffxi_master_level',
+    INVENTORY_DATA: 'ffxi_inventory_data',
+    INVENTORY_CHAR: 'ffxi_inventory_char',
+    JOB_GIFTS_DATA: 'ffxi_job_gifts_data',
+};
+
+function saveToLocalStorage(key, value) {
+    try {
+        if (value === null || value === undefined) {
+            localStorage.removeItem(key);
+        } else if (typeof value === 'object') {
+            localStorage.setItem(key, JSON.stringify(value));
+        } else {
+            localStorage.setItem(key, value);
+        }
+    } catch (e) {
+        console.warn('Failed to save to localStorage:', e);
+    }
+}
+
+function loadFromLocalStorage(key, defaultValue = null) {
+    try {
+        const value = localStorage.getItem(key);
+        if (value === null) return defaultValue;
+        
+        // Try to parse as JSON, fallback to raw value
+        try {
+            return JSON.parse(value);
+        } catch {
+            return value;
+        }
+    } catch (e) {
+        console.warn('Failed to load from localStorage:', e);
+        return defaultValue;
+    }
+}
+
+function clearStoredInventory() {
+    localStorage.removeItem(STORAGE_KEYS.INVENTORY_DATA);
+    localStorage.removeItem(STORAGE_KEYS.INVENTORY_CHAR);
+}
+
+function clearStoredJobGifts() {
+    localStorage.removeItem(STORAGE_KEYS.JOB_GIFTS_DATA);
+}
+
+// Helper to update DW hint based on sub job
+function updateDWHint() {
+    const dwHint = document.getElementById('dw-hint');
+    const subjob = AppState.selectedSubJob?.toUpperCase() || '';
+    
+    if (dwHint) {
+        const dwSubJobs = ['NIN', 'DNC'];
+        if (dwSubJobs.includes(subjob)) {
+            dwHint.textContent = `/${subjob} provides Dual Wield trait`;
+            dwHint.classList.add('text-ffxi-green');
+            dwHint.classList.remove('text-ffxi-text-dim');
+        } else {
+            dwHint.textContent = 'Enable if using /NIN, /DNC, or DW from gear';
+            dwHint.classList.remove('text-ffxi-green');
+            dwHint.classList.add('text-ffxi-text-dim');
+        }
+    }
+}
+
+function handleClearCache() {
+    // Clear all cached data
+    clearStoredInventory();
+    clearStoredJobGifts();
+    localStorage.removeItem(STORAGE_KEYS.JOB);
+    localStorage.removeItem(STORAGE_KEYS.SUBJOB);
+    localStorage.removeItem(STORAGE_KEYS.MAIN_WEAPON);
+    localStorage.removeItem(STORAGE_KEYS.SUB_WEAPON);
+    localStorage.removeItem(STORAGE_KEYS.MASTER_LEVEL);
+    
+    // Update UI
+    updateCachedDataNotice();
+    showToast('Cache cleared. Reload page to reset all selections.', 'info');
+}
+
+function updateCachedDataNotice() {
+    const notice = document.getElementById('cached-data-notice');
+    const cachedInventory = loadFromLocalStorage(STORAGE_KEYS.INVENTORY_DATA);
+    const cachedJobGifts = loadFromLocalStorage(STORAGE_KEYS.JOB_GIFTS_DATA);
+    
+    if (notice) {
+        // Check if we have cached data (inventory is now a CSV string, job gifts is an object)
+        const hasInventory = cachedInventory && typeof cachedInventory === 'string' && cachedInventory.length > 0;
+        const hasJobGifts = cachedJobGifts && typeof cachedJobGifts === 'object' && Object.keys(cachedJobGifts).length > 0;
+        
+        if (hasInventory || hasJobGifts) {
+            notice.classList.remove('hidden');
+            
+            // Update the notice text to show what's cached
+            const noticeText = notice.querySelector('p.text-ffxi-blue');
+            if (noticeText) {
+                const parts = [];
+                if (hasInventory) {
+                    parts.push('Inventory');
+                }
+                if (hasJobGifts) {
+                    parts.push('Job Points');
+                }
+                noticeText.textContent = `📦 ${parts.join(' & ')} data cached in browser`;
+            }
+        } else {
+            notice.classList.add('hidden');
+        }
+    }
+}
 
 // =============================================================================
 // API FUNCTIONS
@@ -301,6 +423,9 @@ function updateStatusIndicator(status) {
     } else if (status === 'loading') {
         indicator.textContent = 'Loading...';
         indicator.className = 'text-xs px-2 py-1 rounded bg-ffxi-accent/20 text-ffxi-accent';
+    } else if (status === 'cached') {
+        indicator.textContent = 'Cached Data';
+        indicator.className = 'text-xs px-2 py-1 rounded bg-ffxi-blue/20 text-ffxi-blue';
     } else {
         indicator.textContent = 'No Inventory';
         indicator.className = 'text-xs px-2 py-1 rounded bg-ffxi-dark text-ffxi-text-dim';
@@ -399,6 +524,9 @@ function createSearchableDropdown(containerId, options, onSelect, placeholder = 
 async function initializeApp() {
     console.log('Initializing FFXI Gear Optimizer...');
     
+    // Restore saved data from localStorage first
+    await restoreSavedData();
+    
     // Check API status
     try {
         const status = await API.getStatus();
@@ -410,7 +538,30 @@ async function initializeApp() {
             updateStatusIndicator('ready');
             updateInventorySummary(status.item_count, status.inventory_filename);
         } else {
-            updateStatusIndicator('no_inventory');
+            // Check if we have cached inventory data to reload
+            const cachedInventory = loadFromLocalStorage(STORAGE_KEYS.INVENTORY_DATA);
+            if (cachedInventory) {
+                updateStatusIndicator('cached');
+                // Try to reload from cache
+                await reloadCachedInventory();
+            } else {
+                updateStatusIndicator('no_inventory');
+            }
+        }
+        
+        // Check for cached job gifts if not loaded
+        if (!status.job_gifts_loaded) {
+            const cachedJobGifts = loadFromLocalStorage(STORAGE_KEYS.JOB_GIFTS_DATA);
+            if (cachedJobGifts) {
+                await reloadCachedJobGifts();
+            }
+        } else {
+            // Update job gifts upload status indicator
+            const jpStatus = document.getElementById('jobgifts-upload-status');
+            if (jpStatus) {
+                jpStatus.textContent = 'Loaded';
+                jpStatus.className = 'text-xs px-2 py-0.5 rounded bg-ffxi-green/20 text-ffxi-green';
+            }
         }
         
     } catch (error) {
@@ -427,6 +578,9 @@ async function initializeApp() {
     // Initialize Lua optimizer
     LuaOptimizer.init();
     
+    // Restore job/weapon selections after event listeners are set up
+    await restoreSelections();
+    
     // Hide loading overlay
     const overlay = document.getElementById('loading-overlay');
     const app = document.getElementById('app');
@@ -436,11 +590,155 @@ async function initializeApp() {
     }
 }
 
+async function restoreSavedData() {
+    // Restore sub job
+    const savedSubJob = loadFromLocalStorage(STORAGE_KEYS.SUBJOB);
+    if (savedSubJob) {
+        AppState.selectedSubJob = savedSubJob.toLowerCase();
+        const subjobSelect = document.getElementById('subjob-select');
+        if (subjobSelect) {
+            subjobSelect.value = savedSubJob.toUpperCase();
+        }
+    }
+    
+    // Restore master level
+    const savedMasterLevel = loadFromLocalStorage(STORAGE_KEYS.MASTER_LEVEL);
+    if (savedMasterLevel !== null) {
+        AppState.masterLevel = parseInt(savedMasterLevel) || 0;
+    }
+}
+
+async function restoreSelections() {
+    // Only restore job if we have inventory loaded
+    if (!AppState.inventoryLoaded) return;
+    
+    const savedJob = loadFromLocalStorage(STORAGE_KEYS.JOB);
+    if (savedJob) {
+        const jobSelect = document.getElementById('job-select');
+        if (jobSelect) {
+            jobSelect.value = savedJob;
+            // Trigger the job change handler to load weapons
+            await handleJobChange({ target: { value: savedJob } });
+            
+            // After weapons are loaded, try to restore weapon selection
+            const savedMainWeapon = loadFromLocalStorage(STORAGE_KEYS.MAIN_WEAPON);
+            if (savedMainWeapon && AppState.weapons.length > 0) {
+                // Find the weapon in the loaded weapons
+                const weapon = AppState.weapons.find(w => w.name === savedMainWeapon);
+                if (weapon) {
+                    // Programmatically select the weapon
+                    await handleMainWeaponSelect({
+                        value: weapon.name,
+                        label: weapon.name2 || weapon.name,
+                        data: weapon
+                    });
+                }
+            }
+        }
+    }
+    
+    // Update DW hint after sub job is restored
+    updateDWHint();
+}
+
+async function reloadCachedInventory() {
+    const cachedData = loadFromLocalStorage(STORAGE_KEYS.INVENTORY_DATA);
+    const cachedChar = loadFromLocalStorage(STORAGE_KEYS.INVENTORY_CHAR);
+    
+    if (!cachedData) return false;
+    
+    // Check if it's the new format (CSV string) or old format (array of items)
+    if (typeof cachedData !== 'string') {
+        // Old format - clear it and ask user to re-upload
+        console.warn('Old cache format detected, clearing...');
+        clearStoredInventory();
+        showToast('Cache format updated. Please re-upload your inventory.', 'info');
+        return false;
+    }
+    
+    try {
+        // Send cached CSV content to API to reload
+        // The API will re-parse it just like the original upload
+        const response = await fetch('/api/upload/inventory/reload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                csv_content: cachedData,
+                character_name: cachedChar 
+            }),
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            AppState.inventoryLoaded = true;
+            updateStatusIndicator('ready');
+            updateInventorySummary(result.item_count, cachedChar || 'Cached');
+            showToast('Restored inventory from cache', 'success');
+            return true;
+        } else {
+            console.warn('Failed to reload cached inventory:', result.error);
+            // Clear invalid cache
+            clearStoredInventory();
+        }
+    } catch (error) {
+        console.warn('Failed to reload cached inventory:', error);
+        // Clear invalid cache
+        clearStoredInventory();
+    }
+    
+    return false;
+}
+
+async function reloadCachedJobGifts() {
+    const cachedData = loadFromLocalStorage(STORAGE_KEYS.JOB_GIFTS_DATA);
+    
+    if (!cachedData) return false;
+    
+    try {
+        // Send cached data to API to reload
+        const response = await fetch('/api/upload/jobgifts/reload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ gifts: cachedData }),
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            AppState.jobGiftsLoaded = true;
+            
+            // Update upload status indicator
+            const status = document.getElementById('jobgifts-upload-status');
+            if (status) {
+                status.textContent = 'Cached';
+                status.className = 'text-xs px-2 py-0.5 rounded bg-ffxi-blue/20 text-ffxi-blue';
+            }
+            
+            showToast('Restored job points from cache', 'success');
+            
+            // Refresh jobs to show JP info
+            await refreshJobInfo();
+            return true;
+        }
+    } catch (error) {
+        console.warn('Failed to reload cached job gifts:', error);
+    }
+    
+    return false;
+}
+
 function setupEventListeners() {
     // Job selection
     const jobSelect = document.getElementById('job-select');
     if (jobSelect) {
         jobSelect.addEventListener('change', handleJobChange);
+    }
+    
+    // Sub Job selection
+    const subjobSelect = document.getElementById('subjob-select');
+    if (subjobSelect) {
+        subjobSelect.addEventListener('change', handleSubJobChange);
     }
     
     // Master level controls
@@ -502,6 +800,12 @@ function setupEventListeners() {
     // File upload dropzones
     setupFileUpload('upload-dropzone', 'file-input', handleInventoryUpload);
     setupFileUpload('jobgifts-dropzone', 'jobgifts-file-input', handleJobGiftsUpload);
+    
+    // Clear cache button
+    document.getElementById('btn-clear-cache')?.addEventListener('click', handleClearCache);
+    
+    // Update cached data notice visibility
+    updateCachedDataNotice();
     
     // Tab navigation
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -826,6 +1130,9 @@ async function handleInventoryUpload(file) {
             
             showToast(result.message, 'success');
             
+            // Cache inventory data to localStorage for persistence
+            await cacheInventoryData(result.filename);
+            
             // Update Lua optimizer requirements
             LuaOptimizer.updateRequirements();
             
@@ -840,6 +1147,29 @@ async function handleInventoryUpload(file) {
     } catch (error) {
         showToast(`Upload failed: ${error.message}`, 'error');
         updateStatusIndicator('no_inventory');
+    }
+}
+
+async function cacheInventoryData(filename) {
+    try {
+        // Fetch the raw CSV content from the API for caching
+        // This ensures we can fully reconstruct the inventory on reload
+        const response = await fetch('/api/inventory/raw');
+        const data = await response.json();
+        
+        if (data.success && data.csv_content) {
+            // Store the raw CSV content - it can be re-parsed on reload
+            saveToLocalStorage(STORAGE_KEYS.INVENTORY_DATA, data.csv_content);
+            saveToLocalStorage(STORAGE_KEYS.INVENTORY_CHAR, filename);
+            console.log(`Cached inventory CSV (${data.csv_content.length} bytes) to localStorage`);
+            
+            // Update the cached data notice
+            updateCachedDataNotice();
+        } else {
+            console.warn('Could not cache inventory - raw CSV not available');
+        }
+    } catch (error) {
+        console.warn('Failed to cache inventory data:', error);
     }
 }
 
@@ -861,6 +1191,9 @@ async function handleJobGiftsUpload(file) {
             
             showToast(result.message, 'success');
             
+            // Cache job gifts data to localStorage
+            await cacheJobGiftsData();
+            
             // Refresh jobs to show JP info
             await refreshJobInfo();
         } else {
@@ -868,6 +1201,22 @@ async function handleJobGiftsUpload(file) {
         }
     } catch (error) {
         showToast(`Upload failed: ${error.message}`, 'error');
+    }
+}
+
+async function cacheJobGiftsData() {
+    try {
+        // Fetch the full job gifts data from the API
+        const response = await API.fetch('/api/jobgifts');
+        if (response.gifts && Object.keys(response.gifts).length > 0) {
+            saveToLocalStorage(STORAGE_KEYS.JOB_GIFTS_DATA, response.gifts);
+            console.log(`Cached job gifts for ${Object.keys(response.gifts).length} jobs to localStorage`);
+            
+            // Update the cached data notice
+            updateCachedDataNotice();
+        }
+    } catch (error) {
+        console.warn('Failed to cache job gifts data:', error);
     }
 }
 
@@ -903,6 +1252,9 @@ async function handleJobChange(e) {
     const job = e.target.value;
     AppState.selectedJob = job;
     
+    // Save to localStorage
+    saveToLocalStorage('ffxi_selected_job', job);
+    
     // Reset dependent selections
     AppState.selectedMainWeapon = null;
     AppState.selectedSubWeapon = null;
@@ -933,6 +1285,17 @@ async function handleJobChange(e) {
     
     // Load weapons
     await loadWeapons(job);
+}
+
+function handleSubJobChange(e) {
+    const subjob = e.target.value;
+    AppState.selectedSubJob = subjob.toLowerCase();
+    
+    // Save to localStorage
+    saveToLocalStorage(STORAGE_KEYS.SUBJOB, subjob);
+    
+    // Update DW hint based on sub job
+    updateDWHint();
 }
 
 async function loadWeapons(job) {
@@ -967,6 +1330,9 @@ async function loadWeapons(job) {
 
 async function handleMainWeaponSelect(option) {
     AppState.selectedMainWeapon = option.data;
+    
+    // Save to localStorage
+    saveToLocalStorage(STORAGE_KEYS.MAIN_WEAPON, option.data?.name);
     
     // Show weapon info
     const infoDiv = document.getElementById('weapon-info');
@@ -1185,6 +1551,7 @@ async function runTPOptimization() {
     try {
         const result = await API.optimizeTP({
             job: AppState.selectedJob,
+            sub_job: AppState.selectedSubJob,
             main_weapon: AppState.selectedMainWeapon._raw,
             sub_weapon: AppState.selectedSubWeapon?._raw || { Name: 'Empty', Type: 'None' },
             tp_type: tpPriority,
@@ -1228,6 +1595,7 @@ async function runWSOptimization() {
     try {
         const result = await API.optimizeWS({
             job: AppState.selectedJob,
+            sub_job: AppState.selectedSubJob,
             main_weapon: AppState.selectedMainWeapon._raw,
             sub_weapon: AppState.selectedSubWeapon?._raw || { Name: 'Empty', Type: 'None' },
             weaponskill: AppState.selectedWeaponskill.name,
@@ -1956,6 +2324,42 @@ function displayStats(stats) {
     console.log('displayStats completed successfully');
 }
 
+/**
+ * Format a gear item for Lua output.
+ * Uses proper GearSwap syntax with augments table when augments are present.
+ * 
+ * @param {Object} item - The gear item with name, augments, etc.
+ * @returns {string} Formatted Lua string for the item
+ */
+function formatLuaItem(item) {
+    if (!item) return '"Empty"';
+    
+    // Get base name (not name2 which may include augment suffix)
+    const name = item.name || 'Empty';
+    if (name === 'Empty') return '"Empty"';
+    
+    // Check for augments (_augments is our convention, also check augments/Augments)
+    const augments = item._augments || item.augments || item.Augments;
+    
+    if (!augments || !Array.isArray(augments) || augments.length === 0) {
+        // Simple item - just the name
+        return `"${name}"`;
+    }
+    
+    // Augmented item - use table syntax with single quotes for augments
+    // { name="Item Name", augments={'aug1', 'aug2'} }
+    const augStr = augments
+        .filter(a => a && a !== 'none' && a !== '')
+        .map(a => `'${a}'`)
+        .join(', ');
+    
+    if (!augStr) {
+        return `"${name}"`;
+    }
+    
+    return `{ name="${name}", augments={${augStr}} }`;
+}
+
 function generateLuaOutput(result) {
     if (!result || !result.gear) return;
     
@@ -1982,12 +2386,12 @@ function generateLuaOutput(result) {
     
     for (const slot of slotOrder) {
         if (result.gear[slot] && result.gear[slot].name !== 'Empty') {
-            const name = result.gear[slot].name2 || result.gear[slot].name;
             const luaSlot = slot === 'ear1' ? 'left_ear' : 
                            slot === 'ear2' ? 'right_ear' :
                            slot === 'ring1' ? 'left_ring' :
                            slot === 'ring2' ? 'right_ring' : slot;
-            lua += `    ${luaSlot}="${name}",\n`;
+            const itemStr = formatLuaItem(result.gear[slot]);
+            lua += `    ${luaSlot}=${itemStr},\n`;
         }
     }
     
@@ -2144,9 +2548,44 @@ async function setupMagicTab() {
         });
     }
     
-    // Target selection
+    // Target selection - load dynamically from API
     const targetSelect = document.getElementById('magic-target-select');
     if (targetSelect) {
+        // Load targets from API
+        try {
+            const { targets } = await API.getMagicTargets();
+            if (targets && targets.length > 0) {
+                targetSelect.innerHTML = '';
+                
+                // Sort by magic_evasion for logical ordering
+                targets.sort((a, b) => a.magic_evasion - b.magic_evasion);
+                
+                targets.forEach(target => {
+                    const option = document.createElement('option');
+                    option.value = target.id;
+                    option.textContent = `${target.name} (${target.magic_evasion} MEva)`;
+                    targetSelect.appendChild(option);
+                });
+                
+                // Set default selection
+                if (AppState.magic.target && targets.find(t => t.id === AppState.magic.target)) {
+                    targetSelect.value = AppState.magic.target;
+                } else {
+                    // Default to apex_mob if available
+                    const defaultTarget = targets.find(t => t.id === 'apex_mob');
+                    if (defaultTarget) {
+                        targetSelect.value = 'apex_mob';
+                        AppState.magic.target = 'apex_mob';
+                    } else {
+                        AppState.magic.target = targets[0].id;
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load magic targets:', error);
+        }
+        
+        // Add change handler
         targetSelect.addEventListener('change', (e) => {
             AppState.magic.target = e.target.value;
         });
@@ -2568,7 +3007,7 @@ function displayMagicResults(result) {
                     <div><span class="text-ffxi-text-dim">MBB:</span> ${stats.magic_burst_bonus || '-'}</div>
                 </div>
                 <div class="text-xs text-ffxi-text-dim">
-                    ${formatMagicGearSummary(gearset.gear)}
+                    ${formatGearSummary(gearset.gear)}
                 </div>
             </div>
         `;
@@ -2592,16 +3031,6 @@ function displayMagicResults(result) {
         resultsList.innerHTML = '<p class="text-ffxi-text-dim text-sm">Results shown in right panel. Click a result to view details and GearSwap Lua.</p>';
         resultsContainer.classList.remove('hidden');
     }
-}
-
-function formatMagicGearSummary(gear) {
-    const slots = ['head', 'body', 'hands', 'legs', 'feet'];
-    const items = slots
-        .filter(s => gear[s] && gear[s].name !== 'Empty')
-        .map(s => gear[s].name2 || gear[s].name)
-        .slice(0, 3);
-    
-    return items.join(', ') + (items.length < Object.keys(gear).length ? '...' : '');
 }
 
 function showMagicResultDetails(index) {
@@ -2661,12 +3090,12 @@ function generateMagicLuaOutput(gearset, fullResult) {
     
     for (const slot of slotOrder) {
         if (gearset.gear[slot] && gearset.gear[slot].name !== 'Empty') {
-            const name = gearset.gear[slot].name2 || gearset.gear[slot].name;
             const luaSlot = slot === 'ear1' ? 'left_ear' : 
                            slot === 'ear2' ? 'right_ear' :
                            slot === 'ring1' ? 'left_ring' :
                            slot === 'ring2' ? 'right_ring' : slot;
-            lua += `    ${luaSlot}="${name}",\n`;
+            const itemStr = formatLuaItem(gearset.gear[slot]);
+            lua += `    ${luaSlot}=${itemStr},\n`;
         }
     }
     
@@ -4203,7 +4632,12 @@ const LuaOptimizer = {
         // Determine which endpoint to call based on set_type
         switch (set.set_type) {
             case 'ws':
-                return this.optimizeWSSet(set, options);
+                // Check if we have a specific weaponskill name
+                if (set.ws_name) {
+                    return this.optimizeWSSet(set, options);
+                }
+                // No specific WS name - use generic WS optimizer (beam search for WS damage stats)
+                return this.optimizeGenericWSSet(set, options);
             case 'tp':
                 return this.optimizeTPSet(set, options);
             case 'magic_damage':
@@ -4298,7 +4732,7 @@ const LuaOptimizer = {
             return {
                 name: set.name,
                 profile_type: set.inferred_profile_type,
-                items: this.extractGearNames(best.gear),
+                items: this.extractGearItems(best.gear),
                 score: best.beam_score || best.score || 0,
                 optimization_type: 'ws_simulation',
                 simulation_value: best.damage,
@@ -4313,6 +4747,49 @@ const LuaOptimizer = {
         // Log the error if optimization failed
         if (!result.success) {
             console.error(`WS optimization failed for ${set.name}:`, result.error);
+        }
+        return null;
+    },
+    
+    async optimizeGenericWSSet(set, options) {
+        const { job, beamWidth } = options;
+        
+        // Generic WS set - no specific weaponskill, just maximize WS damage stats
+        // Uses DT endpoint with generic_ws profile type
+        console.log(`Optimizing generic WS set ${set.name} with beam search for WS damage stats`);
+        
+        const response = await fetch('/api/optimize/dt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                job: job,
+                dt_type: 'generic_ws',  // Uses the new GENERIC_WS profile
+                beam_width: beamWidth,
+                include_weapons: false,  // Weapons usually locked for WS sets
+            }),
+        });
+        
+        const result = await response.json();
+        
+        if (result.success && result.results?.length > 0) {
+            const best = result.results[0];
+            return {
+                name: set.name,
+                profile_type: set.inferred_profile_type,
+                items: this.extractGearItems(best.gear),
+                score: best.score || 0,
+                optimization_type: 'beam_only',
+                simulation_value: best.score,
+                simulation_details: {
+                    note: 'Generic WS set - maximized WS Damage % and Physical Damage Limit+',
+                    profile: 'generic_ws',
+                },
+            };
+        }
+        
+        // Log the error if optimization failed
+        if (!result.success) {
+            console.error(`Generic WS optimization failed for ${set.name}:`, result.error);
         }
         return null;
     },
@@ -4348,12 +4825,29 @@ const LuaOptimizer = {
         const mainWeapon = weapons.main._raw || weapons.main;
         const subWeapon = weapons.sub?._raw || weapons.sub || { Name: 'Empty', Name2: 'Empty', Type: 'None' };
         
+        // Infer TP type from set name
+        const nameLower = set.name.toLowerCase();
+        let tpType = 'hybrid_tp';  // Default to hybrid (balanced)
+        
+        if (nameLower.includes('acc') || nameLower.includes('highacc') || nameLower.includes('midacc')) {
+            tpType = 'acc_tp';
+        } else if (nameLower.includes('dt') || nameLower.includes('defense') || nameLower.includes('tank')) {
+            tpType = 'dt_tp';
+        } else if (nameLower.includes('refresh') || nameLower.includes('mage')) {
+            tpType = 'refresh_tp';
+        } else if (nameLower.includes('pure') || nameLower.includes('speed') || nameLower.includes('haste')) {
+            tpType = 'pure_tp';
+        }
+        // Default to hybrid_tp for engaged sets without modifiers
+        
+        console.log(`TP set ${set.name}: using mode ${tpType}`);
+        
         const response = await fetch('/api/optimize/tp', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 job: job,
-                tp_type: 'pure_tp',  // API expects lowercase key, not display name
+                tp_type: tpType,
                 main_weapon: mainWeapon,
                 sub_weapon: subWeapon,
                 target: this.DEFAULT_TARGET,
@@ -4374,7 +4868,7 @@ const LuaOptimizer = {
             return {
                 name: set.name,
                 profile_type: set.inferred_profile_type,
-                items: this.extractGearNames(best.gear),
+                items: this.extractGearItems(best.gear),
                 score: best.beam_score || best.score || 0,
                 optimization_type: 'tp_simulation',
                 simulation_value: best.time_to_ws,
@@ -4382,6 +4876,7 @@ const LuaOptimizer = {
                     time_to_ws: best.time_to_ws,
                     tp_per_round: best.tp_per_round,
                     dps: best.dps,
+                    tp_mode: tpType,
                 },
             };
         }
@@ -4399,10 +4894,20 @@ const LuaOptimizer = {
         // Use magic weapons
         const weapons = weaponsByType['magic'] || {};
         
-        // Determine optimization type
+        // Determine optimization type based on set type AND spell type
         let optType = 'damage';
-        if (set.set_type === 'magic_burst') optType = 'burst';
-        else if (set.set_type === 'magic_accuracy') optType = 'accuracy';
+        if (set.set_type === 'magic_burst') {
+            optType = 'burst';
+        } else if (set.set_type === 'magic_accuracy') {
+            // For enfeebling spells, use potency (skill-based optimization)
+            // This prioritizes Enfeebling Magic Skill, INT/MND, and Enfeebling Effect
+            if (set.spell_type === 'enfeebling_int' || set.spell_type === 'enfeebling_mnd') {
+                optType = 'potency';
+                console.log(`Enfeebling set ${set.name}: using potency optimization for skill stacking`);
+            } else {
+                optType = 'accuracy';
+            }
+        }
         
         const response = await fetch('/api/optimize/magic', {
             method: 'POST',
@@ -4428,14 +4933,15 @@ const LuaOptimizer = {
             return {
                 name: set.name,
                 profile_type: set.inferred_profile_type,
-                items: this.extractGearNames(best.gear),
+                items: this.extractGearItems(best.gear),
                 score: best.beam_score || 0,
                 optimization_type: set.set_type,
-                simulation_value: best.damage,
+                simulation_value: best.damage || best.potency_score,
                 simulation_details: { 
                     damage: best.damage, 
                     spell_name: set.representative_spell,
                     magic_burst: set.set_type === 'magic_burst',
+                    optimization_mode: optType,
                 },
             };
         }
@@ -4514,7 +5020,7 @@ const LuaOptimizer = {
             return {
                 name: set.name,
                 profile_type: set.inferred_profile_type,
-                items: this.extractGearNames(best.gear),
+                items: this.extractGearItems(best.gear),
                 score: best.score || 0,
                 optimization_type: set.set_type === 'fc' ? 'fc_capped' : 'dt_capped',
                 simulation_value: best.physical_reduction || best.dt_pct || 0,
@@ -4533,14 +5039,23 @@ const LuaOptimizer = {
     async optimizeEnhancingSkillSet(set, options) {
         const { job, beamWidth } = options;
         
-        // Enhancing magic skill sets - maximize Enhancing Magic Skill
-        const response = await fetch('/api/optimize/dt', {
+        // Enhancing magic skill sets - use magic API with potency optimization
+        // Use a representative enhancing spell (Phalanx benefits most from skill)
+        const representativeSpell = set.representative_spell || 'Phalanx';
+        
+        const response = await fetch('/api/optimize/magic', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 job: job,
-                dt_type: 'enhancing_skill',  // Use Enhancing Skill profile
+                spell_name: representativeSpell,
+                optimization_type: 'potency',
+                magic_burst: false,
+                include_weapons: false,
                 beam_width: beamWidth,
+                target: 'apex_mob',
+                buffs: {},
+                debuffs: [],
             }),
         });
         
@@ -4551,12 +5066,13 @@ const LuaOptimizer = {
             return {
                 name: set.name,
                 profile_type: set.inferred_profile_type,
-                items: this.extractGearNames(best.gear),
+                items: this.extractGearItems(best.gear),
                 score: best.score || 0,
                 optimization_type: 'enhancing_skill',
                 simulation_value: null,
                 simulation_details: {
                     note: 'Maximized Enhancing Magic Skill',
+                    spell: representativeSpell,
                 },
             };
         }
@@ -4566,14 +5082,23 @@ const LuaOptimizer = {
     async optimizeEnhancingDurationSet(set, options) {
         const { job, beamWidth } = options;
         
-        // Enhancing duration sets (Composure, etc.) - maximize duration %
-        const response = await fetch('/api/optimize/dt', {
+        // Enhancing duration sets (Composure, etc.) - use magic API with potency optimization
+        // Use a representative spell that benefits from duration (Haste, Refresh, etc.)
+        const representativeSpell = set.representative_spell || 'Haste II';
+        
+        const response = await fetch('/api/optimize/magic', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 job: job,
-                dt_type: 'enhancing_duration',  // Use Enhancing Duration profile
+                spell_name: representativeSpell,
+                optimization_type: 'potency',
+                magic_burst: false,
+                include_weapons: false,
                 beam_width: beamWidth,
+                target: 'apex_mob',
+                buffs: {},
+                debuffs: [],
             }),
         });
         
@@ -4584,12 +5109,13 @@ const LuaOptimizer = {
             return {
                 name: set.name,
                 profile_type: set.inferred_profile_type,
-                items: this.extractGearNames(best.gear),
+                items: this.extractGearItems(best.gear),
                 score: best.score || 0,
                 optimization_type: 'enhancing_duration',
                 simulation_value: null,
                 simulation_details: {
                     note: 'Maximized Enhancing Duration %',
+                    spell: representativeSpell,
                 },
             };
         }
@@ -4599,14 +5125,23 @@ const LuaOptimizer = {
     async optimizeHealingSet(set, options) {
         const { job, beamWidth } = options;
         
-        // Healing magic sets - maximize Cure Potency and MND
-        const response = await fetch('/api/optimize/dt', {
+        // Healing magic sets - use magic API with potency optimization
+        // Use a representative healing spell
+        const representativeSpell = set.representative_spell || 'Cure IV';
+        
+        const response = await fetch('/api/optimize/magic', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 job: job,
-                dt_type: 'cure_potency',  // Use Cure Potency profile
+                spell_name: representativeSpell,
+                optimization_type: 'potency',
+                magic_burst: false,
+                include_weapons: false,
                 beam_width: beamWidth,
+                target: 'apex_mob',
+                buffs: {},
+                debuffs: [],
             }),
         });
         
@@ -4617,13 +5152,13 @@ const LuaOptimizer = {
             return {
                 name: set.name,
                 profile_type: set.inferred_profile_type,
-                items: this.extractGearNames(best.gear),
+                items: this.extractGearItems(best.gear),
                 score: best.score || 0,
                 optimization_type: 'healing',
                 simulation_value: null,
                 simulation_details: {
                     note: 'Maximized Cure Potency and MND',
-                    spell: set.representative_spell || 'Cure IV',
+                    spell: representativeSpell,
                 },
             };
         }
@@ -4654,7 +5189,7 @@ const LuaOptimizer = {
             return {
                 name: set.name,
                 profile_type: set.inferred_profile_type,
-                items: this.extractGearNames(best.gear),
+                items: this.extractGearItems(best.gear),
                 score: best.score || 0,
                 optimization_type: 'fast_cast',
                 simulation_value: fcValue,  // Show FC % as the main value
@@ -4668,7 +5203,8 @@ const LuaOptimizer = {
         return null;
     },
     
-    extractGearNames(gear) {
+    extractGearItems(gear) {
+        // Returns full item objects (not just names) to preserve augment data
         const items = {};
         const slots = ['main', 'sub', 'range', 'ammo', 'head', 'neck', 'ear1', 'ear2',
                        'body', 'hands', 'ring1', 'ring2', 'back', 'waist', 'legs', 'feet'];
@@ -4676,9 +5212,10 @@ const LuaOptimizer = {
         for (const slot of slots) {
             if (gear && gear[slot]) {
                 const item = gear[slot];
-                const name = item.name || item.Name2 || item.Name || 'Empty';
+                const name = item.name || item.Name || 'Empty';
                 if (name !== 'Empty') {
-                    items[slot] = name;
+                    // Store the full item object to preserve augments
+                    items[slot] = item;
                 }
             }
         }
@@ -4874,7 +5411,7 @@ const LuaOptimizer = {
         return pos - 1; // Position of the closing brace
     },
     
-    // Helper: Build the gear string from items
+    // Helper: Build the gear string from items (now accepts full item objects)
     buildGearString(items) {
         const slotOrder = ['main', 'sub', 'range', 'ammo', 'head', 'neck', 'ear1', 'ear2',
                           'body', 'hands', 'ring1', 'ring2', 'back', 'waist', 'legs', 'feet'];
@@ -4891,9 +5428,9 @@ const LuaOptimizer = {
         for (const slot of slotOrder) {
             if (items[slot]) {
                 const luaSlot = slotMap[slot] || slot;
-                // Escape any quotes in item names
-                const itemName = items[slot].replace(/"/g, '\\"');
-                lines.push(`        ${luaSlot}="${itemName}",`);
+                // Use formatLuaItem to properly handle augmented items
+                const itemStr = formatLuaItem(items[slot]);
+                lines.push(`        ${luaSlot}=${itemStr},`);
             }
         }
         
@@ -4919,7 +5456,9 @@ const LuaOptimizer = {
                                    slot === 'ear2' ? 'right_ear' :
                                    slot === 'ring1' ? 'left_ring' :
                                    slot === 'ring2' ? 'right_ring' : slot;
-                    lua += `    ${luaSlot}="${set.items[slot]}",\n`;
+                    // Use formatLuaItem to properly handle augmented items
+                    const itemStr = formatLuaItem(set.items[slot]);
+                    lua += `    ${luaSlot}=${itemStr},\n`;
                 }
             }
             
@@ -5130,7 +5669,10 @@ const LuaOptimizer = {
         
         for (const slot of slotOrder) {
             if (set.items[slot]) {
-                html += `<div><span class="text-ffxi-text">${slot}:</span> ${set.items[slot]}</div>`;
+                // set.items[slot] is now a full item object, extract display name
+                const item = set.items[slot];
+                const displayName = typeof item === 'string' ? item : (item.name2 || item.name || item.Name || 'Unknown');
+                html += `<div><span class="text-ffxi-text">${slot}:</span> ${displayName}</div>`;
             }
         }
         html += `</div></div>`;
