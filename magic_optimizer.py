@@ -40,11 +40,21 @@ from beam_search_optimizer import (
     WSDIST_SLOTS,
     SLOT_TO_WSDIST,
 )
+
+
+
+from numba_beam_search_optimizer import NumbaBeamSearchOptimizer
+
+
 from magic_simulation import (
     MagicSimulator,
     CasterStats,
     MagicTargetStats,
     MagicSimulationResult,
+    EnfeeblingSimulationResult,
+    HealingSimulationResult,
+    EnhancingSimulationResult,
+    DarkMagicSimulationResult,
     MAGIC_TARGETS,
 )
 from spell_database import get_spell, SpellData
@@ -114,8 +124,8 @@ def create_magic_damage_profile(
         'dark_magic_skill': 1.5,
         'divine_magic_skill': 1.0,
         
-        # Fast cast - more casts = more damage over time
-        'fast_cast': 1.0,
+        # NOTE: Fast Cast is NOT included here - it's a separate precast optimization
+        # Midcast gear should focus on damage/accuracy, not cast speed
     }
     
     # Adjust weights based on spell type if provided
@@ -137,7 +147,6 @@ def create_magic_damage_profile(
         weights=weights,
         hard_caps={
             'magic_burst_bonus': 4000,  # 40% MBB cap from gear
-            'fast_cast': 8000,          # 80% fast cast cap
         },
         soft_caps={},
         exclude_slots=exclude_slots,
@@ -156,10 +165,9 @@ def create_magic_accuracy_profile(
     Used for enfeebling spells, debuffs, or any spell that must land.
     
     Priorities:
-    1. Magic Accuracy (direct contribution)
-    2. Relevant magic skill (1:1 with magic accuracy)
-    3. INT/MND (for dSTAT bonus to accuracy)
-    4. Some damage stats as tiebreakers
+    1. Magic Accuracy AND Magic Skill (both contribute 1:1 to hit rate)
+    2. INT/MND (for dSTAT bonus to accuracy)
+    3. Some damage stats as tiebreakers
     
     Args:
         job: Player's job
@@ -170,42 +178,80 @@ def create_magic_accuracy_profile(
         OptimizationProfile configured for magic accuracy
     """
     # Base weights for accuracy optimization
+    # NOTE: Magic skill contributes 1:1 to magic accuracy in the formula,
+    # so skill should be weighted the same as magic_accuracy
     weights = {
-        # Primary - direct magic accuracy
+        # Primary - direct magic accuracy AND skill (both 1:1 in formula)
         'magic_accuracy': 15.0,
         
-        # Skills - 1:1 with magic accuracy
-        'elemental_magic_skill': 8.0,
-        'enfeebling_magic_skill': 10.0,  # Often the key skill for accuracy builds
-        'dark_magic_skill': 6.0,
-        'divine_magic_skill': 5.0,
+        # Skills - 1:1 with magic accuracy, so weight same as magic_accuracy
+        'elemental_magic_skill': 15.0,
+        'enfeebling_magic_skill': 15.0,
+        'dark_magic_skill': 15.0,
+        'divine_magic_skill': 15.0,
+        'healing_magic_skill': 15.0,
+        'enhancing_magic_skill': 15.0,
         
-        # Stats for dSTAT bonus (contributes to accuracy)
-        'INT': 5.0,
-        'MND': 3.0,
+        # Stats for dSTAT bonus (contributes to accuracy but diminishing returns)
+        # At best ~0.5 macc per point of dSTAT, so weight lower
+        'INT': 4.0,
+        'MND': 4.0,
         
         # Secondary - some damage is nice as tiebreaker
         'magic_attack': 1.0,
         'magic_damage': 1.0,
         
-        # Fast cast - useful for reapplying debuffs
-        'fast_cast': 2.0,
+        # NOTE: Fast Cast is NOT included here - it's a separate precast optimization
     }
     
-    # Adjust based on spell type
+    # Adjust based on spell type - boost the RELEVANT skill even higher
     if spell:
         if spell.magic_type == MagicType.ENFEEBLING_INT:
-            weights['INT'] = 8.0
-            weights['enfeebling_magic_skill'] = 12.0
+            weights['INT'] = 6.0  # INT matters more for INT-based enfeebles
+            weights['MND'] = 0.0
+            weights['enfeebling_magic_skill'] = 18.0  # Prioritize the right skill
+            # Zero out irrelevant skills
+            weights['elemental_magic_skill'] = 0.0
+            weights['dark_magic_skill'] = 0.0
+            weights['divine_magic_skill'] = 0.0
+            weights['healing_magic_skill'] = 0.0
+            weights['enhancing_magic_skill'] = 0.0
         elif spell.magic_type == MagicType.ENFEEBLING_MND:
-            weights['MND'] = 8.0
-            weights['INT'] = 3.0
-            weights['enfeebling_magic_skill'] = 12.0
+            weights['MND'] = 6.0
+            weights['INT'] = 0.0
+            weights['enfeebling_magic_skill'] = 18.0
+            weights['elemental_magic_skill'] = 0.0
+            weights['dark_magic_skill'] = 0.0
+            weights['divine_magic_skill'] = 0.0
+            weights['healing_magic_skill'] = 0.0
+            weights['enhancing_magic_skill'] = 0.0
         elif spell.magic_type == MagicType.DARK:
-            weights['dark_magic_skill'] = 10.0
+            weights['INT'] = 6.0
+            weights['MND'] = 0.0
+            weights['dark_magic_skill'] = 18.0
+            weights['elemental_magic_skill'] = 0.0
+            weights['enfeebling_magic_skill'] = 0.0
+            weights['divine_magic_skill'] = 0.0
+            weights['healing_magic_skill'] = 0.0
+            weights['enhancing_magic_skill'] = 0.0
         elif spell.magic_type == MagicType.DIVINE:
-            weights['MND'] = 8.0
-            weights['divine_magic_skill'] = 10.0
+            weights['MND'] = 6.0
+            weights['INT'] = 0.0
+            weights['divine_magic_skill'] = 18.0
+            weights['elemental_magic_skill'] = 0.0
+            weights['dark_magic_skill'] = 0.0
+            weights['enfeebling_magic_skill'] = 0.0
+            weights['healing_magic_skill'] = 0.0
+            weights['enhancing_magic_skill'] = 0.0
+        elif spell.magic_type == MagicType.ELEMENTAL:
+            weights['INT'] = 6.0
+            weights['MND'] = 0.0
+            weights['elemental_magic_skill'] = 18.0
+            weights['dark_magic_skill'] = 0.0
+            weights['enfeebling_magic_skill'] = 0.0
+            weights['divine_magic_skill'] = 0.0
+            weights['healing_magic_skill'] = 0.0
+            weights['enhancing_magic_skill'] = 0.0
     
     exclude_slots = set()
     if not include_weapons:
@@ -214,9 +260,7 @@ def create_magic_accuracy_profile(
     return OptimizationProfile(
         name=f"Magic Accuracy ({job.name})",
         weights=weights,
-        hard_caps={
-            'fast_cast': 8000,
-        },
+        hard_caps={},
         exclude_slots=exclude_slots,
         job=job,
     )
@@ -255,8 +299,7 @@ def create_magic_burst_profile(
         'magic_accuracy': 5.0,
         'elemental_magic_skill': 2.5,
         
-        # Fast cast less important for burst (timing matters more)
-        'fast_cast': 0.5,
+        # NOTE: Fast Cast is NOT included here - it's a separate precast optimization
     }
     
     if spell and spell.magic_type == MagicType.DIVINE:
@@ -273,7 +316,6 @@ def create_magic_burst_profile(
         weights=weights,
         hard_caps={
             'magic_burst_bonus': 4000,
-            'fast_cast': 8000,
         },
         exclude_slots=exclude_slots,
         job=job,
@@ -290,13 +332,21 @@ def create_magic_potency_profile(
     
     Used for spells where effect strength scales with skill or stats:
     - Enfeebling: Slow %, Paralyze %, Blind accuracy reduction, etc.
-    - Dark: Drain/Aspir amount, Bio DOT damage
+    - Dark (Drain/Aspir): Amount drained scales with Dark Magic Skill
+    - Dark (Bio): DOT damage scales with skill
+    - Dark (Absorb): SPECIAL - Potency NOT affected by Dark Magic Skill!
+                     Per BG-Wiki: "Dark Magic does nothing for the potency 
+                     of Absorb spells, but does affect accuracy and duration."
+                     Potency is based on job level + equipment bonuses
+                     (Liberator, Pavor Gauntlets, Erra Pendant, etc.)
     - Divine: Repose duration, etc.
     
     Priorities vary by spell type:
     - Enfeebling (MND-based): Enfeebling Skill > MND > Enfeebling Effect > M.Acc
     - Enfeebling (INT-based): Enfeebling Skill > INT > Enfeebling Effect > M.Acc
-    - Dark: Dark Magic Skill > INT > M.Acc
+    - Dark (Drain/Aspir): Dark Magic Skill > INT > M.Acc
+    - Dark (Bio): Dark Magic Skill > MAB > INT > M.Acc  
+    - Dark (Absorb): Absorb Potency gear > Duration gear > Dark Skill (duration) > M.Acc
     - Divine: Divine Magic Skill > MND > M.Acc
     
     Args:
@@ -307,95 +357,236 @@ def create_magic_potency_profile(
     Returns:
         OptimizationProfile configured for potency
     """
-    # Default weights - will be adjusted based on spell type
+    # Default weights - skill is KING for potency
+    # Zero out irrelevant skills by default, set the right one based on spell type
     weights = {
-        # Skills are primary for potency
-        'enfeebling_magic_skill': 15.0,
-        'dark_magic_skill': 15.0,
-        'divine_magic_skill': 10.0,
+        # Skills are PRIMARY for potency - weight very high
+        'enfeebling_magic_skill': 0.0,  # Set based on spell type
+        'dark_magic_skill': 0.0,
+        'divine_magic_skill': 0.0,
+        'healing_magic_skill': 0.0,
+        'enhancing_magic_skill': 0.0,
+        'elemental_magic_skill': 0.0,
         
-        # Stats contribute to potency formulas
-        'INT': 5.0,
-        'MND': 5.0,
+        # Stats contribute to potency formulas (secondary)
+        'INT': 6.0,
+        'MND': 6.0,
         
         # Enfeebling-specific bonuses
-        'enfeebling_effect': 12.0,       # "Enfeebling magic effect +"
-        'enfeebling_duration': 8.0,      # Duration helps maintain debuffs
+        'enfeebling_effect': 20.0,       # "Enfeebling magic effect +"
+        'enfeebling_duration': 12.0,     # Duration helps maintain debuffs
         
-        # Accuracy is secondary but important - spell must land
+        # Accuracy is SECONDARY for potency - spell must land but skill matters more
         'magic_accuracy': 6.0,
         
         # Some damage for spells like Bio that do both
         'magic_attack': 2.0,
         'magic_damage': 2.0,
         
-        # Fast cast for reapplication
-        'fast_cast': 1.0,
+        # NOTE: Fast Cast is NOT included here - it's a separate precast optimization
+        
+        # Potency-specific stats
+        'cure_potency': 25.0,
+        'drain_aspir_potency': 18.0,
     }
     
-    # Adjust weights based on spell type
+    # Adjust weights based on spell type - set the RELEVANT skill very high
     if spell:
         if spell.magic_type == MagicType.ENFEEBLING_MND:
             # MND-based enfeebling: Slow, Paralyze, Addle, Distract, Frazzle
-            weights['enfeebling_magic_skill'] = 20.0
-            weights['MND'] = 10.0
+            weights['enfeebling_magic_skill'] = 35.0  # Skill is KING for potency
+            weights['MND'] = 8.0
             weights['INT'] = 2.0
-            weights['enfeebling_effect'] = 15.0
-            weights['dark_magic_skill'] = 0.0
-            weights['divine_magic_skill'] = 0.0
+            weights['magic_accuracy'] = 6.0  # Still need to land, but secondary
+            weights['enfeebling_effect'] = 20.0
+            # Filler weights to prevent beam collapse (keeps candidates alive)
+            weights['fast_cast'] = 0.05
+            weights['damage_taken'] = -1.0
+            weights['physical_dt'] = -1.0
+            weights['magical_dt'] = -1.0
+            # Zero out irrelevant weights
+            weights['cure_potency'] = 0.0
+            weights['drain_aspir_potency'] = 0.0
+            weights['magic_attack'] = 0.0
+            weights['magic_damage'] = 0.0
+            weights['enhancing_duration'] = 0.0
             
         elif spell.magic_type == MagicType.ENFEEBLING_INT:
             # INT-based enfeebling: Blind, Gravity, Sleep, Dispel, Break
-            weights['enfeebling_magic_skill'] = 20.0
-            weights['INT'] = 10.0
+            weights['enfeebling_magic_skill'] = 35.0  # Skill is KING for potency
+            weights['INT'] = 8.0
             weights['MND'] = 2.0
-            weights['enfeebling_effect'] = 15.0
-            weights['dark_magic_skill'] = 0.0
-            weights['divine_magic_skill'] = 0.0
+            weights['magic_accuracy'] = 6.0  # Still need to land, but secondary
+            weights['enfeebling_effect'] = 20.0
+            # Filler weights to prevent beam collapse (keeps candidates alive)
+            weights['fast_cast'] = 0.05
+            weights['damage_taken'] = -1.0
+            weights['physical_dt'] = -1.0
+            weights['magical_dt'] = -1.0
+            # Zero out irrelevant weights
+            weights['cure_potency'] = 0.0
+            weights['drain_aspir_potency'] = 0.0
+            weights['magic_attack'] = 0.0
+            weights['magic_damage'] = 0.0
+            weights['enhancing_duration'] = 0.0
             
         elif spell.magic_type == MagicType.DARK:
-            # Dark magic: Drain, Aspir, Bio - skill affects potency
-            weights['dark_magic_skill'] = 20.0
-            weights['INT'] = 8.0
-            weights['MND'] = 0.0
-            weights['enfeebling_magic_skill'] = 0.0
-            weights['enfeebling_effect'] = 0.0
-            weights['divine_magic_skill'] = 0.0
-            # Bio also benefits from MAB for initial hit
-            if spell.name.startswith('Bio'):
-                weights['magic_attack'] = 5.0
-                weights['magic_damage'] = 5.0
+            # Dark magic has different subtypes with different mechanics:
+            # - Absorb-STAT: Potency NOT affected by Dark Magic Skill (per BG-Wiki)
+            #                Potency is based on job level + equipment bonuses
+            #                Accuracy and Duration ARE affected by Dark Magic Skill
+            # - Drain/Aspir: Potency IS affected by Dark Magic Skill
+            # - Bio: Initial damage uses MAB, DOT potency uses skill
+            
+            if spell.name.startswith('Absorb'):
+                # ABSORB SPELLS - Special handling per BG-Wiki:
+                # "Dark Magic does nothing for the potency of Absorb spells,
+                #  but does affect accuracy and duration."
+                # Potency comes from: Job level (fixed) + Equipment bonuses
+                # Equipment: Liberator, Pavor Gauntlets, Erra Pendant, etc.
+                
+                # Absorb-specific potency stats (equipment bonuses)
+                weights['absorb_potency'] = 35.0           # "Absorb" effect potency +%
+                weights['absorb_effect_duration'] = 18.0   # "Absorb" effect duration +%
+                
+                # Dark Magic Skill affects DURATION (not potency), so moderate weight
+                # Formula: Duration = (180 + floor((Skill - 490.5)/10)*2) * modifiers
+                weights['dark_magic_skill'] = 12.0         # For duration scaling
+                weights['dark_magic_duration'] = 15.0      # Dark magic duration +%
+                
+                # Accuracy stats - Dark Magic Skill contributes to landing the spell
+                weights['magic_accuracy'] = 8.0
+                weights['INT'] = 4.0  # Minor accuracy contribution
+                
+                weights['MND'] = 0.0
+                weights['enfeebling_effect'] = 0.0
+                
+                # Filler weights to prevent beam collapse
+                weights['fast_cast'] = 0.05
+                weights['damage_taken'] = -1.0
+                weights['physical_dt'] = -1.0
+                weights['magical_dt'] = -1.0
+                
+                # Zero out irrelevant weights
+                weights['cure_potency'] = 0.0
+                weights['drain_aspir_potency'] = 0.0
+                weights['enhancing_duration'] = 0.0
+                weights['enfeebling_duration'] = 0.0
+                weights['magic_attack'] = 0.0
+                weights['magic_damage'] = 0.0
+                
+            elif spell.name.startswith('Bio'):
+                # BIO SPELLS - Initial hit uses MAB, DOT potency uses skill
+                weights['dark_magic_skill'] = 25.0
+                weights['magic_attack'] = 10.0
+                weights['magic_damage'] = 10.0
+                weights['INT'] = 8.0
+                weights['MND'] = 0.0
+                weights['magic_accuracy'] = 6.0
+                weights['enfeebling_effect'] = 0.0
+                
+                # Filler weights
+                weights['fast_cast'] = 0.05
+                weights['damage_taken'] = -1.0
+                weights['physical_dt'] = -1.0
+                weights['magical_dt'] = -1.0
+                
+                # Zero out irrelevant
+                weights['cure_potency'] = 0.0
+                weights['drain_aspir_potency'] = 0.0
+                weights['enhancing_duration'] = 0.0
+                weights['enfeebling_duration'] = 0.0
+                
+            else:
+                # DRAIN/ASPIR SPELLS - Potency IS affected by Dark Magic Skill
+                weights['dark_magic_skill'] = 35.0
+                weights['drain_aspir_potency'] = 18.0      # Drain/Aspir potency +%
+                weights['INT'] = 8.0
+                weights['MND'] = 0.0
+                weights['magic_accuracy'] = 6.0
+                weights['enfeebling_effect'] = 0.0
+                
+                # Filler weights
+                weights['fast_cast'] = 0.05
+                weights['damage_taken'] = -1.0
+                weights['physical_dt'] = -1.0
+                weights['magical_dt'] = -1.0
+                
+                # Zero out irrelevant
+                weights['cure_potency'] = 0.0
+                weights['enhancing_duration'] = 0.0
+                weights['enfeebling_duration'] = 0.0
+                weights['magic_attack'] = 0.0
+                weights['magic_damage'] = 0.0
                 
         elif spell.magic_type == MagicType.DIVINE:
             # Divine magic: skill affects potency
-            weights['divine_magic_skill'] = 20.0
-            weights['MND'] = 10.0
+            weights['divine_magic_skill'] = 35.0
+            weights['MND'] = 8.0
             weights['INT'] = 0.0
-            weights['enfeebling_magic_skill'] = 0.0
+            weights['magic_accuracy'] = 6.0
             weights['enfeebling_effect'] = 0.0
-            weights['dark_magic_skill'] = 0.0
+            # Filler weights to prevent beam collapse (keeps candidates alive)
+            weights['fast_cast'] = 0.05
+            weights['damage_taken'] = -1.0
+            weights['physical_dt'] = -1.0
+            weights['magical_dt'] = -1.0
+            # Zero out irrelevant weights
+            weights['cure_potency'] = 0.0
+            weights['drain_aspir_potency'] = 0.0
+            weights['enhancing_duration'] = 0.0
+            weights['enfeebling_duration'] = 0.0
+            weights['magic_attack'] = 0.0
+            weights['magic_damage'] = 0.0
             
         elif spell.magic_type == MagicType.HEALING:
             # Healing: Cure potency scales with MND and skill
-            weights['healing_magic_skill'] = 20.0
+            weights['healing_magic_skill'] = 30.0
             weights['MND'] = 12.0
-            weights['cure_potency'] = 18.0
+            weights['cure_potency'] = 25.0
+            weights['magic_accuracy'] = 0.0  # Cures don't miss
             weights['INT'] = 0.0
-            weights['enfeebling_magic_skill'] = 0.0
             weights['enfeebling_effect'] = 0.0
-            weights['dark_magic_skill'] = 0.0
-            weights['divine_magic_skill'] = 0.0
+            # Filler weights to prevent beam collapse (keeps candidates alive)
+            weights['fast_cast'] = 0.05
+            weights['damage_taken'] = -1.0
+            weights['physical_dt'] = -1.0
+            weights['magical_dt'] = -1.0
+            # Zero out irrelevant weights
+            weights['drain_aspir_potency'] = 0.0
+            weights['enhancing_duration'] = 0.0
+            weights['enfeebling_duration'] = 0.0
+            weights['magic_attack'] = 0.0
+            weights['magic_damage'] = 0.0
             
         elif spell.magic_type == MagicType.ENHANCING:
             # Enhancing: duration and potency from skill
-            weights['enhancing_magic_skill'] = 20.0
-            weights['enhancing_duration'] = 15.0
-            weights['MND'] = 5.0
+            # Primary stats - maximize these
+            weights['enhancing_magic_skill'] = 30.0  # 5 skill = 150 points
+            weights['enhancing_duration'] = 22.0
+            
+            # Filler weights to prevent beam collapse (keeps candidates alive)
+            weights['fast_cast'] = 0.05
+            weights['damage_taken'] = -1.0
+            weights['physical_dt'] = -1.0
+            weights['magical_dt'] = -1.0
+            
+            # Zero out irrelevant weights
+            weights['MND'] = 0.0
+            weights['magic_accuracy'] = 0.0  # Enhancing on self doesn't miss
             weights['INT'] = 0.0
-            weights['enfeebling_magic_skill'] = 0.0
             weights['enfeebling_effect'] = 0.0
-            weights['dark_magic_skill'] = 0.0
-            weights['divine_magic_skill'] = 0.0
+            weights['cure_potency'] = 0.0
+            weights['drain_aspir_potency'] = 0.0
+            weights['enfeebling_duration'] = 0.0
+            weights['magic_attack'] = 0.0
+            weights['magic_damage'] = 0.0
+            
+            # Enspell-specific: Check if this is an Enspell and add sword enhancement weights
+            if spell.properties.get('enspell', False):
+                # Enspells benefit from sword enhancement damage bonuses
+                weights['sword_enhancement_flat'] = 25.0    # Flat damage per hit
+                weights['sword_enhancement_percent'] = 20.0  # Percentage boost (basis points)
     
     exclude_slots = set()
     if not include_weapons:
@@ -405,8 +596,8 @@ def create_magic_potency_profile(
         name=f"Magic Potency ({job.name})",
         weights=weights,
         hard_caps={
-            'fast_cast': 8000,
             'cure_potency': 5000,  # 50% cap
+            'fast_cast': 5000,     # 80% cap (only relevant for enhancing)
         },
         exclude_slots=exclude_slots,
         job=job,
@@ -502,6 +693,16 @@ def gear_to_caster_stats(
         
         # Fast cast from job gifts + gear
         fast_cast=gifts.fast_cast + gear_stats.fast_cast,
+        
+        # Potency-specific stats from gear
+        drain_aspir_potency=gear_stats.drain_aspir_potency,
+        cure_potency=gear_stats.cure_potency,
+        enfeebling_effect=gear_stats.enfeebling_effect,
+        enhancing_duration=gear_stats.enhancing_duration,
+        
+        # Enspell damage bonuses
+        sword_enhancement_flat=gear_stats.sword_enhancement_flat,
+        sword_enhancement_percent=gear_stats.sword_enhancement_percent,
     )
 
 
@@ -771,6 +972,37 @@ def evaluate_magic_accuracy(
     # Calculate hit rate
     hit_rate = calculate_magic_hit_rate(total_macc, target.magic_evasion)
     
+    # Debug output for first few evaluations
+    if not hasattr(evaluate_magic_accuracy, '_debug_count'):
+        evaluate_magic_accuracy._debug_count = 0
+    evaluate_magic_accuracy._debug_count += 1
+    
+    if evaluate_magic_accuracy._debug_count <= 3:
+        print(f"\n  [DEBUG] evaluate_magic_accuracy #{evaluate_magic_accuracy._debug_count}:")
+        print(f"    Spell: {spell.name} (type: {spell.magic_type})")
+        print(f"    Job preset enfeebling_skill: {job_preset.enfeebling_skill}")
+        print(f"    Gear enfeebling_magic_skill: {candidate.stats.enfeebling_magic_skill}")
+        print(f"    Caster skill (from get_skill_for_type): {skill}")
+        print(f"    Caster magic_accuracy (incl skill+gear+gifts): {caster.magic_accuracy}")
+        print(f"    Caster stat (INT/MND): {caster_stat}, Target stat: {target_stat}")
+        print(f"    dstat_bonus: {dstat_bonus}")
+        print(f"    total_macc = skill({skill}) + magic_acc_gear({caster.magic_accuracy}) + dstat({int(dstat_bonus)}) = {total_macc}")
+        print(f"    TARGET magic_evasion: {target.magic_evasion}")
+        print(f"    dMAcc = {total_macc} - {target.magic_evasion} = {total_macc - target.magic_evasion}")
+        
+        # Manual hit rate calculation check
+        dmacc = total_macc - target.magic_evasion
+        if dmacc < 0:
+            manual_hit = 0.50 + (dmacc // 2) / 100
+        else:
+            manual_hit = 0.50 + dmacc / 100
+        manual_hit = max(0.05, min(0.95, manual_hit))
+        print(f"    Manual hit rate calc: {manual_hit:.4f} ({manual_hit*100:.1f}%)")
+        print(f"    Function hit_rate: {hit_rate:.4f} ({hit_rate*100:.1f}%)")
+        
+        if abs(hit_rate - manual_hit) > 0.001:
+            print(f"    *** MISMATCH DETECTED! ***")
+    
     return hit_rate
 
 
@@ -783,16 +1015,10 @@ def evaluate_magic_potency(
     buff_bonuses: Optional[Dict[str, int]] = None,
 ) -> float:
     """
-    Evaluate a gear set for potency optimization.
+    Evaluate a gear set for potency optimization using actual simulation.
     
-    Returns a composite score based on the relevant skill and stat for the spell type.
-    Higher score = better potency.
-    
-    The score is composed of:
-    - Relevant magic skill (weighted heavily)
-    - Relevant stat (INT or MND)
-    - Effect bonuses (enfeebling effect, etc.)
-    - Magic accuracy (must land to matter)
+    This function now calls the actual simulation methods instead of
+    weighted scoring, providing accurate potency values.
     
     Args:
         candidate: Gear set candidate
@@ -803,7 +1029,7 @@ def evaluate_magic_potency(
         buff_bonuses: Additional stat bonuses from buffs (GEO, COR, food, etc.)
     
     Returns:
-        Potency score (higher is better)
+        Potency score (higher is better) - actual potency value from simulation
     """
     from magic_formulas import (
         calculate_dstat_bonus, calculate_magic_accuracy, calculate_magic_hit_rate
@@ -824,56 +1050,10 @@ def evaluate_magic_potency(
         caster.mab += buff_bonuses.get("magic_attack", 0)
         caster.magic_accuracy += buff_bonuses.get("magic_accuracy", 0)
     
-    gear_stats = candidate.stats
+    # Create simulator
+    sim = MagicSimulator(seed=42)
     
-    # Base score from relevant skill
-    skill_score = 0.0
-    stat_score = 0.0
-    effect_score = 0.0
-    
-    if spell.magic_type == MagicType.ENFEEBLING_MND:
-        # MND-based enfeebling
-        skill_score = (job_preset.enfeebling_skill + gear_stats.enfeebling_magic_skill) * 2.0
-        stat_score = caster.mnd_stat * 0.5
-        effect_score = gear_stats.enfeebling_effect * 3.0
-        
-    elif spell.magic_type == MagicType.ENFEEBLING_INT:
-        # INT-based enfeebling
-        skill_score = (job_preset.enfeebling_skill + gear_stats.enfeebling_magic_skill) * 2.0
-        stat_score = caster.int_stat * 0.5
-        effect_score = gear_stats.enfeebling_effect * 3.0
-        
-    elif spell.magic_type == MagicType.DARK:
-        # Dark magic - Drain/Aspir/Bio
-        skill_score = (job_preset.dark_skill + gear_stats.dark_magic_skill) * 2.0
-        stat_score = caster.int_stat * 0.5
-        # Bio also benefits from MAB
-        if spell.name.startswith('Bio'):
-            effect_score = gear_stats.magic_attack * 1.0
-            
-    elif spell.magic_type == MagicType.DIVINE:
-        # Divine magic
-        skill_score = (job_preset.divine_skill + gear_stats.divine_magic_skill) * 2.0
-        stat_score = caster.mnd_stat * 0.5
-        
-    elif spell.magic_type == MagicType.HEALING:
-        # Healing - cure potency
-        skill_score = (job_preset.healing_skill + gear_stats.healing_magic_skill) * 2.0
-        stat_score = caster.mnd_stat * 0.5
-        effect_score = gear_stats.cure_potency * 0.5  # basis points
-        
-    elif spell.magic_type == MagicType.ENHANCING:
-        # Enhancing - duration and skill
-        skill_score = (job_preset.enhancing_skill + gear_stats.enhancing_magic_skill) * 2.0
-        stat_score = caster.mnd_stat * 0.3
-        effect_score = gear_stats.enhancing_duration * 0.3  # basis points
-        
-    else:
-        # Default to elemental skill
-        skill_score = (job_preset.elemental_skill + gear_stats.elemental_magic_skill) * 2.0
-        stat_score = caster.int_stat * 0.5
-    
-    # Calculate hit rate factor - potency is useless if spell doesn't land
+    # Calculate base hit rate for accuracy factor
     if spell.magic_type in [MagicType.DIVINE, MagicType.ENFEEBLING_MND, MagicType.HEALING]:
         caster_stat = caster.mnd_stat
         target_stat = target.mnd_stat
@@ -891,14 +1071,105 @@ def evaluate_magic_potency(
     )
     hit_rate = calculate_magic_hit_rate(total_macc, target.magic_evasion)
     
-    # Accuracy factor - penalize sets that can't land the spell
-    # Use a softer penalty to not completely zero out good potency sets
-    acc_factor = 0.5 + (hit_rate * 0.5)  # Range: 0.525 to 0.975
+    # Route to appropriate simulation based on spell type
+    potency_score = 0.0
+    sim_result = None
     
-    # Combine scores
-    total_score = (skill_score + stat_score + effect_score) * acc_factor
+    if spell.magic_type in [MagicType.ENFEEBLING_INT, MagicType.ENFEEBLING_MND]:
+        # Enfeebling simulation
+        result = sim.simulate_enfeebling(spell.name, caster, target)
+        sim_result = result
+        # Score is the potency value - higher potency = better
+        potency_score = result.potency_value
+        # For percentage-based enfeebles (Slow, Para), the value is in basis points
+        # For accuracy-based (Blind), value is flat reduction
+        # Normalize to make them comparable
+        if result.potency_unit == 'basis points':
+            potency_score = result.potency_value  # Already good scale
+        elif result.potency_unit == 'accuracy reduction':
+            potency_score = result.potency_value * 50  # Scale up flat values
+        else:
+            potency_score = result.potency_value * 10  # Default scaling
+            
+    elif spell.magic_type == MagicType.HEALING:
+        # Healing simulation
+        result = sim.simulate_healing(spell.name, caster)
+        sim_result = result
+        # Score is HP healed
+        potency_score = result.hp_healed
+        
+    elif spell.magic_type == MagicType.ENHANCING:
+        # Enhancing simulation
+        result = sim.simulate_enhancing(spell.name, caster)
+        sim_result = result
+        # Score depends on spell type
+        if spell.properties.get('enspell', False):
+            # Enspells: damage per hit * expected duration contribution
+            # Higher damage + longer duration = better
+            potency_score = result.damage_at_cap * 100 + result.final_duration
+        else:
+            # Other enhancing: potency value + duration bonus
+            potency_score = result.potency_value + result.final_duration * 0.5
+            
+    elif spell.magic_type == MagicType.DARK:
+        # Dark magic simulation
+        result = sim.simulate_dark_magic(spell.name, caster, target)
+        sim_result = result
+        # Score is total damage/drain amount
+        potency_score = result.total_damage
+        
+    elif spell.magic_type == MagicType.DIVINE:
+        # Divine magic - use standard damage simulation for now
+        result = sim.simulate_spell(spell.name, caster, target, num_casts=10)
+        potency_score = result.average_damage
+        
+    else:
+        # Default: standard damage simulation
+        result = sim.simulate_spell(spell.name, caster, target, num_casts=10)
+        potency_score = result.average_damage
     
-    return total_score
+    # Apply hit rate factor for spells that need to land
+    # Healing and self-enhancing don't need this
+    if spell.magic_type not in [MagicType.HEALING, MagicType.ENHANCING]:
+        # Softer penalty to not zero out good potency sets
+        acc_factor = 0.5 + (hit_rate * 0.5)  # Range: 0.525 to 0.975
+        potency_score = potency_score * acc_factor
+    
+    # Debug output for first few evaluations
+    if hasattr(evaluate_magic_potency, '_debug_count'):
+        evaluate_magic_potency._debug_count += 1
+    else:
+        evaluate_magic_potency._debug_count = 1
+    
+    if evaluate_magic_potency._debug_count <= 3:
+        print(f"\n  [DEBUG] evaluate_magic_potency #{evaluate_magic_potency._debug_count}:")
+        print(f"    Spell: {spell.name} (type: {spell.magic_type})")
+        
+        if sim_result is not None:
+            if isinstance(sim_result, EnfeeblingSimulationResult):
+                print(f"    Simulation: {sim_result.potency_description}")
+                print(f"    Duration: {sim_result.base_duration:.0f}s → {sim_result.enhanced_duration:.0f}s")
+                print(f"    Skill: {sim_result.skill_contribution}, Effect bonus: {sim_result.gear_bonus}")
+            elif isinstance(sim_result, HealingSimulationResult):
+                print(f"    HP Healed: {sim_result.hp_healed}")
+                print(f"    HP/MP efficiency: {sim_result.hp_per_mp:.1f}")
+                print(f"    Cure Potency mult: {sim_result.cure_potency_mult:.2f}")
+            elif isinstance(sim_result, EnhancingSimulationResult):
+                print(f"    Potency: {sim_result.potency_description}")
+                print(f"    Duration: {sim_result.base_duration:.0f}s → {sim_result.final_duration:.0f}s")
+                if sim_result.damage_per_hit > 0:
+                    print(f"    Enspell damage: {sim_result.damage_per_hit} → {sim_result.damage_at_cap} (at cap)")
+            elif isinstance(sim_result, DarkMagicSimulationResult):
+                if sim_result.resource_type:
+                    print(f"    Drain amount: {sim_result.amount_drained} {sim_result.resource_type}")
+                else:
+                    print(f"    Initial: {sim_result.initial_damage}, DOT: {sim_result.dot_damage_per_tick}/tick")
+                    print(f"    Total damage: {sim_result.total_damage}")
+        
+        print(f"    Hit rate: {hit_rate:.3f}")
+        print(f"    Final score: {potency_score:.1f}")
+    
+    return potency_score
 
 
 # =============================================================================
@@ -941,6 +1212,12 @@ def run_magic_optimization(
     Returns:
         List of (candidate, score) tuples sorted by score (best first)
     """
+    # Reset debug counters for fresh output each run
+    if hasattr(evaluate_magic_accuracy, '_debug_count'):
+        evaluate_magic_accuracy._debug_count = 0
+    if hasattr(evaluate_magic_potency, '_debug_count'):
+        evaluate_magic_potency._debug_count = 0
+    
     # Get spell data
     spell = get_spell(spell_name)
     if spell is None:
@@ -953,6 +1230,12 @@ def run_magic_optimization(
     # Set default target
     if target is None:
         target = MAGIC_TARGETS['apex_mob']
+    
+    # DEBUG: Print target info
+    print(f"\n[DEBUG] Target passed to run_magic_optimization:")
+    print(f"  magic_evasion: {target.magic_evasion}")
+    print(f"  int_stat: {target.int_stat}")
+    print(f"  mnd_stat: {target.mnd_stat}")
     
     # Create optimization profile based on type
     if optimization_type == MagicOptimizationType.DAMAGE:
@@ -993,20 +1276,41 @@ def run_magic_optimization(
     print(f"\n{'-'*70}")
     print("Running Beam Search...")
     print(f"{'-'*70}")
-    
-    optimizer = BeamSearchOptimizer(
+
+
+    optimizer = NumbaBeamSearchOptimizer(
         inventory=inventory,
         profile=profile,
         beam_width=beam_width,
         job=job,
         include_weapons=include_weapons,
     )
+
+    
+    # optimizer = FastBeamSearchOptimizer(
+    #     inventory=inventory,
+    #     profile=profile,
+    #     beam_width=beam_width,
+    #     job=job,
+    #     include_weapons=include_weapons,
+    # )
+    
+    # optimizer = BeamSearchOptimizer(
+    #     inventory=inventory,
+    #     profile=profile,
+    #     beam_width=beam_width,
+    #     job=job,
+    #     include_weapons=include_weapons,
+    # )
     
     # Run beam search
     contenders = optimizer.search(
         fixed_gear=fixed_gear,
         slots_to_optimize=slots_to_optimize,
     )
+
+    item_pool = optimizer.extract_item_pool(contenders=contenders)
+    optimizer.print_item_pool(item_pool)
     
     print(f"\n✓ Found {len(contenders)} contender sets")
     
@@ -1246,8 +1550,15 @@ def get_valid_optimization_types(spell_name: str) -> List[MagicOptimizationType]
             MagicOptimizationType.ACCURACY,
         ]
     elif spell.magic_type == MagicType.DARK:
-        # Dark magic - depends on spell
-        if spell.name.startswith('Bio'):
+        # Dark magic - depends on spell subtype
+        if spell.name.startswith('Absorb'):
+            # Absorb spells: Potency from equipment, Accuracy from skill
+            # Per BG-Wiki: "Dark Magic does nothing for the potency of Absorb spells"
+            valid_types = [
+                MagicOptimizationType.POTENCY,   # Equipment-based potency (Liberator, etc.)
+                MagicOptimizationType.ACCURACY,  # Dark Magic Skill affects landing
+            ]
+        elif spell.name.startswith('Bio'):
             # Bio does damage + DOT potency
             valid_types = [
                 MagicOptimizationType.POTENCY,
@@ -1255,7 +1566,7 @@ def get_valid_optimization_types(spell_name: str) -> List[MagicOptimizationType]
                 MagicOptimizationType.ACCURACY,
             ]
         else:
-            # Drain/Aspir - potency focused
+            # Drain/Aspir - potency from Dark Magic Skill
             valid_types = [
                 MagicOptimizationType.POTENCY,
                 MagicOptimizationType.ACCURACY,
@@ -1321,8 +1632,8 @@ def is_burst_relevant(spell_name: str) -> bool:
     if spell.magic_type in non_mb_types:
         return False
     
-    # Special case: Drain/Aspir don't really benefit from MB damage
-    if spell.name.startswith('Drain') or spell.name.startswith('Aspir'):
+    # Special case: Drain/Aspir/Absorb don't benefit from MB damage
+    if spell.name.startswith('Drain') or spell.name.startswith('Aspir') or spell.name.startswith('Absorb'):
         return False
     
     return spell.magic_type in damage_types

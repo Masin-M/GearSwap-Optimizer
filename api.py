@@ -8,6 +8,46 @@ the gear optimization system.
 
 import sys
 import os
+import io
+
+# =============================================================================
+# WINDOWS ENCODING FIX (must be before any other imports that might print)
+# =============================================================================
+# When running as a windowed exe (console=False), stdout/stderr may be None
+# or use cp1252 encoding which can't handle Unicode characters like ✓ ✗ ⚠
+# This fix ensures all output uses UTF-8 with error replacement
+
+def _setup_safe_output():
+    """Configure stdout/stderr to handle Unicode safely on Windows."""
+    if sys.platform != 'win32':
+        return
+    
+    # Case 1: No console at all (windowed mode) - redirect to devnull
+    if sys.stdout is None or sys.stderr is None:
+        devnull = open(os.devnull, 'w', encoding='utf-8')
+        if sys.stdout is None:
+            sys.stdout = devnull
+        if sys.stderr is None:
+            sys.stderr = devnull
+        return
+    
+    # Case 2: Console exists but may have wrong encoding - wrap with UTF-8
+    try:
+        if hasattr(sys.stdout, 'buffer'):
+            sys.stdout = io.TextIOWrapper(
+                sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True
+            )
+        if hasattr(sys.stderr, 'buffer'):
+            sys.stderr = io.TextIOWrapper(
+                sys.stderr.buffer, encoding='utf-8', errors='replace', line_buffering=True
+            )
+    except Exception:
+        # If wrapping fails, redirect to devnull as fallback
+        devnull = open(os.devnull, 'w', encoding='utf-8')
+        sys.stdout = devnull
+        sys.stderr = devnull
+
+_setup_safe_output()
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
@@ -45,6 +85,8 @@ from beam_search_optimizer import (
     ARMOR_SLOTS,
     SLOT_TO_WSDIST,
 )
+
+from numba_beam_search_optimizer import NumbaBeamSearchOptimizer
 from lua_parser import (
     LuaParser,
     GearSwapFile,
@@ -57,24 +99,7 @@ from lua_parser import (
     parse_gearswap_content,
 )
 
-# Simulation-based optimization
-try:
-    from simulation_optimizer import (
-        optimize_set_with_simulation,
-        classify_set_type,
-        SetOptimizationType,
-        filter_fishing_gear,
-        filter_inventory_fishing_gear,
-        extract_ws_name,
-        extract_spell_name,
-        MELEE_STANDARD_BUFFS,
-        MAGIC_DAMAGE_BUFFS,
-        TARGETS,
-    )
-    SIMULATION_OPTIMIZER_AVAILABLE = True
-except ImportError as e:
-    print(f"Warning: Could not import simulation_optimizer: {e}")
-    SIMULATION_OPTIMIZER_AVAILABLE = False
+
 from ws_database import (
     WEAPONSKILLS,
     WeaponType,
@@ -122,6 +147,23 @@ except ImportError as e:
                 "bst", "brd", "rng", "smn", "sam", "nin", "drg", "blu",
                 "cor", "pup", "dnc", "sch", "geo", "run"]
     Empty = {"Name": "Empty", "Name2": "Empty", "Type": "None", "Jobs": all_jobs}
+
+
+def strip_gear_metadata(gear_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Strip metadata fields from a gear dict before passing to wsdist.
+    
+    wsdist iterates through all keys and tries to sum numeric values.
+    Metadata fields like '_augments' (a list) would cause type errors.
+    
+    Args:
+        gear_dict: A wsdist gear dictionary
+        
+    Returns:
+        A copy with underscore-prefixed keys removed
+    """
+    return {k: v for k, v in gear_dict.items() if not k.startswith('_')}
+
 
 # Buff imports
 try:
@@ -179,9 +221,9 @@ class DTSetType(Enum):
     PDT_ONLY = "PDT Only (Physical Focus)"
     MDT_ONLY = "MDT Only (Magical Focus)"
     FAST_CAST = "Fast Cast (Precast Set)"
-    ENHANCING_SKILL = "Enhancing Skill (Buff Duration/Potency)"
-    ENHANCING_DURATION = "Enhancing Duration (Composure Set)"
-    CURE_POTENCY = "Cure Potency (Healing Set)"
+    GENERIC_WS = "Generic WS (WS Damage + PDL)"
+    # NOTE: Enhancing Skill, Enhancing Duration, and Cure Potency are now handled
+    # through the Magic tab using MagicOptimizationType.POTENCY with spell-specific profiles
 
 
 def get_dt_profile_description(dt_type: DTSetType) -> str:
@@ -194,9 +236,7 @@ def get_dt_profile_description(dt_type: DTSetType) -> str:
         DTSetType.PDT_ONLY: "Physical damage focus. Maximizes PDT and DT for physical-heavy content.",
         DTSetType.MDT_ONLY: "Magical damage focus. Maximizes MDT and DT for magical-heavy content.",
         DTSetType.FAST_CAST: "Precast set. Maximizes Fast Cast (caps at 80%). Secondary: HP for survivability.",
-        DTSetType.ENHANCING_SKILL: "Maximizes Enhancing Magic Skill for buff potency/duration.",
-        DTSetType.ENHANCING_DURATION: "Maximizes Enhancing Duration % for Composure-style sets.",
-        DTSetType.CURE_POTENCY: "Maximizes Cure Potency and MND for healing sets.",
+        DTSetType.GENERIC_WS: "Generic weaponskill set. Maximizes WS Damage % and Physical Damage Limit+. For precast.WS without specific WS.",
     }
     return descriptions.get(dt_type, "DT optimization set")
 
@@ -418,61 +458,28 @@ def create_dt_profile(
             job=job,
         )
     
-    elif dt_type == DTSetType.ENHANCING_SKILL:
-        # Enhancing Magic Skill set
-        # Maximizes Enhancing Magic Skill for buff potency/duration
-        # Enhancing Skill caps vary by spell but 500+ is generally good
+    elif dt_type == DTSetType.GENERIC_WS:
+        # Generic Weaponskill set - for sets.precast.WS without specific WS name
+        # Maximize WS damage modifiers and physical damage limit
+        # WS Damage is stored as basis points (1000 = 10%)
+        # PDL (Physical Damage Limit) is also basis points
         return OptimizationProfile(
-            name="Enhancing Skill",
+            name="Generic WS",
             weights={
-                # Primary: Enhancing Magic Skill
-                'enhancing_magic_skill': 100.0,
-                # Secondary: MND affects some enhancing spells
-                'MND': 5.0,
-                # Tertiary: Survivability
-                'HP': 2.0,
-                'damage_taken': -1.0,
+                # Primary: WS damage modifiers
+                'ws_damage': 50.0,              # WS Damage % - most important
+                'pdl': 40.0,                    # Physical Damage Limit+
+                # Secondary: Generic damage stats that help most WS
+                'STR': 8.0,                     # Common WS modifier
+                'attack': 5.0,                  # More attack = more damage
+                'DEX': 4.0,                     # Common WS modifier, affects crit
+                'accuracy': 3.0,                # Need to hit
+                'crit_rate': 3.0,               # Critical hit rate
+                'crit_damage': 2.5,             # Critical damage bonus
+                'VIT': 2.0,                     # Some WS use VIT
+                'MND': 1.0,                     # Some WS use MND
             },
-            exclude_slots=exclude,
-            job=job,
-        )
-    
-    elif dt_type == DTSetType.ENHANCING_DURATION:
-        # Enhancing Duration set (Composure, etc.)
-        # Maximizes Enhancing Duration % and Skill
-        return OptimizationProfile(
-            name="Enhancing Duration",
-            weights={
-                # Primary: Enhancing Duration percentage
-                'enhancing_duration': 100.0,
-                # Secondary: Enhancing Magic Skill also helps
-                'enhancing_magic_skill': 50.0,
-                # Tertiary: MND and survivability
-                'MND': 3.0,
-                'HP': 2.0,
-            },
-            exclude_slots=exclude,
-            job=job,
-        )
-    
-    elif dt_type == DTSetType.CURE_POTENCY:
-        # Cure Potency set
-        # Maximizes Cure Potency % and MND for healing
-        return OptimizationProfile(
-            name="Cure Potency",
-            weights={
-                # Primary: Cure Potency percentage
-                'cure_potency': 100.0,
-                # Secondary: MND directly affects cure amount
-                'MND': 20.0,
-                # Tertiary: Healing Magic Skill and survivability
-                'healing_magic_skill': 10.0,
-                'HP': 3.0,
-                'damage_taken': -2.0,
-            },
-            hard_caps={
-                'cure_potency': 5000,       # 50% cap
-            },
+            hard_caps={},  # No caps for WS damage stats
             exclude_slots=exclude,
             job=job,
         )
@@ -503,7 +510,7 @@ def run_dt_optimization(
     dt_type: DTSetType,
     main_weapon: Optional[Dict] = None,
     sub_weapon: Optional[Dict] = None,
-    beam_width: int = 25,
+    beam_width: int = 100,
     include_weapons: bool = False,
     # TP calculation parameters
     buffs: Optional[Dict] = None,
@@ -534,7 +541,7 @@ def run_dt_optimization(
     Returns:
         List of (candidate, metrics) tuples sorted appropriately
     """
-    from beam_search_optimizer import BeamSearchOptimizer
+    
     
     # Create profile for this DT type
     profile = create_dt_profile(dt_type, job=job, include_weapons=include_weapons)
@@ -548,7 +555,7 @@ def run_dt_optimization(
             fixed_gear['sub'] = sub_weapon
     
     # Run optimization
-    optimizer = BeamSearchOptimizer(inventory, profile, beam_width, job, include_weapons=include_weapons)
+    optimizer = NumbaBeamSearchOptimizer(inventory, profile, beam_width, job, include_weapons=include_weapons)
     results = optimizer.search(fixed_gear=fixed_gear if fixed_gear else None)
     
     # Set up TP simulation - we can calculate TP if:
@@ -642,19 +649,19 @@ def run_dt_optimization(
         # Calculate TP metrics if we can
         if can_calculate_tp and enemy is not None:
             try:
-                # Build gearset for simulation
+                # Build gearset for simulation (strip metadata like _augments)
                 gearset = {}
                 for slot in WSDIST_SLOTS:
                     if slot in candidate.gear:
-                        gearset[slot] = candidate.gear[slot].copy()
+                        gearset[slot] = strip_gear_metadata(candidate.gear[slot])
                     else:
                         gearset[slot] = Empty.copy()
                 
                 # Use passed weapons if provided, otherwise use candidate's gear weapons
                 if main_weapon:
-                    gearset['main'] = main_weapon.copy()
+                    gearset['main'] = strip_gear_metadata(main_weapon)
                 if sub_weapon:
-                    gearset['sub'] = sub_weapon.copy()
+                    gearset['sub'] = strip_gear_metadata(sub_weapon)
                 
                 # Check if we have a valid main weapon for TP simulation
                 candidate_main = gearset.get('main', {})
@@ -663,10 +670,10 @@ def run_dt_optimization(
                     candidate_main.get('Type') == 'Weapon'
                 )
                 
-                print(f"TP calculation check: has_valid_main={has_valid_main}, main_name={candidate_main.get('Name', 'None')}")
+                # print(f"TP calculation check: has_valid_main={has_valid_main}, main_name={candidate_main.get('Name', 'None')}")
                 
                 if has_valid_main:
-                    print(f"Running TP simulation for candidate with main={candidate_main.get('Name', 'None')}")
+                    #print(f"Running TP simulation for candidate with main={candidate_main.get('Name', 'None')}")
                     
                     # Simulate TP set
                     tp_metrics = simulate_tp_set(
@@ -681,7 +688,7 @@ def run_dt_optimization(
                         master_level=master_level,
                     )
                     
-                    print(f"TP simulation result: time_to_ws={tp_metrics.get('time_to_ws')}, tp_per_round={tp_metrics.get('tp_per_round')}")
+                    # print(f"TP simulation result: time_to_ws={tp_metrics.get('time_to_ws')}, tp_per_round={tp_metrics.get('tp_per_round')}")
                     
                     metrics['time_to_ws'] = tp_metrics.get('time_to_ws')
                     metrics['tp_per_round'] = tp_metrics.get('tp_per_round')
@@ -694,8 +701,9 @@ def run_dt_optimization(
                 print(f"Warning: Could not calculate TP metrics: {e}")
                 print(traceback.format_exc())
         else:
-            print(f"Skipping TP calculation: WSDIST_AVAILABLE={WSDIST_AVAILABLE}, can_calculate_tp={can_calculate_tp}, enemy={enemy is not None}")
-        
+            # print(f"Skipping TP calculation: WSDIST_AVAILABLE={WSDIST_AVAILABLE}, can_calculate_tp={can_calculate_tp}, enemy={enemy is not None}")
+            pass
+
         output.append((candidate, metrics))
     
     # Sort based on DT type
@@ -734,6 +742,36 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# =============================================================================
+# Shutdown Callback (for launcher.py)
+# =============================================================================
+
+_shutdown_callback = None
+
+
+def set_shutdown_callback(callback):
+    """Set the callback function to be called when shutdown is requested."""
+    global _shutdown_callback
+    _shutdown_callback = callback
+
+
+@app.post("/api/shutdown")
+async def shutdown_server():
+    """Shutdown the server gracefully."""
+    global _shutdown_callback
+    if _shutdown_callback:
+        import threading
+        import time
+        # Delay shutdown slightly to allow response to be sent
+        threading.Thread(
+            target=lambda: (time.sleep(0.5), _shutdown_callback()),
+            daemon=True
+        ).start()
+        return {"success": True, "message": "Server shutting down..."}
+    return {"success": False, "message": "No shutdown callback registered"}
+
+
 # =============================================================================
 # Global State
 # =============================================================================
@@ -745,6 +783,7 @@ class AppState:
         self.job_gifts: Optional[JobGiftsCollection] = None
         self.inventory_filename: str = ""
         self.job_gifts_filename: str = ""
+        self.inventory_csv_content: str = ""  # Raw CSV for caching
 
 state = AppState()
 
@@ -789,6 +828,7 @@ class WeaponskillInfo(BaseModel):
 
 class OptimizeRequest(BaseModel):
     job: str
+    sub_job: str = "war"
     main_weapon: Dict[str, Any]
     sub_weapon: Dict[str, Any]
     weaponskill: Optional[str] = None
@@ -799,7 +839,7 @@ class OptimizeRequest(BaseModel):
     food: str = ""
     debuffs: List[str] = []
     use_simulation: bool = True
-    beam_width: int = 10
+    beam_width: int = 100  # Default to 100 for better coverage
     master_level: int = 0
     min_tp: int = 1000
 
@@ -1114,6 +1154,83 @@ def convert_ui_buffs_to_wsdist(
 
 
 # =============================================================================
+# Optimization Helper Functions
+# =============================================================================
+
+def get_job_enum_or_error(job: str, opt_type: str):
+    """
+    Validate job and return job enum, or return an error response.
+    
+    Returns:
+        Tuple of (job_enum, None) on success, or (None, error_response) on failure
+    """
+    job_enum = JOB_ENUM_MAP.get(job) or JOB_ENUM_MAP.get(job.upper())
+    if not job_enum:
+        return None, f"Invalid job: {job}"
+    return job_enum, None
+
+
+def get_job_gifts_for_job(job: str):
+    """Get job gifts for a job if available."""
+    if state.job_gifts and job.upper() in state.job_gifts.gifts:
+        return state.job_gifts.gifts[job.upper()]
+    return None
+
+
+def prepare_target_with_debuffs(target_key: str, debuffs_info: dict, default_target: str = "apex_toad"):
+    """
+    Get target data and apply debuffs.
+    
+    Args:
+        target_key: Target preset key
+        debuffs_info: Dict with defense_down_pct and evasion_down values
+        default_target: Fallback target if key not found
+    
+    Returns:
+        Modified target data dict
+    """
+    key = target_key if target_key in TARGET_PRESETS else default_target
+    target_data = TARGET_PRESETS[key].copy()
+    target_data["Base Defense"] = target_data.get("Defense", 1500)
+    # Apply defense down debuff
+    target_data["Defense"] = int(target_data["Defense"] * (1 - debuffs_info.get("defense_down_pct", 0)))
+    target_data["Evasion"] = target_data["Evasion"] - debuffs_info.get("evasion_down", 0)
+    return target_data
+
+
+def format_gear_dict(candidate, include_full_stats: bool = True) -> Dict[str, Dict]:
+    """
+    Format a candidate's gear into API response format.
+    
+    Args:
+        candidate: Optimization candidate with gear attribute
+        include_full_stats: If True, include all item stats (for melee).
+                          If False, only include name/name2 (for magic).
+    
+    Returns:
+        Dict mapping slot names to item dicts
+    """
+    gear_dict = {}
+    for slot in WSDIST_SLOTS:
+        if slot in candidate.gear:
+            item = candidate.gear[slot]
+            if include_full_stats:
+                gear_dict[slot] = {
+                    "name": item.get("Name", "Empty"),
+                    "name2": item.get("Name2", item.get("Name", "Empty")),
+                    "_augments": item.get("_augments"),  # For Lua output
+                    **{k: v for k, v in item.items() if k not in ("Name", "Name2", "_augments")}
+                }
+            else:
+                gear_dict[slot] = {
+                    "name": item.get("Name", "Empty"),
+                    "name2": item.get("Name2", item.get("Name", "Empty")),
+                    "_augments": item.get("_augments"),  # For Lua output
+                }
+    return gear_dict
+
+
+# =============================================================================
 # Target/Enemy Presets
 # =============================================================================
 
@@ -1274,10 +1391,15 @@ SPELL_CATEGORIES = {
         "name": "Dark (Drain/Aspir)",
         "spells": ["Drain", "Drain II", "Drain III", "Aspir", "Aspir II", "Aspir III"],
     },
-    "dark_utility": {
-        "id": "dark_utility",
-        "name": "Dark (Utility)",
-        "spells": ["Stun", "Absorb-STR", "Absorb-DEX", "Absorb-VIT", "Absorb-AGI", 
+    "dark_stun": {
+        "id": "dark_stun",
+        "name": "Dark (Stun)",
+        "spells": ["Stun"],
+    },
+    "absorb_spells": {
+        "id": "absorb_spells",
+        "name": "Absorb Spells",
+        "spells": ["Absorb-STR", "Absorb-DEX", "Absorb-VIT", "Absorb-AGI", 
                    "Absorb-INT", "Absorb-MND", "Absorb-CHR", "Absorb-ACC", "Absorb-TP", "Absorb-Attri"],
     },
     "enfeebling_mnd": {
@@ -1330,12 +1452,39 @@ MAGIC_TARGET_PRESETS = {
     },
     "odyssey_nm": {
         "id": "odyssey_nm",
-        "name": "Odyssey NM",
+        "name": "Odyssey NM (Low)",
         "level": 140,
         "int_stat": 250,
         "mnd_stat": 250,
         "magic_evasion": 750,
         "magic_defense_bonus": 50,
+    },
+    "odyssey_v15": {
+        "id": "odyssey_v15",
+        "name": "Odyssey V15",
+        "level": 145,
+        "int_stat": 290,
+        "mnd_stat": 290,
+        "magic_evasion": 1000,
+        "magic_defense_bonus": 60,
+    },
+    "odyssey_v20": {
+        "id": "odyssey_v20",
+        "name": "Odyssey V20",
+        "level": 148,
+        "int_stat": 320,
+        "mnd_stat": 320,
+        "magic_evasion": 1100,
+        "magic_defense_bonus": 70,
+    },
+    "odyssey_v25": {
+        "id": "odyssey_v25",
+        "name": "Odyssey V25",
+        "level": 150,
+        "int_stat": 350,
+        "mnd_stat": 350,
+        "magic_evasion": 1200,
+        "magic_defense_bonus": 80,
     },
     "sortie_boss": {
         "id": "sortie_boss",
@@ -1426,6 +1575,23 @@ async def root():
     return HTMLResponse("<h1>FFXI Gear Optimizer API</h1><p>Static files not found</p>")
 
 
+@app.get("/favicon.ico")
+async def favicon():
+    """Serve the favicon."""
+    # Check multiple possible locations
+    possible_paths = [
+        SCRIPT_DIR / "static" / "favicon.ico",
+        SCRIPT_DIR / "favicon.ico",
+        SCRIPT_DIR / "static" / "icons" / "favicon.ico",
+    ]
+    for path in possible_paths:
+        if path.exists():
+            return FileResponse(path, media_type="image/x-icon")
+    # Return 204 No Content if not found (prevents 404 errors in browser)
+    from fastapi.responses import JSONResponse
+    return JSONResponse(content={}, status_code=204)
+
+
 @app.get("/api/status", response_model=StatusResponse)
 async def get_status():
     """Get the current application status."""
@@ -1454,6 +1620,9 @@ async def upload_inventory(file: UploadFile = File(...)):
         state.inventory = load_inventory(str(temp_path))
         state.inventory_filename = file.filename
         
+        # Store raw CSV content for caching
+        state.inventory_csv_content = content.decode('utf-8')
+        
         # Clean up temp file
         temp_path.unlink()
         
@@ -1463,6 +1632,77 @@ async def upload_inventory(file: UploadFile = File(...)):
             "item_count": len(state.inventory.items),
             "message": f"Loaded {len(state.inventory.items)} items"
         }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+
+class CachedInventoryRequest(BaseModel):
+    """Request model for reloading cached inventory."""
+    csv_content: str  # Raw CSV content
+    character_name: Optional[str] = None
+
+
+@app.get("/api/inventory/raw")
+async def get_inventory_raw():
+    """
+    Get the raw CSV content of the currently loaded inventory.
+    
+    This is used for caching - the frontend stores the CSV and can
+    reload it later without re-uploading the file.
+    """
+    if not hasattr(state, 'inventory_csv_content') or not state.inventory_csv_content:
+        return {
+            "success": False,
+            "error": "No inventory CSV content available"
+        }
+    
+    return {
+        "success": True,
+        "csv_content": state.inventory_csv_content
+    }
+
+
+@app.post("/api/upload/inventory/reload")
+async def reload_cached_inventory(request: CachedInventoryRequest):
+    """
+    Reload inventory from cached CSV data stored in browser localStorage.
+    
+    This endpoint allows the frontend to restore inventory data that was
+    previously cached, enabling persistence across browser sessions without
+    requiring re-upload of the inventory CSV file.
+    """
+    try:
+        if not request.csv_content:
+            return {
+                "success": False,
+                "error": "No CSV content provided"
+            }
+        
+        # Write CSV content to temp file and parse it
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+            f.write(request.csv_content)
+            temp_path = f.name
+        
+        try:
+            # Load inventory using the standard loader
+            state.inventory = load_inventory(temp_path)
+            state.inventory_filename = request.character_name or "Cached"
+            state.inventory_csv_content = request.csv_content  # Keep for future caching
+            
+            return {
+                "success": True,
+                "item_count": len(state.inventory.items),
+                "message": f"Restored {len(state.inventory.items)} items from cache"
+            }
+        finally:
+            # Clean up temp file
+            import os
+            os.unlink(temp_path)
     except Exception as e:
         return {
             "success": False,
@@ -1502,6 +1742,70 @@ async def upload_job_gifts(file: UploadFile = File(...)):
             "success": False,
             "error": str(e)
         }
+
+
+class CachedJobGiftsRequest(BaseModel):
+    """Request model for reloading cached job gifts."""
+    gifts: Dict[str, Dict[str, Any]]
+
+
+@app.post("/api/upload/jobgifts/reload")
+async def reload_cached_job_gifts(request: CachedJobGiftsRequest):
+    """
+    Reload job gifts from cached data stored in browser localStorage.
+    """
+    try:
+        if not request.gifts:
+            return {
+                "success": False,
+                "error": "No job gifts provided in cache"
+            }
+        
+        # Convert cached data back to JobGifts objects
+        from job_gifts_loader import JobGifts
+        
+        gifts_dict = {}
+        for job_code, gift_data in request.gifts.items():
+            gifts_dict[job_code.upper()] = JobGifts(
+                job=job_code.upper(),
+                jp_spent=gift_data.get('jp_spent', 0),
+                stats=gift_data.get('stats', {}),
+            )
+        
+        state.job_gifts = JobGiftsCollection(gifts=gifts_dict)
+        state.job_gifts_filename = "Cached"
+        
+        jobs_with_jp = sum(1 for jg in state.job_gifts.gifts.values() if jg.jp_spent > 0)
+        
+        return {
+            "success": True,
+            "jobs_with_jp": jobs_with_jp,
+            "message": f"Restored job gifts for {jobs_with_jp} jobs from cache"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+
+@app.get("/api/jobgifts")
+async def get_job_gifts():
+    """Get all job gifts data for caching."""
+    if not state.job_gifts:
+        return {"gifts": {}}
+    
+    # Serialize job gifts for caching
+    gifts_data = {}
+    for job_code, jg in state.job_gifts.gifts.items():
+        gifts_data[job_code] = {
+            "job": jg.job,
+            "jp_spent": jg.jp_spent,
+            "stats": jg.stats,
+        }
+    
+    return {"gifts": gifts_data}
 
 
 @app.get("/api/jobs")
@@ -1685,14 +1989,10 @@ async def optimize_ws(request: OptimizeRequest):
         )
     
     try:
-        job_enum = JOB_ENUM_MAP.get(request.job)
-        if not job_enum:
-            return OptimizeResponse(
-                success=False,
-                optimization_type="ws",
-                results=[],
-                error=f"Invalid job: {request.job}"
-            )
+        # Validate job
+        job_enum, error = get_job_enum_or_error(request.job, "ws")
+        if error:
+            return OptimizeResponse(success=False, optimization_type="ws", results=[], error=error)
         
         # Get weaponskill data
         ws_data = get_weaponskill(request.weaponskill)
@@ -1704,26 +2004,15 @@ async def optimize_ws(request: OptimizeRequest):
                 error=f"Weaponskill not found: {request.weaponskill}"
             )
         
-        # Get job gifts if available
-        job_gifts = None
-        if state.job_gifts and request.job.upper() in state.job_gifts.gifts:
-            job_gifts = state.job_gifts.gifts[request.job.upper()]
-        
-        # Convert UI buffs to wsdist format
+        # Get job gifts and prepare buffs/target
+        job_gifts = get_job_gifts_for_job(request.job)
         buffs_dict, abilities_dict, debuffs_info = convert_ui_buffs_to_wsdist(
             ui_buffs=request.buffs,
             abilities=request.abilities,
             food=request.food,
             debuffs=request.debuffs,
         )
-        
-        # Get target data and apply debuffs
-        target_key = request.target if request.target in TARGET_PRESETS else "apex_toad"
-        target_data = TARGET_PRESETS[target_key].copy()
-        target_data["Base Defense"] = target_data.get("Defense", 1500)
-        # Apply defense down debuff
-        target_data["Defense"] = int(target_data["Defense"] * (1 - debuffs_info["defense_down_pct"]))
-        target_data["Evasion"] = target_data["Evasion"] - debuffs_info["evasion_down"]
+        target_data = prepare_target_with_debuffs(request.target, debuffs_info)
         
         # Run optimization
         results = run_ws_optimization(
@@ -1732,35 +2021,24 @@ async def optimize_ws(request: OptimizeRequest):
             main_weapon=request.main_weapon,
             sub_weapon=request.sub_weapon,
             ws_data=ws_data,
-            beam_width=request.beam_width,
+            beam_width=10000,
             job_gifts=job_gifts,
             buffs=buffs_dict,
             abilities=abilities_dict,
             target_data=target_data,
             tp=request.min_tp,
             master_level=request.master_level,
+            sub_job=request.sub_job,
         )
         
         # Format results
         formatted_results = []
         for rank, (candidate, damage) in enumerate(results[:10], 1):
-            gear_dict = {}
-            for slot in WSDIST_SLOTS:
-                if slot in candidate.gear:
-                    item = candidate.gear[slot]
-                    # Include full gear data with stats for calculate_stats
-                    gear_dict[slot] = {
-                        "name": item.get("Name", "Empty"),
-                        "name2": item.get("Name2", item.get("Name", "Empty")),
-                        # Include the full item for stats calculation
-                        **{k: v for k, v in item.items() if k not in ("Name", "Name2")}
-                    }
-            
             formatted_results.append(GearsetResult(
                 rank=rank,
                 score=candidate.score,
                 damage=damage,
-                gear=gear_dict,
+                gear=format_gear_dict(candidate),
             ))
         
         return OptimizeResponse(
@@ -1790,14 +2068,10 @@ async def optimize_tp(request: OptimizeRequest):
         )
     
     try:
-        job_enum = JOB_ENUM_MAP.get(request.job)
-        if not job_enum:
-            return OptimizeResponse(
-                success=False,
-                optimization_type="tp",
-                results=[],
-                error=f"Invalid job: {request.job}"
-            )
+        # Validate job
+        job_enum, error = get_job_enum_or_error(request.job, "tp")
+        if error:
+            return OptimizeResponse(success=False, optimization_type="tp", results=[], error=error)
         
         # Map TP type
         tp_type_map = {
@@ -1809,26 +2083,15 @@ async def optimize_tp(request: OptimizeRequest):
         }
         tp_type = tp_type_map.get(request.tp_type, TPSetType.PURE_TP)
         
-        # Get job gifts if available
-        job_gifts = None
-        if state.job_gifts and request.job.upper() in state.job_gifts.gifts:
-            job_gifts = state.job_gifts.gifts[request.job.upper()]
-        
-        # Convert UI buffs to wsdist format
+        # Get job gifts and prepare buffs/target
+        job_gifts = get_job_gifts_for_job(request.job)
         buffs_dict, abilities_dict, debuffs_info = convert_ui_buffs_to_wsdist(
             ui_buffs=request.buffs,
             abilities=request.abilities,
             food=request.food,
             debuffs=request.debuffs,
         )
-        
-        # Get target data and apply debuffs
-        target_key = request.target if request.target in TARGET_PRESETS else "apex_toad"
-        target_data = TARGET_PRESETS[target_key].copy()
-        target_data["Base Defense"] = target_data.get("Defense", 1500)
-        # Apply defense down debuff
-        target_data["Defense"] = int(target_data["Defense"] * (1 - debuffs_info["defense_down_pct"]))
-        target_data["Evasion"] = target_data["Evasion"] - debuffs_info["evasion_down"]
+        target_data = prepare_target_with_debuffs(request.target, debuffs_info)
         
         # Run optimization
         results = run_tp_optimization(
@@ -1837,36 +2100,25 @@ async def optimize_tp(request: OptimizeRequest):
             main_weapon=request.main_weapon,
             sub_weapon=request.sub_weapon,
             tp_type=tp_type,
-            beam_width=request.beam_width,
+            beam_width=10000,
             job_gifts=job_gifts,
             buffs=buffs_dict,
             abilities=abilities_dict,
             target_data=target_data,
             master_level=request.master_level,
+            sub_job=request.sub_job,
         )
         
         # Format results
         formatted_results = []
         for rank, (candidate, metrics) in enumerate(results[:10], 1):
-            gear_dict = {}
-            for slot in WSDIST_SLOTS:
-                if slot in candidate.gear:
-                    item = candidate.gear[slot]
-                    # Include full gear data with stats for calculate_stats
-                    gear_dict[slot] = {
-                        "name": item.get("Name", "Empty"),
-                        "name2": item.get("Name2", item.get("Name", "Empty")),
-                        # Include the full item for stats calculation
-                        **{k: v for k, v in item.items() if k not in ("Name", "Name2")}
-                    }
-            
             formatted_results.append(GearsetResult(
                 rank=rank,
                 score=metrics.get("score", 0),
                 time_to_ws=metrics.get("time_to_ws"),
                 tp_per_round=metrics.get("tp_per_round"),
                 dps=metrics.get("dps"),
-                gear=gear_dict,
+                gear=format_gear_dict(candidate),
             ))
         
         return OptimizeResponse(
@@ -1908,7 +2160,7 @@ class DTOptimizeRequest(BaseModel):
     main_weapon: Optional[Dict] = None
     sub_weapon: Optional[Dict] = None
     include_weapons: bool = False
-    beam_width: int = 25
+    beam_width: int = 100
     # TP calculation parameters (optional - needed for TP metrics)
     sub_job: str = "war"
     master_level: int = 0
@@ -1973,13 +2225,10 @@ async def optimize_dt(request: DTOptimizeRequest):
         )
     
     try:
-        job_enum = JOB_ENUM_MAP.get(request.job)
-        if not job_enum:
-            return DTOptimizeResponse(
-                success=False,
-                results=[],
-                error=f"Invalid job: {request.job}"
-            )
+        # Validate job
+        job_enum, error = get_job_enum_or_error(request.job, "dt")
+        if error:
+            return DTOptimizeResponse(success=False, results=[], error=error)
         
         # Map DT type
         dt_type_map = {
@@ -1990,16 +2239,12 @@ async def optimize_dt(request: DTOptimizeRequest):
             "pdt_only": DTSetType.PDT_ONLY,
             "mdt_only": DTSetType.MDT_ONLY,
             "fast_cast": DTSetType.FAST_CAST,
-            "enhancing_skill": DTSetType.ENHANCING_SKILL,
-            "enhancing_duration": DTSetType.ENHANCING_DURATION,
-            "cure_potency": DTSetType.CURE_POTENCY,
+            "generic_ws": DTSetType.GENERIC_WS,
         }
         dt_type = dt_type_map.get(request.dt_type.lower(), DTSetType.PURE_DT)
         
-        # Get job gifts if available
-        job_gifts = None
-        if state.job_gifts and request.job.upper() in state.job_gifts.gifts:
-            job_gifts = state.job_gifts.gifts[request.job.upper()]
+        # Get job gifts
+        job_gifts = get_job_gifts_for_job(request.job)
         
         # Convert UI buffs to wsdist format for TP calculation
         buffs_dict = {}
@@ -2014,14 +2259,10 @@ async def optimize_dt(request: DTOptimizeRequest):
                 debuffs=request.debuffs,
             )
         
-        # Get target data
+        # Get target data (can be None for DT)
         target_data = None
         if request.target and request.target in TARGET_PRESETS:
-            target_data = TARGET_PRESETS[request.target].copy()
-            target_data["Base Defense"] = target_data.get("Defense", 1500)
-            # Apply defense down debuff
-            target_data["Defense"] = int(target_data["Defense"] * (1 - debuffs_info["defense_down_pct"]))
-            target_data["Evasion"] = target_data["Evasion"] - debuffs_info["evasion_down"]
+            target_data = prepare_target_with_debuffs(request.target, debuffs_info)
         
         # Run optimization
         results = run_dt_optimization(
@@ -2044,16 +2285,6 @@ async def optimize_dt(request: DTOptimizeRequest):
         # Format results
         formatted_results = []
         for rank, (candidate, metrics) in enumerate(results[:10], 1):
-            gear_dict = {}
-            for slot in WSDIST_SLOTS:
-                if slot in candidate.gear:
-                    item = candidate.gear[slot]
-                    gear_dict[slot] = {
-                        "name": item.get("Name", "Empty"),
-                        "name2": item.get("Name2", item.get("Name", "Empty")),
-                        **{k: v for k, v in item.items() if k not in ("Name", "Name2")}
-                    }
-            
             formatted_results.append(DTGearsetResult(
                 rank=rank,
                 score=metrics.get("score", 0),
@@ -2068,7 +2299,7 @@ async def optimize_dt(request: DTOptimizeRequest):
                 magic_evasion=int(metrics.get("magic_evasion", 0)),
                 refresh=int(metrics.get("refresh", 0)),
                 regen=int(metrics.get("regen", 0)),
-                gear=gear_dict,
+                gear=format_gear_dict(candidate),
                 # TP metrics
                 time_to_ws=metrics.get("time_to_ws"),
                 tp_per_round=metrics.get("tp_per_round"),
@@ -2415,6 +2646,12 @@ async def calculate_stats(request: StatsRequest):
                         wsdist_gearset[slot] = normalized
             else:
                 wsdist_gearset[slot] = empty_item.copy()
+        
+        # Strip metadata from all gear items before passing to wsdist
+        # wsdist iterates through all keys and tries to sum numeric values,
+        # so we need to remove any non-numeric fields like _augments (a list)
+        for slot in wsdist_gearset:
+            wsdist_gearset[slot] = strip_gear_metadata(wsdist_gearset[slot])
         
         # Build buffs dict for wsdist using the convert function
         buffs_dict, abilities_dict, _ = convert_ui_buffs_to_wsdist(
@@ -3148,6 +3385,13 @@ async def optimize_magic(request: MagicOptimizeRequest):
         food = request.buffs.get("food", "") if isinstance(request.buffs.get("food"), str) else ""
         buff_bonuses = convert_magic_buffs_to_caster_stats(request.buffs, food=food)
         
+        # Debug: Print target info
+        print(f"\n[DEBUG API] Magic Optimization Request:")
+        print(f"  request.target = '{request.target}'")
+        print(f"  Target resolved to: magic_evasion={target.magic_evasion}, int={target.int_stat}, mnd={target.mnd_stat}")
+        print(f"  Optimization type: {opt_type}")
+        print(f"  Available MAGIC_TARGETS keys: {list(MAGIC_TARGETS.keys())}")
+        
         # Run optimization
         results = run_magic_optimization(
             inventory=state.inventory,
@@ -3190,29 +3434,85 @@ async def optimize_magic(request: MagicOptimizeRequest):
         
         # Format results (up to 10 unique sets)
         formatted_results = []
+        
+        # Get job preset for calculating total values
+        from magic_optimizer import get_job_preset, apply_job_gifts_to_magic, gear_to_caster_stats
+        base_preset = get_job_preset(job_enum)
+        job_preset, job_gift_bonuses_calc = apply_job_gifts_to_magic(base_preset, job_gifts)
+        
         for rank, (candidate, score) in enumerate(unique_results[:10], 1):
-            # Build gear dict
+            # Build gear dict (include _augments for Lua output)
             gear_dict = {}
             for slot, item in candidate.gear.items():
                 gear_dict[slot] = {
                     "name": item.get("Name", "Empty"),
                     "name2": item.get("Name2", item.get("Name", "Empty")),
+                    "_augments": item.get("_augments"),  # For Lua output
                 }
             
-            # Build stats summary
+            # Create CasterStats to get TOTAL values (job preset + gear + gifts)
+            caster = gear_to_caster_stats(
+                candidate.stats,
+                job_preset,
+                sub_magic_accuracy_skill=candidate.sub_magic_accuracy_skill,
+                job_gift_bonuses=job_gift_bonuses_calc,
+            )
+            
+            # Apply buff bonuses if provided
+            if buff_bonuses:
+                caster.int_stat += buff_bonuses.get("INT", 0)
+                caster.mnd_stat += buff_bonuses.get("MND", 0)
+                caster.mab += buff_bonuses.get("magic_attack", 0)
+                caster.magic_accuracy += buff_bonuses.get("magic_accuracy", 0)
+            
+            # Build stats summary with TOTAL values (job preset + gear + gifts)
             stats_summary = {
-                "INT": candidate.stats.INT,
-                "MND": candidate.stats.MND,
-                "magic_attack": candidate.stats.magic_attack,
-                "magic_damage": candidate.stats.magic_damage,
-                "magic_accuracy": candidate.stats.magic_accuracy,
-                "magic_burst_bonus": candidate.stats.magic_burst_bonus,
+                "INT": caster.int_stat,  # Total INT
+                "MND": caster.mnd_stat,  # Total MND
+                "magic_attack": caster.mab,  # Total MAB
+                "magic_damage": caster.magic_damage,  # Total magic damage
+                "magic_accuracy": caster.magic_accuracy,  # Total magic accuracy
+                "magic_burst_bonus": candidate.stats.magic_burst_bonus,  # Gear only (trait added separately)
                 "magic_burst_damage_ii": candidate.stats.magic_burst_damage_ii,
-                "elemental_magic_skill": candidate.stats.elemental_magic_skill,
-                "dark_magic_skill": candidate.stats.dark_magic_skill,
-                "enfeebling_magic_skill": candidate.stats.enfeebling_magic_skill,
-                "fast_cast": candidate.stats.fast_cast,
+                "elemental_magic_skill": caster.elemental_magic_skill,  # Total skill
+                "dark_magic_skill": caster.dark_magic_skill,  # Total skill
+                "enfeebling_magic_skill": caster.enfeebling_magic_skill,  # Total skill
+                "enhancing_magic_skill": caster.enhancing_magic_skill,  # Total skill
+                "fast_cast": candidate.stats.fast_cast,  # Keep as gear value (basis points)
+                # Also include gear-only values for reference
+                "gear_INT": candidate.stats.INT,
+                "gear_MND": candidate.stats.MND,
+                "gear_magic_attack": candidate.stats.magic_attack,
+                "gear_enfeebling_skill": candidate.stats.enfeebling_magic_skill,
             }
+            
+            # Calculate hit_rate for ALL optimization types
+            from magic_formulas import calculate_dstat_bonus, calculate_magic_accuracy, calculate_magic_hit_rate
+            
+            spell = get_spell(request.spell_name)
+            if spell:
+                # Get relevant stat based on spell type
+                if spell.magic_type in [MagicType.DIVINE, MagicType.ENFEEBLING_MND, MagicType.HEALING]:
+                    caster_stat = caster.mnd_stat
+                    target_stat = target.mnd_stat
+                else:
+                    caster_stat = caster.int_stat
+                    target_stat = target.int_stat
+                
+                # Get skill for spell type
+                skill = caster.get_skill_for_type(spell.magic_type)
+                
+                # Calculate accuracy
+                dstat_bonus = calculate_dstat_bonus(caster_stat, target_stat)
+                total_macc = calculate_magic_accuracy(
+                    skill=skill,
+                    magic_acc_gear=caster.magic_accuracy,
+                    dstat_bonus=int(dstat_bonus),
+                    magic_burst=False,
+                )
+                calculated_hit_rate = calculate_magic_hit_rate(total_macc, target.magic_evasion)
+            else:
+                calculated_hit_rate = 0.0
             
             # Determine what score represents based on optimization type
             result_entry = MagicGearsetResult(
@@ -3222,9 +3522,11 @@ async def optimize_magic(request: MagicOptimizeRequest):
                 stats=stats_summary,
             )
             
-            # Add type-specific score interpretation
+            # Add type-specific score interpretation AND always include hit_rate
+            result_entry.hit_rate = calculated_hit_rate  # Always include hit rate
+            
             if opt_type == MagicOptimizationType.ACCURACY:
-                result_entry.hit_rate = score  # Score is hit rate (0-1)
+                pass  # hit_rate already set, score is also hit_rate
             elif opt_type == MagicOptimizationType.POTENCY:
                 result_entry.potency_score = score
             else:
@@ -3695,6 +3997,7 @@ class LuaSetInfo(BaseModel):
     weapon_type: Optional[str] = None  # Required weapon type for WS
     representative_spell: Optional[str] = None  # Representative spell for magic sets
     spell_type: Optional[str] = None  # elemental, dark, enfeebling_int, enfeebling_mnd, divine
+    tp_set_type: Optional[str] = None  # pure_tp, hybrid_tp, acc_tp, dt_tp, refresh_tp (for engaged sets)
 
 
 class LuaParseResponse(BaseModel):
@@ -3817,7 +4120,7 @@ def classify_lua_set_type(set_name: str, context: str = "") -> str:
             return 'magic_accuracy'  # Impact is primarily for its debuff, optimize for accuracy
         
         # Dark magic damage (but not Drain/Aspir which are separate)
-        if any(x in name_lower for x in ['dark', 'bio']):
+        if any(x in name_lower for x in ['dark', 'bio', 'absorb', 'stun']):
             return 'magic_damage'
         
         # Drain/Aspir specific
@@ -3871,6 +4174,76 @@ def classify_lua_set_type(set_name: str, context: str = "") -> str:
         return 'fc'
     
     return 'other'
+
+
+def infer_tp_type_from_set_name(set_name: str, context: str = "") -> str:
+    """
+    Infer the appropriate TPSetType from an engaged set's name.
+    
+    Analyzes set naming conventions to determine the optimization priority:
+    - DT suffix -> dt_tp (survivability + TP)
+    - HighAcc/MidAcc suffix -> acc_tp (accuracy focus)
+    - LowAcc suffix -> hybrid_tp (some accuracy, balanced)
+    - STP suffix -> pure_tp (maximum TP speed)
+    - Refresh suffix -> refresh_tp (MP sustain)
+    - Base engaged -> pure_tp (default)
+    
+    Args:
+        set_name: The full set name (e.g., "sets.engaged.MidAcc.DT")
+        context: Optional placeholder context for additional hints
+        
+    Returns:
+        One of: pure_tp, hybrid_tp, acc_tp, dt_tp, refresh_tp
+    """
+    name_lower = set_name.lower()
+    context_lower = context.lower() if context else ""
+    
+    # Split path for easier analysis
+    # "sets.engaged.MidAcc.DT" -> ["sets", "engaged", "midacc", "dt"]
+    path_parts = [p.lower() for p in name_lower.replace('[', '.').replace(']', '').replace("'", "").replace('"', '').split('.')]
+    
+    # Check for DT - this takes precedence as it's a hybrid survivability set
+    # Matches: sets.engaged.DT, sets.engaged.LowAcc.DT, sets.engaged.MidAcc.DT, etc.
+    if 'dt' in path_parts or name_lower.endswith('.dt'):
+        return 'dt_tp'
+    
+    # Check context for DT hints
+    if 'dt' in context_lower or 'hybrid' in context_lower or 'survivability' in context_lower:
+        return 'dt_tp'
+    
+    # Check for accuracy variants
+    # HighAcc and MidAcc -> full accuracy focus
+    if 'highacc' in path_parts or 'midacc' in path_parts:
+        return 'acc_tp'
+    if 'highacc' in name_lower or 'midacc' in name_lower:
+        return 'acc_tp'
+    if 'fullacc' in name_lower or 'full_acc' in name_lower:
+        return 'acc_tp'
+    
+    # LowAcc -> hybrid (some accuracy but not full focus)
+    if 'lowacc' in path_parts or 'lowacc' in name_lower:
+        return 'hybrid_tp'
+    
+    # Check for STP (Store TP) focus -> pure TP
+    if 'stp' in path_parts or name_lower.endswith('.stp'):
+        return 'pure_tp'
+    
+    # Check for refresh/MP sustain
+    if 'refresh' in path_parts or 'refresh' in name_lower:
+        return 'refresh_tp'
+    if 'mp' in context_lower or 'refresh' in context_lower:
+        return 'refresh_tp'
+    
+    # Check context for other hints
+    if 'acc' in context_lower or 'accuracy' in context_lower:
+        return 'acc_tp'
+    if 'stp' in context_lower or 'store tp' in context_lower:
+        return 'pure_tp'
+    if 'hybrid' in context_lower:
+        return 'hybrid_tp'
+    
+    # Default: base engaged set -> pure_tp for maximum TP generation
+    return 'pure_tp'
 
 
 def extract_ws_name_from_set(set_name: str) -> Optional[str]:
@@ -3990,6 +4363,14 @@ def get_representative_spell_for_set(set_name: str, context: str = "") -> tuple:
     if 'drain' in name_lower or 'aspir' in name_lower:
         return ('Drain III', 'drain')
     
+    # Absorb spells - dark magic that drains stats
+    if 'absorb' in name_lower:
+        return ('Absorb-STR', 'dark')
+    
+    # Stun
+    if 'stun' in name_lower:
+        return ('Stun', 'dark')
+    
     # General dark magic (use Bio as representative - doesn't have special gear)
     if 'dark' in name_lower:
         return ('Bio III', 'dark')
@@ -4093,6 +4474,7 @@ async def parse_lua_file(file: UploadFile = File(...)):
             weapon_type = None
             representative_spell = None
             spell_type = None
+            tp_set_type = None
             
             # For WS sets, extract WS name and weapon type
             if set_type == 'ws' and set_def.name in placeholder_names:
@@ -4105,6 +4487,13 @@ async def parse_lua_file(file: UploadFile = File(...)):
                             required_weapons[weapon_type] = []
                         if ws_name not in required_weapons[weapon_type]:
                             required_weapons[weapon_type].append(ws_name)
+            
+            # For TP/engaged sets, infer the TP set type
+            if set_type == 'tp' and set_def.name in placeholder_names:
+                tp_set_type = infer_tp_type_from_set_name(
+                    set_def.name,
+                    set_def.placeholder_context
+                )
             
             # For magic sets, determine representative spell
             if set_type in ('magic_damage', 'magic_burst', 'magic_accuracy') and set_def.name in placeholder_names:
@@ -4126,6 +4515,7 @@ async def parse_lua_file(file: UploadFile = File(...)):
                 weapon_type=weapon_type,
                 representative_spell=representative_spell,
                 spell_type=spell_type,
+                tp_set_type=tp_set_type,
             ))
         
         # Build ordered list of required weapon types

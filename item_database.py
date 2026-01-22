@@ -405,9 +405,12 @@ class ItemDatabase:
         # Dual Wield
         (r'"Dual Wield"\s*[+]?\s*(\d+)%?', 'dual_wield', 100),
         
-        # Critical
-        (r'Critical hit rate\s*[+]?\s*(\d+)%?', 'crit_rate', 100),
+        # Critical - use negative lookbehind to avoid matching "Magic critical hit rate"
+        (r'(?<!Magic\s)(?<!Magic)Critical hit rate\s*[+]?\s*(\d+)%?', 'crit_rate', 100),
         (r'"Crit\.?\s*hit"\s*[+]?\s*(\d+)%?', 'crit_rate', 100),
+        
+        # Magic Critical hit rate (separate stat, e.g., Locus Ring)
+        (r'Magic critical hit rate\s*[+]?\s*(\d+)%?', 'magic_crit_rate', 100),
         
         # Defense - matches both "Defense+X" and "DEF:X" formats
         (r'(?:Defense|DEF)\s*[+:]?\s*(\d+)', 'defense', 1),
@@ -435,6 +438,8 @@ class ItemDatabase:
         (r'"Magic Burst Bonus"\s*[+]?\s*(\d+)%?', 'magic_burst_bonus', 100),
         (r'Magic burst dmg\.?\s*[+]?\s*(\d+)%?', 'magic_burst_bonus', 100),
         (r'MB\s*[+]?\s*(\d+)%?', 'magic_burst_bonus', 100),
+        # "Bonus damage added to magic burst" has no number - capture optional, default handled in parser
+        (r'Bonus damage added to magic burst\.?(?:\s*[+]?\s*(\d+)%?)?', 'magic_burst_bonus', 100),
         (r'"Cure potency"\s*[+]?\s*(\d+)%?', 'cure_potency', 100),
         (r'Cure potency\s*[+]?\s*(\d+)%?', 'cure_potency', 100),
         (r'"Cure Potency II"\s*[+]?\s*(\d+)%?', 'cure_potency_ii', 100),
@@ -710,10 +715,18 @@ class ItemDatabase:
                             continue  # Skip - this is part of "Great X"
                 
                 captured = match.group(1)
-                try:
-                    value = int(captured) * multiplier
-                except ValueError:
-                    continue
+                # Handle patterns with optional/implied values
+                if captured is None:
+                    # "Bonus damage added to magic burst" has no explicit number - default to 4%
+                    if stat_name == 'magic_burst_bonus':
+                        value = 4 * multiplier
+                    else:
+                        continue
+                else:
+                    try:
+                        value = int(captured) * multiplier
+                    except ValueError:
+                        continue
                 
                 # Set the stat value
                 if hasattr(stats, stat_name):

@@ -914,16 +914,21 @@ def generate_set_lua(items: Dict[str, LuaItem],
 
 
 def _format_lua_item(item: LuaItem) -> str:
-    """Format a LuaItem as Lua code."""
+    """
+    Format a LuaItem as Lua code.
+    
+    Uses single quotes for augment strings (Lua convention).
+    """
     if not item.augments:
         return f'"{item.name}"'
     
-    # Augmented item
+    # Augmented item - use single quotes for augments
+    # Internal double quotes like "Fast Cast" are preserved inside single quotes
     aug_parts = []
     for aug in item.augments:
         if aug and aug != 'none':
-            escaped = aug.replace('"', '\\"')
-            aug_parts.append(f'"{escaped}"')
+            # Use single quotes - internal double quotes are preserved
+            aug_parts.append(f"'{aug}'")
     
     if not aug_parts:
         return f'"{item.name}"'
@@ -932,12 +937,24 @@ def _format_lua_item(item: LuaItem) -> str:
     return f'{{ name="{item.name}", augments={{{aug_str}}} }}'
 
 
-def gear_set_to_lua_items(gear_set: GearSet) -> Dict[str, LuaItem]:
+# Weapon slots that are typically excluded from optimized sets
+# (changing main/sub/range loses TP, so most sets should only contain armor + ammo)
+# NOTE: Ammo does NOT cause TP loss and is important for optimization
+WEAPON_SLOTS_LUA = {'main', 'sub', 'range'}
+WEAPON_SLOTS_ENUM = {Slot.MAIN, Slot.SUB, Slot.RANGE}
+
+
+def gear_set_to_lua_items(gear_set: GearSet, exclude_weapons: bool = True) -> Dict[str, LuaItem]:
     """
     Convert a GearSet to a dict of LuaItems.
     
     Args:
         gear_set: The optimized GearSet
+        exclude_weapons: If True (default), exclude main/sub/range slots.
+                        Weapons are excluded because swapping them causes TP loss.
+                        Ammo is NOT excluded as it doesn't cause TP loss.
+                        Set to False for refresh/regain idle sets or other cases 
+                        where weapon-specific stats matter.
         
     Returns:
         Dict of slot_name -> LuaItem
@@ -946,6 +963,10 @@ def gear_set_to_lua_items(gear_set: GearSet) -> Dict[str, LuaItem]:
     
     for slot, item in gear_set.items.items():
         if item is None:
+            continue
+        
+        # Skip weapon slots if requested
+        if exclude_weapons and slot in WEAPON_SLOTS_ENUM:
             continue
         
         slot_name = SLOT_TO_LUA.get(slot, slot.name.lower())
@@ -1092,12 +1113,17 @@ def update_all_placeholders(gsfile: GearSwapFile,
     return content, updated_names
 
 
-def wsdist_gear_to_lua_items(gear: Dict[str, Dict]) -> Dict[str, LuaItem]:
+def wsdist_gear_to_lua_items(gear: Dict[str, Dict], exclude_weapons: bool = True) -> Dict[str, LuaItem]:
     """
     Convert wsdist gear dict to LuaItems.
     
     Args:
         gear: Dict of slot_name -> wsdist item dict
+        exclude_weapons: If True (default), exclude main/sub/range slots.
+                        Weapons are excluded because swapping them causes TP loss.
+                        Ammo is NOT excluded as it doesn't cause TP loss.
+                        Set to False for refresh/regain idle sets or other cases 
+                        where weapon-specific stats matter.
         
     Returns:
         Dict of slot_name -> LuaItem
@@ -1108,13 +1134,23 @@ def wsdist_gear_to_lua_items(gear: Dict[str, Dict]) -> Dict[str, LuaItem]:
         if item is None:
             continue
         
-        name = item.get('Name2', item.get('Name', 'Empty'))
+        # Skip weapon slots if requested
+        if exclude_weapons and slot_name.lower() in WEAPON_SLOTS_LUA:
+            continue
+        
+        # Use 'Name' for Lua output (base item name without augment suffix)
+        # Name2 is used internally for uniqueness but includes augment strings
+        name = item.get('Name', 'Empty')
         if name == 'Empty':
             continue
         
         # Get augments if present
+        # Check _augments first (our convention to avoid wsdist summing it)
+        # Then fall back to augments/Augments for compatibility
         augments = None
-        if 'augments' in item:
+        if '_augments' in item:
+            augments = item['_augments']
+        elif 'augments' in item:
             augments = item['augments']
         elif 'Augments' in item:
             augments = item['Augments']

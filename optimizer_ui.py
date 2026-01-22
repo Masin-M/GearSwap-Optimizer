@@ -6,12 +6,32 @@ A terminal-based interface for optimizing gear sets.
 
 Usage:
     python optimizer_ui.py [inventory_csv_path]
+
+OPTIMIZED VERSION:
+- Pre-stripped gear cache (avoids repeated dict comprehensions)
+- Parallel simulation with ProcessPoolExecutor
 """
 
 import sys
 import os
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing
+
+# =============================================================================
+# FROZEN EXECUTABLE DETECTION
+# =============================================================================
+# PyInstaller + Windows + ProcessPoolExecutor is problematic.
+# Child processes fail to spawn properly in frozen executables.
+# We detect this and fall back to sequential processing.
+
+def _is_frozen_windows():
+    """Check if running as a frozen PyInstaller exe on Windows."""
+    return getattr(sys, 'frozen', False) and sys.platform == 'win32'
+
+# Disable parallel by default when frozen on Windows
+PARALLEL_AVAILABLE = not _is_frozen_windows()
 
 # =============================================================================
 # PATH SETUP
@@ -36,6 +56,9 @@ from beam_search_optimizer import (
     ARMOR_SLOTS,
     SLOT_TO_WSDIST,
 )
+
+from numba_beam_search_optimizer import NumbaBeamSearchOptimizer
+
 from ws_database import (
     WEAPONSKILLS,
     WeaponType,
@@ -66,6 +89,78 @@ except ImportError as e:
                 "bst", "brd", "rng", "smn", "sam", "nin", "drg", "blu",
                 "cor", "pup", "dnc", "sch", "geo", "run"]
     Empty = {"Name": "Empty", "Name2": "Empty", "Type": "None", "Jobs": all_jobs}
+
+
+# =============================================================================
+# WSDIST GEAR HELPERS
+# =============================================================================
+
+def strip_gear_metadata(gear_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Strip metadata fields from a gear dict before passing to wsdist.
+    
+    wsdist iterates through all keys and tries to sum numeric values.
+    Metadata fields like '_augments' (a list) would cause type errors.
+    
+    Args:
+        gear_dict: A wsdist gear dictionary
+        
+    Returns:
+        A copy with underscore-prefixed keys removed
+    """
+    return {k: v for k, v in gear_dict.items() if not k.startswith('_')}
+
+
+def build_stripped_gear_cache(
+    item_pool: Dict[str, List[Dict[str, Any]]]
+) -> Dict[Tuple[str, str], Dict[str, Any]]:
+    """
+    Pre-strip metadata from all items in the item pool.
+    
+    Args:
+        item_pool: Dict of slot -> list of gear dicts from extract_item_pool()
+    
+    Returns:
+        Dict mapping (slot, Name2) -> stripped gear dict
+    """
+    cache = {}
+    
+    for slot, items in item_pool.items():
+        for gear in items:
+            name2 = gear.get('Name2', gear.get('Name', 'Unknown'))
+            # Strip once, cache forever
+            stripped = {k: v for k, v in gear.items() if not k.startswith('_')}
+            cache[(slot, name2)] = stripped
+    
+    return cache
+
+
+def build_gearset_fast(
+    candidate_gear: Dict[str, Dict],
+    stripped_cache: Dict[Tuple[str, str], Dict[str, Any]],
+    empty_gear: Dict,
+    slots: List[str],
+) -> Dict[str, Dict]:
+    """
+    Build a gearset using pre-stripped gear from cache.
+    """
+    gearset = {}
+    
+    for slot in slots:
+        if slot in candidate_gear:
+            gear = candidate_gear[slot]
+            name2 = gear.get('Name2', gear.get('Name', 'Unknown'))
+            
+            cache_key = (slot, name2)
+            if cache_key in stripped_cache:
+                gearset[slot] = stripped_cache[cache_key]
+            else:
+                # Fallback for fixed gear not in pool
+                gearset[slot] = {k: v for k, v in gear.items() if not k.startswith('_')}
+        else:
+            gearset[slot] = empty_gear.copy()
+    
+    return gearset
 
 
 # =============================================================================
@@ -536,7 +631,7 @@ def simulate_ws(
         input_tp=tp,
         ws_type=ws_type,
         input_metric="Damage",
-        simulation=False,
+        simulation=True,
     )
     
     return damage, player.stats
@@ -625,6 +720,98 @@ def simulate_tp_set(
 
 
 # =============================================================================
+# PARALLEL SIMULATION WORKERS (must be at module level for pickling)
+# =============================================================================
+
+def _ws_simulation_worker(args: Tuple) -> Tuple[int, float, Any]:
+    """Worker function for parallel WS simulation."""
+    (idx, gearset, enemy_data, ws_name, ws_type_str, 
+     tp, buffs, abilities, main_job, sub_job, job_gifts_dict, master_level) = args
+    
+    try:
+        enemy = create_enemy(enemy_data)
+        
+        player = create_player(
+            main_job=main_job,
+            sub_job=sub_job,
+            master_level=master_level,
+            gearset=gearset,
+            buffs=buffs,
+            abilities=abilities,
+        )
+        
+        if job_gifts_dict:
+            job_gifts = JobGifts(**job_gifts_dict)
+            apply_job_gifts_to_player(player, job_gifts)
+        
+        damage, _ = average_ws(
+            player=player,
+            enemy=enemy,
+            ws_name=ws_name,
+            input_tp=tp,
+            ws_type=ws_type_str,
+            input_metric="Damage",
+            simulation=True,
+        )
+        
+        return (idx, damage, None)
+        
+    except Exception as e:
+        return (idx, 0.0, str(e))
+
+
+def _tp_simulation_worker(args: Tuple) -> Tuple[int, Dict[str, float], Any]:
+    """Worker function for parallel TP simulation."""
+    (idx, gearset, enemy_data, main_job, sub_job, 
+     ws_threshold, buffs, abilities, job_gifts_dict, master_level) = args
+    
+    try:
+        enemy = create_enemy(enemy_data)
+        
+        player = create_player(
+            main_job=main_job,
+            sub_job=sub_job,
+            master_level=master_level,
+            gearset=gearset,
+            buffs=buffs,
+            abilities=abilities,
+        )
+        
+        if job_gifts_dict:
+            job_gifts = JobGifts(**job_gifts_dict)
+            apply_job_gifts_to_player(player, job_gifts)
+        
+        result = average_attack_round(
+            player=player,
+            enemy=enemy,
+            starting_tp=0,
+            ws_threshold=ws_threshold,
+            input_metric="Time to WS",
+            simulation=False,
+        )
+        
+        time_to_ws = result[0]
+        damage_per_round = result[1][0]
+        tp_per_round = result[1][1]
+        time_per_round = result[1][2]
+        
+        dps = damage_per_round / time_per_round if time_per_round > 0 else 0
+        
+        metrics = {
+            'time_to_ws': time_to_ws,
+            'tp_per_round': tp_per_round,
+            'damage_per_round': damage_per_round,
+            'time_per_round': time_per_round,
+            'dps': dps,
+        }
+        
+        return (idx, metrics, None)
+        
+    except Exception as e:
+        return (idx, {}, str(e))
+
+
+# =============================================================================
 # MAIN OPTIMIZATION WORKFLOW
 # =============================================================================
 
@@ -641,6 +828,9 @@ def run_ws_optimization(
     target_data: Optional[Dict] = None,
     tp: int = 2000,
     master_level: int = 50,
+    sub_job: str = "war",
+    parallel: bool = True,
+    max_workers: int = None,
 ) -> List[Tuple[Any, float]]:
     """
     Run the full WS optimization workflow.
@@ -658,6 +848,8 @@ def run_ws_optimization(
         target_data: Target/enemy data dict
         tp: TP level for WS
         master_level: Master level (0-50)
+        parallel: Enable parallel simulation (default True)
+        max_workers: Max parallel workers (default: CPU count - 1)
     
     Returns:
         List of (candidate, damage) tuples sorted by damage.
@@ -680,9 +872,8 @@ def run_ws_optimization(
         active = [k for k, v in abilities.items() if v]
         if active:
             print(f"  Abilities: {active}")
-    
-    # Create optimizer
-    optimizer = BeamSearchOptimizer(
+
+    optimizer = NumbaBeamSearchOptimizer(
         inventory=inventory,
         profile=profile,
         beam_width=beam_width,
@@ -697,6 +888,9 @@ def run_ws_optimization(
     
     # Run beam search
     contenders = optimizer.search(fixed_gear=fixed_gear)
+    item_pool = optimizer.extract_item_pool(contenders=contenders)
+
+    optimizer.print_item_pool(item_pool)
     print(f"\n✓ Found {len(contenders)} contender sets")
     
     if not WSDIST_AVAILABLE:
@@ -720,7 +914,6 @@ def run_ws_optimization(
             "VIT": 350, "AGI": 300,
         }).copy()
         enemy_data["Base Defense"] = enemy_data.get("Defense", 1550)
-    enemy = create_enemy(enemy_data)
     
     # Use provided buffs or default
     if buffs is None:
@@ -733,35 +926,107 @@ def run_ws_optimization(
     if abilities is None:
         abilities = {"Berserk": True, "Warcry": True}
     
-    results = []
-    for i, candidate in enumerate(contenders):
-        try:
-            # Build gearset
-            gearset = {}
-            for slot in WSDIST_SLOTS:
-                if slot in candidate.gear:
-                    gearset[slot] = candidate.gear[slot].copy()
+    # =========================================================================
+    # OPTIMIZED SIMULATION SECTION
+    # =========================================================================
+    
+    # Build pre-stripped gear cache from item_pool
+    print("  Building stripped gear cache...")
+    stripped_cache = build_stripped_gear_cache(item_pool)
+    
+    # Add fixed weapons to cache (they're not in item_pool)
+    for slot in ['main', 'sub']:
+        gear = main_weapon if slot == 'main' else sub_weapon
+        if gear:
+            name2 = gear.get('Name2', gear.get('Name', 'Unknown'))
+            stripped = {k: v for k, v in gear.items() if not k.startswith('_')}
+            stripped_cache[(slot, name2)] = stripped
+    
+    # Determine WS type string
+    if ws_data.ws_type == WSType.MAGICAL:
+        ws_type_str = "magic"
+    elif ws_data.ws_type == WSType.HYBRID:
+        ws_type_str = "hybrid"
+    else:
+        ws_type_str = "melee"
+    
+    # Convert job_gifts to dict for pickling
+    job_gifts_dict = None
+    if job_gifts:
+        job_gifts_dict = {
+            'job': job_gifts.job,
+            'jp_spent': job_gifts.jp_spent,
+            'stats': job_gifts.stats,
+        }
+    
+    # Build all gearsets upfront using cache
+    print(f"  Building {len(contenders)} gearsets...")
+    gearsets = []
+    for candidate in contenders:
+        gearset = build_gearset_fast(candidate.gear, stripped_cache, Empty.copy(), WSDIST_SLOTS)
+        gearsets.append(gearset)
+    
+    if parallel and PARALLEL_AVAILABLE and len(contenders) > 1:
+        # PARALLEL SIMULATION
+        if max_workers is None:
+            max_workers = max(1, multiprocessing.cpu_count() - 4)
+        
+        print(f"  Simulating {len(contenders)} sets with {max_workers} workers...")
+        
+        work_items = [
+            (idx, gearsets[idx], enemy_data, ws_data.name, ws_type_str,
+             tp, buffs, abilities, job.name.lower(), sub_job.lower(), 
+             job_gifts_dict, master_level)
+            for idx in range(len(contenders))
+        ]
+        
+        results = [None] * len(contenders)
+        errors = []
+        
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_ws_simulation_worker, args): args[0] for args in work_items}
+            
+            completed = 0
+            for future in as_completed(futures):
+                idx, damage, error = future.result()
+                if error:
+                    errors.append(f"Contender #{idx+1}: {error}")
+                    results[idx] = (contenders[idx], 0.0)
                 else:
-                    gearset[slot] = Empty.copy()
-            
-            # Simulate
-            damage, _ = simulate_ws(
-                gearset=gearset,
-                enemy=enemy,
-                ws_name=ws_data.name,
-                ws_data=ws_data,
-                tp=tp,
-                buffs=buffs,
-                abilities=abilities,
-                main_job=job.name.lower(),
-                job_gifts=job_gifts,
-                master_level=master_level,
-            )
-            
-            results.append((candidate, damage))
-            
-        except Exception as e:
-            print(f"  Error simulating contender #{i+1}: {e}")
+                    results[idx] = (contenders[idx], damage)
+                
+                completed += 1
+                # if completed % 5 == 0 or completed == len(contenders):
+                #     print(f"    Completed {completed}/{len(contenders)}")
+        
+        for err in errors:
+            print(f"  Error: {err}")
+    
+    else:
+        # SEQUENTIAL SIMULATION (fallback)
+        print(f"  Simulating {len(contenders)} sets sequentially...")
+        results = []
+        enemy = create_enemy(enemy_data)
+        
+        for i, candidate in enumerate(contenders):
+            try:
+                damage, _ = simulate_ws(
+                    gearset=gearsets[i],
+                    enemy=enemy,
+                    ws_name=ws_data.name,
+                    ws_data=ws_data,
+                    tp=tp,
+                    buffs=buffs,
+                    abilities=abilities,
+                    main_job=job.name.lower(),
+                    sub_job=sub_job.lower(),
+                    job_gifts=job_gifts,
+                    master_level=master_level,
+                )
+                results.append((candidate, damage))
+            except Exception as e:
+                print(f"  Error simulating contender #{i+1}: {e}")
+                results.append((candidate, 0.0))
     
     # Sort by damage
     results.sort(key=lambda x: x[1], reverse=True)
@@ -805,6 +1070,9 @@ def run_tp_optimization(
     abilities: Optional[Dict] = None,
     target_data: Optional[Dict] = None,
     master_level: int = 50,
+    sub_job: str = "war",
+    parallel: bool = True,
+    max_workers: int = None,
 ) -> List[Tuple[Any, Dict]]:
     """
     Run the full TP optimization workflow.
@@ -821,6 +1089,8 @@ def run_tp_optimization(
         abilities: Abilities dict {"Berserk": True, ...}
         target_data: Target/enemy data dict
         master_level: Master level (0-50)
+        parallel: Enable parallel simulation (default True)
+        max_workers: Max parallel workers (default: CPU count - 1)
     
     Returns:
         List of (candidate, metrics_dict) tuples sorted by time_to_ws.
@@ -849,8 +1119,7 @@ def run_tp_optimization(
         if active:
             print(f"  Abilities: {active}")
     
-    # Create optimizer
-    optimizer = BeamSearchOptimizer(
+    optimizer = NumbaBeamSearchOptimizer(
         inventory=inventory,
         profile=profile,
         beam_width=beam_width,
@@ -865,6 +1134,9 @@ def run_tp_optimization(
     
     # Run beam search
     contenders = optimizer.search(fixed_gear=fixed_gear)
+    item_pool = optimizer.extract_item_pool(contenders=contenders)
+
+    optimizer.print_item_pool(item_pool)
     print(f"\n✓ Found {len(contenders)} contender sets")
     
     if not WSDIST_AVAILABLE:
@@ -889,7 +1161,6 @@ def run_tp_optimization(
             "VIT": 350, "AGI": 300,
         }).copy()
         enemy_data["Base Defense"] = enemy_data.get("Defense", 1550)
-    enemy = create_enemy(enemy_data)
     
     # Use provided buffs or default
     if buffs is None:
@@ -903,35 +1174,100 @@ def run_tp_optimization(
     if abilities is None:
         abilities = {"Berserk": True, "Aggressor": True}
     
-    results = []
-    for i, candidate in enumerate(contenders):
-        try:
-            # Build gearset
-            gearset = {}
-            for slot in WSDIST_SLOTS:
-                if slot in candidate.gear:
-                    gearset[slot] = candidate.gear[slot].copy()
-                else:
-                    gearset[slot] = Empty.copy()
+    # =========================================================================
+    # OPTIMIZED SIMULATION SECTION
+    # =========================================================================
+    
+    # Build pre-stripped gear cache from item_pool
+    print("  Building stripped gear cache...")
+    stripped_cache = build_stripped_gear_cache(item_pool)
+    
+    # Add fixed weapons to cache
+    for slot in ['main', 'sub']:
+        gear = main_weapon if slot == 'main' else sub_weapon
+        if gear:
+            name2 = gear.get('Name2', gear.get('Name', 'Unknown'))
+            stripped = {k: v for k, v in gear.items() if not k.startswith('_')}
+            stripped_cache[(slot, name2)] = stripped
+    
+    # Convert job_gifts to dict for pickling
+    job_gifts_dict = None
+    if job_gifts:
+        job_gifts_dict = {
+            'job': job_gifts.job,
+            'jp_spent': job_gifts.jp_spent,
+            'stats': job_gifts.stats,
+        }
+    
+    # Build all gearsets upfront using cache
+    print(f"  Building {len(contenders)} gearsets...")
+    gearsets = []
+    for candidate in contenders:
+        gearset = build_gearset_fast(candidate.gear, stripped_cache, Empty.copy(), WSDIST_SLOTS)
+        gearsets.append(gearset)
+    
+    if parallel and PARALLEL_AVAILABLE and len(contenders) > 1:
+        # PARALLEL SIMULATION
+        if max_workers is None:
+            max_workers = max(1, multiprocessing.cpu_count() - 4)
+        
+        print(f"  Simulating {len(contenders)} sets with {max_workers} workers...")
+        
+        work_items = [
+            (idx, gearsets[idx], enemy_data, job.name.lower(), sub_job.lower(),
+             1000, buffs, abilities, job_gifts_dict, master_level)
+            for idx in range(len(contenders))
+        ]
+        
+        results = [None] * len(contenders)
+        errors = []
+        
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_tp_simulation_worker, args): args[0] for args in work_items}
             
-            # Simulate TP set
-            metrics = simulate_tp_set(
-                gearset=gearset,
-                enemy=enemy,
-                main_job=job.name.lower(),
-                sub_job="sam",
-                ws_threshold=1000,
-                buffs=buffs,
-                abilities=abilities,
-                job_gifts=job_gifts,
-                master_level=master_level,
-            )
-            metrics['score'] = candidate.score
-            
-            results.append((candidate, metrics))
-            
-        except Exception as e:
-            print(f"  Error simulating contender #{i+1}: {e}")
+            completed = 0
+            for future in as_completed(futures):
+                idx, metrics, error = future.result()
+                if error:
+                    errors.append(f"Contender #{idx+1}: {error}")
+                    metrics = {'time_to_ws': float('inf'), 'tp_per_round': 0, 
+                               'dps': 0, 'damage_per_round': 0, 'time_per_round': 0}
+                
+                metrics['score'] = contenders[idx].score
+                results[idx] = (contenders[idx], metrics)
+                
+                completed += 1
+                # if completed % 5 == 0 or completed == len(contenders):
+                #     print(f"    Completed {completed}/{len(contenders)}")
+        
+        for err in errors:
+            print(f"  Error: {err}")
+    
+    else:
+        # SEQUENTIAL SIMULATION (fallback)
+        print(f"  Simulating {len(contenders)} sets sequentially...")
+        results = []
+        enemy = create_enemy(enemy_data)
+        
+        for i, candidate in enumerate(contenders):
+            try:
+                metrics = simulate_tp_set(
+                    gearset=gearsets[i],
+                    enemy=enemy,
+                    main_job=job.name.lower(),
+                    sub_job=sub_job.lower(),
+                    ws_threshold=1000,
+                    buffs=buffs,
+                    abilities=abilities,
+                    job_gifts=job_gifts,
+                    master_level=master_level,
+                )
+                metrics['score'] = candidate.score
+                results.append((candidate, metrics))
+            except Exception as e:
+                print(f"  Error simulating contender #{i+1}: {e}")
+                results.append((candidate, {'time_to_ws': float('inf'), 'tp_per_round': 0, 
+                                            'dps': 0, 'score': candidate.score}))
     
     # Sort by time_to_ws (lower is better)
     results.sort(key=lambda x: x[1]['time_to_ws'])

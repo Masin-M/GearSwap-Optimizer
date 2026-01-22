@@ -284,6 +284,11 @@ class BeamSearchOptimizer:
                     self._item_counts[name2] = 0
                 self._item_counts[name2] += 1
         
+        # # Diagnostic: Track item counts per slot at each stage
+        # print("\n" + "=" * 70)
+        # print("ITEM POOL BUILDING - PER-SLOT DIAGNOSTICS")
+        # print("=" * 70)
+        
         # Process each slot
         for wsdist_slot in slots_to_build:
             # Skip second slot of pairs - we'll copy the pool later
@@ -308,9 +313,17 @@ class BeamSearchOptimizer:
             else:
                 items = self.inventory.get_items_for_slot(slot_enum, self.job)
             
+            # DIAGNOSTIC: Count items at each stage
+            raw_count = len(items)
+            
             # Convert to wsdist format and count unique items
             # Use dict to deduplicate configurations while counting physical items
             item_dict: Dict[str, Dict[str, Any]] = {}  # Name2 -> wsdist gear
+            
+            # Track items filtered out for having no relevant stats
+            filtered_count = 0
+            filtered_items: List[str] = []  # Names of filtered items for debug
+            convert_error_count = 0
             
             for item in items:
                 try:
@@ -327,6 +340,14 @@ class BeamSearchOptimizer:
                     wsdist_gear = to_wsdist_gear(item, augment_str)
                     name2 = wsdist_gear.get('Name2', wsdist_gear.get('Name', 'Unknown'))
                     
+                    # Filter out items with no relevant stats for this optimization
+                    # Score the item and skip if it contributes nothing
+                    item_score, _ = self._score_gear(wsdist_gear)
+                    if item_score <= 0:
+                        filtered_count += 1
+                        filtered_items.append(name2)
+                        continue  # Skip items that don't help this optimization
+                    
                     # Count this physical item (only once across all slots)
                     count_item(item, wsdist_gear)
                     
@@ -335,7 +356,22 @@ class BeamSearchOptimizer:
                         item_dict[name2] = wsdist_gear
                         
                 except Exception as e:
+                    convert_error_count += 1
                     print(f"Warning: Failed to convert {item.name}: {e}")
+            
+            # Count unique items after deduplication
+            unique_count = len(item_dict)
+            
+            # DIAGNOSTIC OUTPUT: Show counts at each stage
+            # print(f"\n  {wsdist_slot:8s}: {raw_count:3d} raw → {raw_count - filtered_count - convert_error_count:3d} after filter → {unique_count:3d} unique")
+            # if filtered_count > 0:
+            #     print(f"           Filtered {filtered_count} items (score <= 0): {', '.join(filtered_items[:5])}", end="")
+            #     if len(filtered_items) > 5:
+            #         print(f" ... and {len(filtered_items) - 5} more")
+            #     else:
+            #         print()
+            # if convert_error_count > 0:
+            #     print(f"           {convert_error_count} conversion errors")
             
             self._item_cache[wsdist_slot] = list(item_dict.values())
         
@@ -617,6 +653,28 @@ class BeamSearchOptimizer:
             'Ninjutsu Magic Attack': 'ninjutsu_magic_attack',
             'Blood Pact Damage': 'blood_pact_damage',
             'Occult Acumen': 'occult_acumen',
+            
+            # =====================================================
+            # ENFEEBLING EFFECT BONUS - ADDED
+            # =====================================================
+            'Enfeebling magic effect': 'enfeebling_effect',
+            '"Enfeebling magic effect"': 'enfeebling_effect',
+            'Enfeebling Magic Effect': 'enfeebling_effect',  # Case variant
+            
+            # =====================================================
+            # DRAIN/ASPIR POTENCY - ADDED
+            # =====================================================
+            'Drain and Aspir potency': 'drain_aspir_potency',
+            '"Drain and Aspir potency"': 'drain_aspir_potency',
+            'Drain/Aspir potency': 'drain_aspir_potency',
+            
+            # =====================================================
+            # ENSPELL DAMAGE (RDM) - ADDED
+            # =====================================================
+            'Sword enhancement spell damage': 'sword_enhancement_flat',
+            '"Sword enhancement spell damage"': 'sword_enhancement_flat',
+            'Sword enhancement spell dmg.': 'sword_enhancement_percent',
+            '"Sword enhancement spell dmg."': 'sword_enhancement_percent',
         }
         
         # Stats that are percentages in wsdist format and need conversion to basis points
@@ -626,7 +684,8 @@ class BeamSearchOptimizer:
             'ws_damage', 'damage_taken', 'physical_dt', 'magical_dt',
             'magic_burst_bonus', 'magic_burst_damage_ii', 'pdl',
             'skillchain_bonus', 'fast_cast', 'cure_potency', 'cure_potency_ii',
-            'blood_pact_damage', 'enhancing_duration',
+            'blood_pact_damage', 'enhancing_duration', 'drain_aspir_potency',
+            'sword_enhancement_percent',
         }
         
         for wsdist_key, stat_attr in STAT_MAP.items():
@@ -668,6 +727,30 @@ class BeamSearchOptimizer:
         """
         if slots_to_optimize is None:
             slots_to_optimize = ALL_SLOTS if self.include_weapons else ARMOR_SLOTS
+        
+        # DEBUG: Show items with enfeebling skill
+        if 'enfeebling_magic_skill' in self.profile.weights and self.profile.weights.get('enfeebling_magic_skill', 0) > 0:
+            print(f"\n[DEBUG] Profile weights for key stats:")
+            for stat in ['enfeebling_magic_skill', 'INT', 'MND', 'magic_accuracy', 'enfeebling_effect']:
+                w = self.profile.weights.get(stat, 0)
+                if w > 0:
+                    print(f"    {stat}: {w}")
+            
+            print("\n[DEBUG] Items with Enfeebling Magic Skill in inventory:")
+            skill_items = []
+            for slot in slots_to_optimize:
+                items = self.get_items_for_slot(slot)
+                for item in items:
+                    skill_val = item.get('Enfeebling Magic Skill', 0) + item.get('"Enfeebling Magic Skill"', 0)
+                    if skill_val > 0:
+                        name = item.get('Name2', item.get('Name', 'Unknown'))
+                        score, _ = self._score_gear(item)
+                        skill_items.append((slot, name, skill_val, score))
+            
+            skill_items.sort(key=lambda x: x[2], reverse=True)  # Sort by skill value
+            for slot, name, skill_val, score in skill_items[:15]:  # Show top 15
+                print(f"    {slot:8s}: {name:30s} Skill: +{skill_val:3d}  Score: {score:.1f}")
+            print()
         
         # Initialize beam with a single empty candidate
         initial = GearsetCandidate()
@@ -751,6 +834,33 @@ class BeamSearchOptimizer:
             
             print(f"  {slot}: Testing {len(items)} items across {len(beam)} candidates...")
             
+            # DEBUG: Print all items and scores for legs slot
+            # if slot == 'legs':
+            #     print(f"\n    [DEBUG] All legs items and their individual scores:")
+            #     legs_items_scored = []
+            #     for item in items:
+            #         item_name = item.get('Name2', item.get('Name', 'Unknown'))
+            #         item_score, item_stats = self._score_gear(item)
+            #         legs_items_scored.append((item_name, item_score, item_stats))
+                
+            #     # Sort by score descending
+            #     legs_items_scored.sort(key=lambda x: x[1], reverse=True)
+                
+            #     for item_name, item_score, item_stats in legs_items_scored:
+            #         # Show key stats that contribute to the score
+            #         key_contributions = []
+            #         for stat_name, weight in self.profile.weights.items():
+            #             if weight > 0 and hasattr(item_stats, stat_name):
+            #                 value = getattr(item_stats, stat_name, 0)
+            #                 if value != 0:
+            #                     contribution = value * weight
+            #                     key_contributions.append(f"{stat_name}={value}(+{contribution:.0f})")
+                    
+            #         stats_detail = ", ".join(key_contributions[:5]) if key_contributions else "no weighted stats"
+            #         print(f"      {item_score:8.1f}: {item_name}")
+            #         print(f"               {stats_detail}")
+            #     print()
+            
             # Expand beam with all items for this slot
             new_beam = []
             
@@ -768,6 +878,29 @@ class BeamSearchOptimizer:
                         if used_count >= owned_count:
                             # Already using all copies of this item
                             continue
+                    
+                    # ================================================================
+                    # CANONICAL ORDERING: For symmetric slot pairs (ear1/ear2, 
+                    # ring1/ring2), enforce that slot2's item Name2 >= slot1's item 
+                    # Name2 (alphabetically) to eliminate permutation duplicates.
+                    # 
+                    # Example: Keeps (EarringA, EarringB) but skips (EarringB, EarringA)
+                    # since they produce identical stats.
+                    #
+                    # Duplicate items (e.g., 2x Stikini Ring) still work because:
+                    # - "Stikini Ring" >= "Stikini Ring" is True (same name passes)
+                    # - The used_items check above ensures we own 2+ copies
+                    # ================================================================
+                    if slot == 'ear2':
+                        ear1_item = candidate.gear.get('ear1', {})
+                        ear1_name2 = ear1_item.get('Name2', ear1_item.get('Name', ''))
+                        if name2 < ear1_name2:
+                            continue  # Skip non-canonical ordering
+                    elif slot == 'ring2':
+                        ring1_item = candidate.gear.get('ring1', {})
+                        ring1_name2 = ring1_item.get('Name2', ring1_item.get('Name', ''))
+                        if name2 < ring1_name2:
+                            continue  # Skip non-canonical ordering
                     
                     # Create new candidate with this item
                     new_candidate = candidate.copy()
@@ -794,8 +927,50 @@ class BeamSearchOptimizer:
             beam = new_beam[:self.beam_width]
             
             if beam:
+                # Show top scoring item for this slot
+                top_item = beam[0].gear.get(slot, {})
+                top_item_name = top_item.get('Name2', top_item.get('Name', 'Empty'))
+                top_item_score, top_item_stats = self._score_gear(top_item) if top_item else (0, None)
+                
                 print(f"    Top score: {beam[0].score:.1f}, "
                       f"Bottom score: {beam[-1].score:.1f}")
+                
+                # Show what item won this slot and why (for debug)
+                if top_item_stats:
+                    key_stats = []
+                    # Show stats that actually have weight > 0 in the profile
+                    stat_display_map = {
+                        'enhancing_magic_skill': 'Enh',
+                        'enhancing_duration': 'EnhDur',
+                        'enfeebling_magic_skill': 'Enf',
+                        'enfeebling_effect': 'EnfEff',
+                        'magic_accuracy': 'MAcc',
+                        'INT': 'INT',
+                        'MND': 'MND',
+                        'magic_attack': 'MAB',
+                        'magic_damage': 'MDmg',
+                        'elemental_magic_skill': 'Elem',
+                        'dark_magic_skill': 'Dark',
+                        'divine_magic_skill': 'Divine',
+                        'healing_magic_skill': 'Heal',
+                        'cure_potency': 'CurePot',
+                        'fast_cast': 'FC',
+                        'magic_burst_bonus': 'MBB',
+                        'magic_burst_damage_ii': 'MBBII',
+                        'sword_enhancement_flat': 'SwordEnh',
+                        'sword_enhancement_percent': 'SwordEnh%',
+                        'drain_aspir_potency': 'DrainPot',
+                    }
+                    
+                    # Only show stats that have non-zero weight and non-zero value
+                    for stat_name, display in stat_display_map.items():
+                        weight = self.profile.weights.get(stat_name, 0)
+                        value = getattr(top_item_stats, stat_name, 0)
+                        if weight > 0 and value > 0:
+                            key_stats.append(f"{display}+{value}")
+                    
+                    stats_str = ", ".join(key_stats[:4]) if key_stats else "misc stats"
+                    print(f"    Winner: {top_item_name} (item score: {top_item_score:.0f}, {stats_str})")
         
         return beam
     
@@ -827,6 +1002,31 @@ class BeamSearchOptimizer:
         
         # Convert to list format
         result = {slot: list(items.values()) for slot, items in pool.items()}
+        
+        # DIAGNOSTIC: Show item counts per slot comparison (initial pool vs final pool)
+        print("\n" + "=" * 70)
+        print("ITEM POOL REDUCTION SUMMARY")
+        print("=" * 70)
+        print(f"{'Slot':<10} {'Initial':>8} {'Final':>8} {'Reduction':>10}")
+        print("-" * 40)
+        
+        total_initial = 0
+        total_final = 0
+        
+        for slot in WSDIST_SLOTS:
+            initial_count = len(self._item_cache.get(slot, []))
+            final_count = len(result.get(slot, []))
+            total_initial += initial_count
+            total_final += final_count
+            
+            if initial_count > 0:
+                reduction_pct = ((initial_count - final_count) / initial_count) * 100
+                print(f"{slot:<10} {initial_count:>8} {final_count:>8} {reduction_pct:>9.1f}%")
+        
+        print("-" * 40)
+        if total_initial > 0:
+            total_reduction = ((total_initial - total_final) / total_initial) * 100
+            print(f"{'TOTAL':<10} {total_initial:>8} {total_final:>8} {total_reduction:>9.1f}%")
         
         return result
     
@@ -1008,7 +1208,7 @@ if __name__ == "__main__":
     print("=" * 70)
     
     # This would normally use your actual inventory
-    inventory_path = "inventory_full_Masinmanci_20260111_124357.csv"
+    inventory_path = "inventory_full_Masinmanci_20260119_184539.csv"
     
     # Example weapon (would come from user selection)
     naegling = {

@@ -28,6 +28,18 @@ try:
         roll_resist_state, get_resist_state_average, calculate_base_damage,
         calculate_mb_multiplier, calculate_mbb_multiplier,
         calculate_mab_mdb_ratio, calculate_mtdr,
+        # Enfeebling formulas
+        calculate_slow_potency, calculate_paralyze_potency, calculate_blind_potency,
+        # Dark magic formulas
+        calculate_drain_potency, calculate_aspir_potency, calculate_bio_dot,
+        # Enspell formulas
+        calculate_enspell_damage, calculate_enlight_endark_damage,
+        # Healing formulas
+        calculate_cure_amount, calculate_curaga_amount,
+        # Enhancing formulas
+        calculate_phalanx_potency, calculate_regen_potency, calculate_refresh_potency,
+        calculate_haste_potency, calculate_enhancing_duration, calculate_temper_potency,
+        calculate_gain_potency,
     )
     from .spell_database import (
         SpellData, get_spell, can_magic_burst, ALL_SPELLS,
@@ -39,6 +51,18 @@ except ImportError:
         roll_resist_state, get_resist_state_average, calculate_base_damage,
         calculate_mb_multiplier, calculate_mbb_multiplier,
         calculate_mab_mdb_ratio, calculate_mtdr,
+        # Enfeebling formulas
+        calculate_slow_potency, calculate_paralyze_potency, calculate_blind_potency,
+        # Dark magic formulas
+        calculate_drain_potency, calculate_aspir_potency, calculate_bio_dot,
+        # Enspell formulas
+        calculate_enspell_damage, calculate_enlight_endark_damage,
+        # Healing formulas
+        calculate_cure_amount, calculate_curaga_amount,
+        # Enhancing formulas
+        calculate_phalanx_potency, calculate_regen_potency, calculate_refresh_potency,
+        calculate_haste_potency, calculate_enhancing_duration, calculate_temper_potency,
+        calculate_gain_potency,
     )
     from spell_database import (
         SpellData, get_spell, can_magic_burst, ALL_SPELLS,
@@ -88,6 +112,10 @@ class CasterStats:
     cure_potency: int = 0             # Cure potency bonus (caps at 5000)
     enfeebling_effect: int = 0        # Enfeebling effect bonus
     enhancing_duration: int = 0       # Enhancing duration bonus
+    
+    # Enspell damage bonuses (RDM)
+    sword_enhancement_flat: int = 0   # "Sword enhancement spell damage +N"
+    sword_enhancement_percent: int = 0 # "Sword enhancement spell dmg. +N%"
     
     def get_skill_for_type(self, magic_type: MagicType) -> int:
         """Get the appropriate magic skill for spell type."""
@@ -165,6 +193,19 @@ MAGIC_TARGETS = {
         int_stat=300, mnd_stat=300,
         magic_evasion=900, magic_defense_bonus=60,
     ),
+    # New high-difficulty targets for realistic endgame testing
+    'odyssey_v25': MagicTargetStats(
+        int_stat=350, mnd_stat=350,
+        magic_evasion=1200, magic_defense_bonus=80,
+    ),
+    'odyssey_v20': MagicTargetStats(
+        int_stat=320, mnd_stat=320,
+        magic_evasion=1100, magic_defense_bonus=70,
+    ),
+    'odyssey_v15': MagicTargetStats(
+        int_stat=290, mnd_stat=290,
+        magic_evasion=1000, magic_defense_bonus=60,
+    ),
 }
 
 
@@ -212,6 +253,96 @@ class MagicSimulationResult:
     
     # Individual casts (optional)
     casts: List[SpellCastResult] = field(default_factory=list)
+
+
+@dataclass
+class EnfeeblingSimulationResult:
+    """Result of enfeebling spell simulation."""
+    spell_name: str
+    landed: bool
+    hit_rate: float
+    
+    # Potency results (spell-dependent)
+    potency_value: float          # The actual effect value
+    potency_unit: str             # '%', 'acc reduction', 'eva reduction', etc.
+    potency_description: str      # Human readable: "29.7% Slow"
+    
+    # Duration
+    base_duration: float          # Seconds
+    enhanced_duration: float      # After duration gear
+    
+    # Stat breakdown
+    skill_contribution: int
+    stat_contribution: int        # dINT or dMND contribution
+    gear_bonus: int               # Enfeebling effect+ gear
+
+
+@dataclass
+class HealingSimulationResult:
+    """Result of healing spell simulation."""
+    spell_name: str
+    
+    # Healing output
+    hp_healed: int
+    hp_healed_with_received: int  # If target has Cure Potency II
+    
+    # Efficiency
+    mp_cost: int
+    hp_per_mp: float
+    
+    # Breakdown
+    base_hp: int
+    cure_potency_mult: float
+    skill_contribution: int
+    mnd_contribution: int
+
+
+@dataclass  
+class EnhancingSimulationResult:
+    """Result of enhancing spell simulation."""
+    spell_name: str
+    
+    # Potency (varies by spell type)
+    potency_value: float          # The effect value
+    potency_unit: str             # 'damage', 'reduction', '%', etc.
+    potency_description: str      # Human readable
+    
+    # Duration
+    base_duration: float
+    final_duration: float
+    
+    # For enspells specifically
+    damage_per_hit: int = 0
+    damage_at_cap: int = 0        # After buildup for Tier II
+    
+    # Breakdown
+    skill_contribution: int = 0
+    gear_contribution: int = 0
+
+
+@dataclass
+class DarkMagicSimulationResult:
+    """Result of dark magic (Drain/Aspir/Bio) simulation."""
+    spell_name: str
+    hit_rate: float
+    
+    # For Drain/Aspir
+    amount_drained: int = 0
+    resource_type: str = ""       # 'HP' or 'MP'
+    
+    # For Bio
+    initial_damage: int = 0
+    dot_damage_per_tick: int = 0
+    dot_duration: float = 0       # Seconds
+    total_dot_damage: int = 0
+    
+    # Combined
+    total_damage: int = 0         # Initial + total DOT
+    
+    # Breakdown
+    skill_contribution: int = 0
+    stat_contribution: int = 0
+    potency_gear_bonus: int = 0
 
 
 # =============================================================================
@@ -286,7 +417,7 @@ class MagicSimulator:
         base_d = calculate_base_damage(
             spell_v=spell.base_v,
             spell_m_values=spell.m_values,
-            caster_int=caster_stat,
+            caster_int=caster.int_stat,
             target_int=target_stat,
             magic_damage_gear=caster.magic_damage,
         )
@@ -434,6 +565,467 @@ class MagicSimulator:
                 num_casts=num_casts,
             )
         return results
+    
+    # =========================================================================
+    # ENFEEBLING MAGIC SIMULATION
+    # =========================================================================
+    
+    def simulate_enfeebling(
+        self,
+        spell_name: str,
+        caster: CasterStats,
+        target: MagicTargetStats,
+    ) -> EnfeeblingSimulationResult:
+        """
+        Simulate an enfeebling spell and return potency.
+        
+        Handles: Slow, Paralyze, Blind, Gravity, Addle, Distract, Frazzle, etc.
+        
+        Args:
+            spell_name: Name of the enfeebling spell
+            caster: Caster stats
+            target: Target stats
+            
+        Returns:
+            EnfeeblingSimulationResult with potency and duration info
+        """
+        spell = get_spell(spell_name)
+        if spell is None:
+            raise ValueError(f"Unknown spell: {spell_name}")
+        
+        # Get relevant stat based on spell type
+        if spell.magic_type == MagicType.ENFEEBLING_MND:
+            caster_stat = caster.mnd_stat
+            target_stat = target.mnd_stat
+        else:  # ENFEEBLING_INT
+            caster_stat = caster.int_stat
+            target_stat = target.int_stat
+        
+        skill = caster.enfeebling_magic_skill
+        
+        # Calculate hit rate
+        dstat_bonus = calculate_dstat_bonus(caster_stat, target_stat)
+        total_macc = calculate_magic_accuracy(
+            skill=skill,
+            magic_acc_gear=caster.magic_accuracy,
+            dstat_bonus=int(dstat_bonus),
+        )
+        hit_rate = calculate_magic_hit_rate(total_macc, target.magic_evasion)
+        
+        # Calculate potency based on spell
+        potency_value = 0.0
+        potency_unit = ''
+        potency_description = ''
+        
+        spell_lower = spell_name.lower()
+        
+        if 'slow' in spell_lower:
+            is_slow_ii = 'ii' in spell_lower
+            potency_value = calculate_slow_potency(
+                caster.enfeebling_magic_skill, caster.mnd_stat, target.mnd_stat, is_slow_ii
+            )
+            # Add enfeebling effect bonus (approximate: each point = +0.1% potency)
+            potency_value = potency_value + caster.enfeebling_effect * 10
+            potency_unit = 'basis points'
+            potency_description = f"{potency_value/100:.1f}% Slow"
+            
+        elif 'paralyze' in spell_lower or 'para' in spell_lower:
+            is_para_ii = 'ii' in spell_lower
+            potency_value = calculate_paralyze_potency(
+                caster.mnd_stat, target.mnd_stat, is_para_ii
+            )
+            potency_value = potency_value + caster.enfeebling_effect * 10
+            potency_unit = 'basis points'
+            potency_description = f"{potency_value/100:.1f}% Paralyze"
+            
+        elif 'blind' in spell_lower:
+            is_blind_ii = 'ii' in spell_lower
+            potency_value = calculate_blind_potency(
+                caster.int_stat, target.int_stat, is_blind_ii
+            )
+            potency_value = potency_value + caster.enfeebling_effect
+            potency_unit = 'accuracy reduction'
+            potency_description = f"-{int(potency_value)} Accuracy"
+            
+        elif 'gravity' in spell_lower:
+            # Gravity is fixed 50% reduction, skill affects duration/landing
+            potency_value = 5000
+            potency_unit = 'basis points'
+            potency_description = "50% Movement Speed"
+            
+        elif 'addle' in spell_lower:
+            # Addle reduces magic attack and accuracy
+            is_addle_ii = 'ii' in spell_lower
+            base = 20 if is_addle_ii else 10
+            skill_bonus = max(0, (skill - 300) // 20)
+            potency_value = base + skill_bonus + caster.enfeebling_effect
+            potency_unit = 'magic attack/acc down'
+            potency_description = f"-{int(potency_value)} M.Atk/M.Acc"
+            
+        elif 'distract' in spell_lower:
+            # Distract reduces evasion
+            tier = 3 if 'iii' in spell_lower else (2 if 'ii' in spell_lower else 1)
+            base = {1: 25, 2: 45, 3: 65}.get(tier, 25)
+            skill_bonus = max(0, (skill - 300) // 15)
+            potency_value = base + skill_bonus + caster.enfeebling_effect
+            potency_unit = 'evasion down'
+            potency_description = f"-{int(potency_value)} Evasion"
+            
+        elif 'frazzle' in spell_lower:
+            # Frazzle reduces magic evasion
+            tier = 3 if 'iii' in spell_lower else (2 if 'ii' in spell_lower else 1)
+            base = {1: 25, 2: 45, 3: 65}.get(tier, 25)
+            skill_bonus = max(0, (skill - 300) // 15)
+            potency_value = base + skill_bonus + caster.enfeebling_effect
+            potency_unit = 'magic evasion down'
+            potency_description = f"-{int(potency_value)} M.Eva"
+            
+        else:
+            # Default for other enfeebles (Sleep, Silence, etc.)
+            # These are typically binary (either lands or doesn't)
+            potency_value = skill + caster.enfeebling_effect
+            potency_unit = 'skill'
+            potency_description = f"Skill {int(potency_value)}"
+        
+        # Calculate duration
+        base_duration = spell.properties.get('base_duration', 120.0)
+        duration_bonus = caster.enhancing_duration / 10000  # Convert basis points
+        # Note: Enfeebling duration is separate stat, but uses same logic
+        enhanced_duration = base_duration * (1 + duration_bonus)
+        
+        return EnfeeblingSimulationResult(
+            spell_name=spell.name,
+            landed=True,  # Assuming landed for potency calc
+            hit_rate=hit_rate,
+            potency_value=potency_value,
+            potency_unit=potency_unit,
+            potency_description=potency_description,
+            base_duration=base_duration,
+            enhanced_duration=enhanced_duration,
+            skill_contribution=skill,
+            stat_contribution=int(dstat_bonus),
+            gear_bonus=caster.enfeebling_effect,
+        )
+    
+    # =========================================================================
+    # HEALING MAGIC SIMULATION
+    # =========================================================================
+    
+    def simulate_healing(
+        self,
+        spell_name: str,
+        caster: CasterStats,
+        target_cure_potency_ii: int = 0,
+    ) -> HealingSimulationResult:
+        """
+        Simulate a healing spell and return HP healed.
+        
+        Args:
+            spell_name: Name of the healing spell (Cure, Curaga, etc.)
+            caster: Caster stats
+            target_cure_potency_ii: Target's Cure Potency II (received bonus)
+            
+        Returns:
+            HealingSimulationResult with healing output
+        """
+        spell = get_spell(spell_name)
+        if spell is None:
+            raise ValueError(f"Unknown spell: {spell_name}")
+        
+        # Determine spell tier from name
+        tier = spell.tier
+        
+        # Check if it's Curaga (AoE)
+        is_curaga = 'curaga' in spell_name.lower()
+        
+        if is_curaga:
+            hp_healed = calculate_curaga_amount(
+                spell_tier=tier,
+                caster_mnd=caster.mnd_stat,
+                healing_skill=caster.healing_magic_skill,
+                cure_potency=caster.cure_potency,
+            )
+        else:
+            hp_healed = calculate_cure_amount(
+                spell_tier=tier,
+                caster_mnd=caster.mnd_stat,
+                caster_vit=0,  # VIT contribution is minimal
+                healing_skill=caster.healing_magic_skill,
+                cure_potency=caster.cure_potency,
+            )
+        
+        # Calculate with target's received bonus
+        cure_pot_ii_mult = 1.0 + min(target_cure_potency_ii, 3000) / 10000
+        hp_with_received = int(hp_healed * cure_pot_ii_mult)
+        
+        # MP cost and efficiency
+        mp_cost = spell.mp_cost
+        hp_per_mp = hp_healed / mp_cost if mp_cost > 0 else 0
+        
+        # Breakdown
+        cure_pot_mult = 1.0 + min(caster.cure_potency, 5000) / 10000
+        
+        return HealingSimulationResult(
+            spell_name=spell.name,
+            hp_healed=hp_healed,
+            hp_healed_with_received=hp_with_received,
+            mp_cost=mp_cost,
+            hp_per_mp=hp_per_mp,
+            base_hp=int(hp_healed / cure_pot_mult),
+            cure_potency_mult=cure_pot_mult,
+            skill_contribution=caster.healing_magic_skill,
+            mnd_contribution=caster.mnd_stat,
+        )
+    
+    # =========================================================================
+    # ENHANCING MAGIC SIMULATION
+    # =========================================================================
+    
+    def simulate_enhancing(
+        self,
+        spell_name: str,
+        caster: CasterStats,
+        composure_active: bool = False,
+        perpetuance_active: bool = False,
+        attack_rounds: int = 0,  # For Tier II enspell buildup
+    ) -> EnhancingSimulationResult:
+        """
+        Simulate an enhancing spell and return potency/duration.
+        
+        Handles: Enspells, Phalanx, Haste, Refresh, Regen, Temper, Gain-stats, etc.
+        
+        Args:
+            spell_name: Name of the enhancing spell
+            caster: Caster stats
+            composure_active: RDM Composure (+duration, +enspell potency)
+            perpetuance_active: SCH Perpetuance (+100% duration)
+            attack_rounds: Attack rounds for Tier II enspell buildup
+            
+        Returns:
+            EnhancingSimulationResult with potency and duration info
+        """
+        spell = get_spell(spell_name)
+        if spell is None:
+            raise ValueError(f"Unknown spell: {spell_name}")
+        
+        skill = caster.enhancing_magic_skill
+        
+        potency_value = 0.0
+        potency_unit = ''
+        potency_description = ''
+        damage_per_hit = 0
+        damage_at_cap = 0
+        gear_contribution = 0
+        
+        spell_lower = spell_name.lower()
+        
+        # Get base duration from spell properties or default
+        base_duration = spell.properties.get('base_duration', 180.0)
+        
+        # Check for enspells
+        if spell.properties.get('enspell', False):
+            tier = spell.properties.get('enspell_tier', 1)
+            
+            # Get sword enhancement bonuses from caster
+            # Note: These would be stored in CasterStats - need to add
+            sword_flat = getattr(caster, 'sword_enhancement_flat', 0)
+            sword_pct = getattr(caster, 'sword_enhancement_percent', 0)
+            
+            damage_per_hit = calculate_enspell_damage(
+                enhancing_skill=skill,
+                tier=tier,
+                attack_rounds=0,  # Initial damage
+                sword_enhancement_flat=sword_flat,
+                sword_enhancement_percent=sword_pct,
+                composure_active=composure_active,
+            )
+            
+            if tier == 2:
+                # Calculate damage at cap (after buildup)
+                damage_at_cap = calculate_enspell_damage(
+                    enhancing_skill=skill,
+                    tier=tier,
+                    attack_rounds=attack_rounds if attack_rounds > 0 else 21,  # Default to cap
+                    sword_enhancement_flat=sword_flat,
+                    sword_enhancement_percent=sword_pct,
+                    composure_active=composure_active,
+                )
+            else:
+                damage_at_cap = damage_per_hit
+            
+            potency_value = damage_at_cap
+            potency_unit = 'damage'
+            potency_description = f"{damage_at_cap} dmg/hit"
+            gear_contribution = sword_flat + sword_pct
+            base_duration = 180.0  # Enspells typically 3 min base
+            
+        elif 'phalanx' in spell_lower:
+            potency_value = calculate_phalanx_potency(skill)
+            potency_unit = 'damage reduction'
+            potency_description = f"-{int(potency_value)} dmg/hit"
+            base_duration = 180.0
+            
+        elif 'haste' in spell_lower:
+            is_haste_ii = 'ii' in spell_lower
+            potency_value = calculate_haste_potency(skill, is_haste_ii)
+            potency_unit = 'basis points'
+            potency_description = f"{potency_value/100:.1f}% Haste"
+            base_duration = 180.0
+            
+        elif 'refresh' in spell_lower:
+            tier = 3 if 'iii' in spell_lower else (2 if 'ii' in spell_lower else 1)
+            potency_value = calculate_refresh_potency(skill, tier, composure_active=composure_active)
+            potency_unit = 'MP/tick'
+            potency_description = f"{int(potency_value)} MP/tick"
+            base_duration = 150.0  # 2.5 minutes
+            
+        elif 'regen' in spell_lower:
+            tier = min(5, max(1, spell.tier))
+            potency_value = calculate_regen_potency(skill, tier)
+            potency_unit = 'HP/tick'
+            potency_description = f"{int(potency_value)} HP/tick"
+            base_duration = 60.0 + tier * 15  # Scales with tier
+            
+        elif 'temper' in spell_lower:
+            is_temper_ii = 'ii' in spell_lower
+            potency_value = calculate_temper_potency(skill, is_temper_ii)
+            potency_unit = 'basis points'
+            potency_description = f"+{potency_value/100:.1f}% TA"
+            base_duration = 180.0
+            
+        elif 'gain-' in spell_lower:
+            potency_value = calculate_gain_potency(skill)
+            potency_unit = 'stat bonus'
+            stat_name = spell_lower.replace('gain-', '').upper()
+            potency_description = f"+{int(potency_value)} {stat_name}"
+            base_duration = 300.0  # 5 minutes
+            
+        else:
+            # Default: skill-based potency
+            potency_value = skill
+            potency_unit = 'skill'
+            potency_description = f"Skill {skill}"
+        
+        # Calculate final duration
+        final_duration = calculate_enhancing_duration(
+            base_duration=base_duration,
+            enhancing_skill=skill,
+            duration_gear=caster.enhancing_duration,
+            composure_active=composure_active,
+            perpetuance_active=perpetuance_active,
+        )
+        
+        return EnhancingSimulationResult(
+            spell_name=spell.name,
+            potency_value=potency_value,
+            potency_unit=potency_unit,
+            potency_description=potency_description,
+            base_duration=base_duration,
+            final_duration=final_duration,
+            damage_per_hit=damage_per_hit,
+            damage_at_cap=damage_at_cap,
+            skill_contribution=skill,
+            gear_contribution=gear_contribution,
+        )
+    
+    # =========================================================================
+    # DARK MAGIC SIMULATION
+    # =========================================================================
+    
+    def simulate_dark_magic(
+        self,
+        spell_name: str,
+        caster: CasterStats,
+        target: MagicTargetStats,
+    ) -> DarkMagicSimulationResult:
+        """
+        Simulate a dark magic spell (Drain, Aspir, Bio).
+        
+        Args:
+            spell_name: Name of the dark spell
+            caster: Caster stats
+            target: Target stats
+            
+        Returns:
+            DarkMagicSimulationResult with drain amount or DOT info
+        """
+        spell = get_spell(spell_name)
+        if spell is None:
+            raise ValueError(f"Unknown spell: {spell_name}")
+        
+        skill = caster.dark_magic_skill
+        
+        # Calculate hit rate
+        dstat_bonus = calculate_dstat_bonus(caster.int_stat, target.int_stat)
+        total_macc = calculate_magic_accuracy(
+            skill=skill,
+            magic_acc_gear=caster.magic_accuracy,
+            dstat_bonus=int(dstat_bonus),
+        )
+        hit_rate = calculate_magic_hit_rate(total_macc, target.magic_evasion)
+        
+        spell_lower = spell_name.lower()
+        
+        amount_drained = 0
+        resource_type = ""
+        initial_damage = 0
+        dot_per_tick = 0
+        dot_duration = 0.0
+        total_dot = 0
+        potency_gear = caster.drain_aspir_potency
+        
+        if 'drain' in spell_lower:
+            # Drain HP
+            tier = 3 if 'iii' in spell_lower else (2 if 'ii' in spell_lower else 1)
+            min_drain, max_drain = calculate_drain_potency(
+                dark_skill=skill,
+                drain_tier=tier,
+                drain_potency_gear=potency_gear,
+            )
+            amount_drained = random.randint(min_drain, max_drain)
+            resource_type = 'HP'
+            
+        elif 'aspir' in spell_lower:
+            # Aspir MP
+            tier = 3 if 'iii' in spell_lower else (2 if 'ii' in spell_lower else 1)
+            min_aspir, max_aspir = calculate_aspir_potency(
+                dark_skill=skill,  # Approximate
+                aspir_tier=tier,
+                drain_potency_gear=potency_gear,
+            )
+            amount_drained = random.randint(min_aspir, max_aspir)
+            resource_type = 'MP'
+            
+        elif 'bio' in spell_lower:
+            # Bio: initial damage + DOT
+            tier = 3 if 'iii' in spell_lower else (2 if 'ii' in spell_lower else 1)
+            
+            # Initial damage uses standard nuke formula
+            # For simplicity, use base damage calculation
+            initial_damage = int(spell.base_v * (1.0 + caster.mab / 100))
+            
+            # DOT damage
+            dot_per_tick = calculate_bio_dot(skill, tier)
+            dot_duration = {1: 60, 2: 90, 3: 120}.get(tier, 60)
+            num_ticks = int(dot_duration / 3)  # 3-second ticks
+            total_dot = dot_per_tick * num_ticks
+        
+        total_damage = amount_drained + initial_damage + total_dot
+        
+        return DarkMagicSimulationResult(
+            spell_name=spell.name,
+            hit_rate=hit_rate,
+            amount_drained=amount_drained,
+            resource_type=resource_type,
+            initial_damage=initial_damage,
+            dot_damage_per_tick=dot_per_tick,
+            dot_duration=dot_duration,
+            total_dot_damage=total_dot,
+            total_damage=total_damage,
+            skill_contribution=skill,
+            stat_contribution=int(dstat_bonus),
+            potency_gear_bonus=potency_gear,
+        )
 
 
 # =============================================================================

@@ -192,6 +192,7 @@ class Stats:
     # Critical hit (in basis points)
     crit_rate: int = 0
     crit_damage: int = 0
+    magic_crit_rate: int = 0    # Magic crit hit rate (e.g., Locus Ring)
     magic_crit_damage: int = 0  # Magic crit hit damage bonus
     
     # Weaponskill
@@ -273,6 +274,20 @@ class Stats:
     enfeebling_effect: int = 0      # Enfeebling magic effect +
     enhancing_duration: int = 0     # Enhancing magic duration (basis points)
     enfeebling_duration: int = 0    # Enfeebling magic duration (basis points)
+    
+    # Dark Magic potency
+    drain_aspir_potency: int = 0    # Drain/Aspir potency bonus (basis points)
+    
+    # Absorb spell bonuses (DRK)
+    # Per BG-Wiki: "Dark Magic does nothing for the potency of Absorb spells"
+    # Potency comes from equipment bonuses, not skill
+    absorb_potency: int = 0         # "Absorb" effect potency +% (basis points)
+    absorb_effect_duration: int = 0 # "Absorb" effect duration +% (basis points)
+    dark_magic_duration: int = 0    # Dark magic duration +% (basis points)
+    
+    # Enspell damage bonuses (RDM)
+    sword_enhancement_flat: int = 0   # "Sword enhancement spell damage +N" (flat damage)
+    sword_enhancement_percent: int = 0 # "Sword enhancement spell dmg. +N%" (basis points)
     
     # Damage limit bonuses (flat values, added to damage cap)
     physical_damage_limit: int = 0  # Physical damage limit+
@@ -1604,8 +1619,8 @@ def create_enspell_profile(name: str = 'Enspell Melee',
         name=name,
         weights={
             'enhancing_magic_skill': 10.0,
-            # Note: 'sword_enhancement_damage' may need to be added to Stats class
-            # if not already present - using skill_bonuses for now
+            'sword_enhancement_flat': 8.0,    # "Sword enhancement spell damage +N"
+            'sword_enhancement_percent': 6.0,  # "Sword enhancement spell dmg. +N%"
             'double_attack': 8.0,
             'triple_attack': 12.0,
             'accuracy': 6.0,

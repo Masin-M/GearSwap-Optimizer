@@ -76,11 +76,14 @@ def to_wsdist_gear(item, augment_string: str = "") -> Dict[str, Any]:
         Dictionary in wsdist gear format
     """
     # Handle both ItemInstance and ItemBase
+    augments_raw = None
     if hasattr(item, 'total_stats'):
         # ItemInstance
         stats = item.total_stats
         base = item.base
         name = item.name
+        # Get raw augments for Lua output
+        augments_raw = getattr(item, 'augments_raw', None)
     elif hasattr(item, 'base_stats'):
         # ItemBase
         stats = item.base_stats
@@ -90,13 +93,36 @@ def to_wsdist_gear(item, augment_string: str = "") -> Dict[str, Any]:
         raise ValueError(f"Unknown item type: {type(item)}")
     
     # Build the Name2 field (unique identifier with augments)
+    # If we have raw augments, include them in Name2 for uniqueness
     if augment_string:
         name2 = f"{name} {augment_string}"
+    elif augments_raw:
+        # Build a condensed augment string for Name2
+        aug_parts = []
+        for aug in augments_raw:
+            if aug and aug != 'none' and aug != '':
+                if isinstance(aug, str):
+                    aug_parts.append(aug)
+        if aug_parts:
+            # Use semicolon-joined augments for Name2 uniqueness
+            name2 = f"{name} ({'; '.join(aug_parts)})"
+        else:
+            name2 = name
     else:
         name2 = name
     
     # Get job list from bitmask
     jobs = _extract_jobs(base.jobs if hasattr(base, 'jobs') else 0)
+    
+    # Build augments list for Lua output (filter out empty/none values)
+    augments_list = None
+    if augments_raw:
+        augments_list = [
+            aug for aug in augments_raw 
+            if aug and aug != 'none' and aug != '' and isinstance(aug, str)
+        ]
+        if not augments_list:
+            augments_list = None
     
     gear = {
         "Name": name,
@@ -292,7 +318,12 @@ def to_wsdist_gear(item, augment_string: str = "") -> Dict[str, Any]:
     # =========================================================================
     essential_fields = {"Name", "Name2", "Jobs", "Type", "Skill Type", "DMG", "Delay"}
     gear = {k: v for k, v in gear.items() 
-            if v != 0 or k in essential_fields}
+            if (v != 0 and v is not None) or k in essential_fields}
+    
+    # Add augments as metadata field (underscore prefix so wsdist ignores it)
+    # wsdist sums all numeric values, so we can't use "augments" directly
+    if augments_list:
+        gear["_augments"] = augments_list
     
     return gear
 

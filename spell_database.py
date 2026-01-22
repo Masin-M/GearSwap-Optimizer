@@ -1338,6 +1338,358 @@ HELIX_SPELLS = {
 
 
 # =============================================================================
+# Enhancing Magic - Buffs and Utility
+# =============================================================================
+
+ENHANCING_SPELLS = {
+    # Phalanx - Damage reduction based on Enhancing Skill
+    'Phalanx': SpellData(
+        name='Phalanx', element=Element.LIGHT, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=1, mp_cost=21, cast_time=3.0,
+        m_values={0: (0, 0.0)},
+        properties={
+            'buff_type': 'phalanx',
+            'skill_based': True,
+            # Damage reduction = floor(Enhancing Skill / 10) - 2, cap 35
+            'min_potency': 1,
+            'max_potency': 35,
+        },
+    ),
+    'Phalanx II': SpellData(
+        name='Phalanx II', element=Element.LIGHT, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=2, mp_cost=42, cast_time=2.0,
+        m_values={0: (0, 0.0)},
+        properties={
+            'buff_type': 'phalanx',
+            'skill_based': True,
+            'target_other': True,
+            'min_potency': 1,
+            'max_potency': 35,
+        },
+    ),
+    
+    # Haste - Attack speed increase
+    'Haste': SpellData(
+        name='Haste', element=Element.WIND, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=1, mp_cost=40, cast_time=2.0,
+        m_values={0: (0, 0.0)},
+        properties={
+            'buff_type': 'haste',
+            'haste_amount': 1500,  # 15% in basis points
+        },
+    ),
+    'Haste II': SpellData(
+        name='Haste II', element=Element.WIND, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=2, mp_cost=80, cast_time=2.5,
+        m_values={0: (0, 0.0)},
+        properties={
+            'buff_type': 'haste',
+            'haste_amount': 3000,  # 30%
+        },
+    ),
+    
+    # Refresh - MP recovery
+    'Refresh': SpellData(
+        name='Refresh', element=Element.WATER, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=1, mp_cost=40, cast_time=2.0,
+        m_values={0: (0, 0.0)},
+        properties={
+            'buff_type': 'refresh',
+            'mp_per_tick': 3,
+        },
+    ),
+    'Refresh II': SpellData(
+        name='Refresh II', element=Element.WATER, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=2, mp_cost=70, cast_time=2.5,
+        m_values={0: (0, 0.0)},
+        properties={
+            'buff_type': 'refresh',
+            'mp_per_tick': 5,
+        },
+    ),
+    'Refresh III': SpellData(
+        name='Refresh III', element=Element.WATER, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=3, mp_cost=100, cast_time=3.0,
+        m_values={0: (0, 0.0)},
+        properties={
+            'buff_type': 'refresh',
+            'mp_per_tick': 9,
+        },
+    ),
+    
+    # Stoneskin - Damage absorption
+    'Stoneskin': SpellData(
+        name='Stoneskin', element=Element.EARTH, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=1, mp_cost=29, cast_time=4.0,
+        m_values={0: (0, 0.0)},
+        properties={
+            'buff_type': 'stoneskin',
+            'skill_based': True,
+            # Absorption = floor((Enhancing Skill - 60) / 3) + floor(MND / 3)
+            'base_absorption': 50,
+            'max_absorption': 350,  # Cap without gear
+        },
+    ),
+    
+    # Aquaveil - Spell interruption resistance
+    'Aquaveil': SpellData(
+        name='Aquaveil', element=Element.WATER, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=1, mp_cost=12, cast_time=2.0,
+        m_values={0: (0, 0.0)},
+        properties={
+            'buff_type': 'aquaveil',
+            'interruption_rate_down': True,
+        },
+    ),
+    
+    # Temper - Multi-attack enhancement
+    'Temper': SpellData(
+        name='Temper', element=Element.FIRE, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=1, mp_cost=24, cast_time=3.0,
+        m_values={0: (0, 0.0)},
+        properties={
+            'buff_type': 'temper',
+            'skill_based': True,
+            # Triple Attack based on skill
+        },
+    ),
+    'Temper II': SpellData(
+        name='Temper II', element=Element.FIRE, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=2, mp_cost=48, cast_time=4.0,
+        m_values={0: (0, 0.0)},
+        properties={
+            'buff_type': 'temper',
+            'skill_based': True,
+            'target_other': True,
+        },
+    ),
+    
+    # Gain spells - Stat boosts based on Enhancing skill
+    'Gain-STR': SpellData(
+        name='Gain-STR', element=Element.FIRE, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=1, mp_cost=16, cast_time=2.0,
+        m_values={0: (0, 0.0)},
+        properties={'buff_type': 'gain', 'stat': 'STR', 'skill_based': True},
+    ),
+    'Gain-DEX': SpellData(
+        name='Gain-DEX', element=Element.THUNDER, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=1, mp_cost=16, cast_time=2.0,
+        m_values={0: (0, 0.0)},
+        properties={'buff_type': 'gain', 'stat': 'DEX', 'skill_based': True},
+    ),
+    'Gain-VIT': SpellData(
+        name='Gain-VIT', element=Element.EARTH, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=1, mp_cost=16, cast_time=2.0,
+        m_values={0: (0, 0.0)},
+        properties={'buff_type': 'gain', 'stat': 'VIT', 'skill_based': True},
+    ),
+    'Gain-AGI': SpellData(
+        name='Gain-AGI', element=Element.WIND, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=1, mp_cost=16, cast_time=2.0,
+        m_values={0: (0, 0.0)},
+        properties={'buff_type': 'gain', 'stat': 'AGI', 'skill_based': True},
+    ),
+    'Gain-INT': SpellData(
+        name='Gain-INT', element=Element.ICE, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=1, mp_cost=16, cast_time=2.0,
+        m_values={0: (0, 0.0)},
+        properties={'buff_type': 'gain', 'stat': 'INT', 'skill_based': True},
+    ),
+    'Gain-MND': SpellData(
+        name='Gain-MND', element=Element.WATER, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=1, mp_cost=16, cast_time=2.0,
+        m_values={0: (0, 0.0)},
+        properties={'buff_type': 'gain', 'stat': 'MND', 'skill_based': True},
+    ),
+    'Gain-CHR': SpellData(
+        name='Gain-CHR', element=Element.LIGHT, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=1, mp_cost=16, cast_time=2.0,
+        m_values={0: (0, 0.0)},
+        properties={'buff_type': 'gain', 'stat': 'CHR', 'skill_based': True},
+    ),
+    
+    # Regen spells
+    'Regen': SpellData(
+        name='Regen', element=Element.LIGHT, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=1, mp_cost=15, cast_time=2.0,
+        m_values={0: (0, 0.0)},
+        properties={'buff_type': 'regen', 'hp_per_tick': 5},
+    ),
+    'Regen II': SpellData(
+        name='Regen II', element=Element.LIGHT, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=2, mp_cost=36, cast_time=2.5,
+        m_values={0: (0, 0.0)},
+        properties={'buff_type': 'regen', 'hp_per_tick': 12},
+    ),
+    'Regen III': SpellData(
+        name='Regen III', element=Element.LIGHT, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=3, mp_cost=64, cast_time=3.0,
+        m_values={0: (0, 0.0)},
+        properties={'buff_type': 'regen', 'hp_per_tick': 20},
+    ),
+    'Regen IV': SpellData(
+        name='Regen IV', element=Element.LIGHT, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=4, mp_cost=82, cast_time=3.5,
+        m_values={0: (0, 0.0)},
+        properties={'buff_type': 'regen', 'hp_per_tick': 26},
+    ),
+    'Regen V': SpellData(
+        name='Regen V', element=Element.LIGHT, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=5, mp_cost=100, cast_time=4.0,
+        m_values={0: (0, 0.0)},
+        properties={'buff_type': 'regen', 'hp_per_tick': 33},
+    ),
+    
+    # Protect/Shell
+    'Protect V': SpellData(
+        name='Protect V', element=Element.LIGHT, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=5, mp_cost=75, cast_time=3.0,
+        m_values={0: (0, 0.0)},
+        properties={'buff_type': 'protect', 'defense_bonus': 180},
+    ),
+    'Shell V': SpellData(
+        name='Shell V', element=Element.LIGHT, magic_type=MagicType.ENHANCING,
+        skill_type='enhancing', base_v=0, tier=5, mp_cost=75, cast_time=3.0,
+        m_values={0: (0, 0.0)},
+        properties={'buff_type': 'shell', 'magic_defense_bonus': 29},
+    ),
+}
+
+
+# =============================================================================
+# Healing Magic - Cure spells
+# =============================================================================
+
+HEALING_SPELLS = {
+    'Cure': SpellData(
+        name='Cure', element=Element.LIGHT, magic_type=MagicType.HEALING,
+        skill_type='healing', base_v=10, tier=1, mp_cost=8, cast_time=2.0,
+        m_values={0: (10, 1.0), 60: (70, 0.0)},
+        dint_cap=60,
+        properties={
+            'heal_type': 'cure',
+            'base_heal': 20,
+            # Cure Potency and MND affect final healing
+        },
+    ),
+    'Cure II': SpellData(
+        name='Cure II', element=Element.LIGHT, magic_type=MagicType.HEALING,
+        skill_type='healing', base_v=60, tier=2, mp_cost=24, cast_time=2.0,
+        m_values={0: (60, 2.0), 60: (180, 1.0), 120: (240, 0.0)},
+        dint_cap=120,
+        properties={'heal_type': 'cure', 'base_heal': 90},
+    ),
+    'Cure III': SpellData(
+        name='Cure III', element=Element.LIGHT, magic_type=MagicType.HEALING,
+        skill_type='healing', base_v=130, tier=3, mp_cost=46, cast_time=2.5,
+        m_values={0: (130, 2.5), 60: (280, 1.5), 120: (370, 0.5), 180: (400, 0.0)},
+        dint_cap=180,
+        properties={'heal_type': 'cure', 'base_heal': 190},
+    ),
+    'Cure IV': SpellData(
+        name='Cure IV', element=Element.LIGHT, magic_type=MagicType.HEALING,
+        skill_type='healing', base_v=270, tier=4, mp_cost=88, cast_time=3.0,
+        m_values={0: (270, 3.0), 60: (450, 2.0), 120: (570, 1.0), 180: (630, 0.0)},
+        dint_cap=180,
+        properties={'heal_type': 'cure', 'base_heal': 380},
+    ),
+    'Cure V': SpellData(
+        name='Cure V', element=Element.LIGHT, magic_type=MagicType.HEALING,
+        skill_type='healing', base_v=450, tier=5, mp_cost=135, cast_time=3.0,
+        m_values={0: (450, 3.5), 60: (660, 2.5), 120: (810, 1.5), 180: (900, 0.5), 240: (930, 0.0)},
+        dint_cap=240,
+        properties={'heal_type': 'cure', 'base_heal': 600},
+    ),
+    'Cure VI': SpellData(
+        name='Cure VI', element=Element.LIGHT, magic_type=MagicType.HEALING,
+        skill_type='healing', base_v=670, tier=6, mp_cost=227, cast_time=3.0,
+        m_values={0: (670, 4.0), 60: (910, 3.0), 120: (1090, 2.0), 180: (1210, 1.0), 240: (1270, 0.0)},
+        dint_cap=240,
+        properties={'heal_type': 'cure', 'base_heal': 900},
+    ),
+    
+    # Curaga (AoE healing)
+    'Curaga': SpellData(
+        name='Curaga', element=Element.LIGHT, magic_type=MagicType.HEALING,
+        skill_type='healing', base_v=60, tier=1, mp_cost=60, cast_time=2.5,
+        is_aoe=True,
+        m_values={0: (60, 1.5), 60: (150, 0.75), 120: (195, 0.0)},
+        dint_cap=120,
+        properties={'heal_type': 'curaga', 'base_heal': 90},
+    ),
+    'Curaga II': SpellData(
+        name='Curaga II', element=Element.LIGHT, magic_type=MagicType.HEALING,
+        skill_type='healing', base_v=130, tier=2, mp_cost=120, cast_time=3.0,
+        is_aoe=True,
+        m_values={0: (130, 2.0), 60: (250, 1.25), 120: (325, 0.5), 180: (355, 0.0)},
+        dint_cap=180,
+        properties={'heal_type': 'curaga', 'base_heal': 190},
+    ),
+    'Curaga III': SpellData(
+        name='Curaga III', element=Element.LIGHT, magic_type=MagicType.HEALING,
+        skill_type='healing', base_v=270, tier=3, mp_cost=180, cast_time=3.0,
+        is_aoe=True,
+        m_values={0: (270, 2.5), 60: (420, 1.75), 120: (525, 1.0), 180: (585, 0.0)},
+        dint_cap=180,
+        properties={'heal_type': 'curaga', 'base_heal': 380},
+    ),
+    'Curaga IV': SpellData(
+        name='Curaga IV', element=Element.LIGHT, magic_type=MagicType.HEALING,
+        skill_type='healing', base_v=450, tier=4, mp_cost=260, cast_time=3.5,
+        is_aoe=True,
+        m_values={0: (450, 3.0), 60: (630, 2.25), 120: (765, 1.5), 180: (855, 0.75), 240: (900, 0.0)},
+        dint_cap=240,
+        properties={'heal_type': 'curaga', 'base_heal': 600},
+    ),
+    'Curaga V': SpellData(
+        name='Curaga V', element=Element.LIGHT, magic_type=MagicType.HEALING,
+        skill_type='healing', base_v=670, tier=5, mp_cost=366, cast_time=4.0,
+        is_aoe=True,
+        m_values={0: (670, 3.5), 60: (880, 2.75), 120: (1045, 2.0), 180: (1165, 1.0), 240: (1225, 0.0)},
+        dint_cap=240,
+        properties={'heal_type': 'curaga', 'base_heal': 900},
+    ),
+}
+
+
+# =============================================================================
+# Special Spells - Impact, Dispelga
+# =============================================================================
+
+SPECIAL_SPELLS = {
+    # Impact - powerful enfeebling with damage component
+    # Reduces all stats by ~20, Defense by ~10%, Magic Defense by 20%
+    'Impact': SpellData(
+        name='Impact', element=Element.DARK, magic_type=MagicType.ENFEEBLING_INT,
+        skill_type='enfeebling', base_v=100, tier=1, mp_cost=324, cast_time=4.0,
+        m_values={0: (100, 1.5), 50: (175, 1.0), 100: (225, 0.5), 200: (275, 0.0)},
+        dint_cap=200,
+        properties={
+            'effect': 'impact_debuff',
+            'stat_down': 20,  # All stats reduced
+            'defense_down_pct': 10,
+            'magic_defense_down_pct': 20,
+            'skill_based': True,  # Potency affected by Enfeebling skill
+            'requires_twilight_cloak': True,
+        },
+    ),
+    
+    # Dispelga - AoE dispel
+    'Dispelga': SpellData(
+        name='Dispelga', element=Element.DARK, magic_type=MagicType.ENFEEBLING_INT,
+        skill_type='enfeebling', base_v=0, tier=1, mp_cost=74, cast_time=4.0,
+        is_aoe=True,
+        m_values={0: (0, 0.0)},
+        properties={
+            'effect': 'dispel',
+            'no_potency': True,
+            'requires_daybreak': True,  # Requires Daybreak weapon
+        },
+    ),
+}
+
+
+# =============================================================================
 # Build Complete Spell Database
 # =============================================================================
 
@@ -1375,6 +1727,15 @@ ALL_SPELLS.update(ENLIGHT_ENDARK)
 
 # Add Helix spells
 ALL_SPELLS.update(HELIX_SPELLS)
+
+# Add Enhancing magic (Phalanx, Haste, Refresh, etc.)
+ALL_SPELLS.update(ENHANCING_SPELLS)
+
+# Add Healing magic (Cure, Curaga)
+ALL_SPELLS.update(HEALING_SPELLS)
+
+# Add Special spells (Impact, Dispelga)
+ALL_SPELLS.update(SPECIAL_SPELLS)
 
 
 def get_spell(name: str) -> Optional[SpellData]:

@@ -322,9 +322,14 @@ def calculate_mbb_multiplier(
     """
     Calculate Magic Burst Bonus multiplier.
     
-    MBB = 1.0 + Gear + Trait + JP + Gifts + AM_II_Merits
+    MBB = 1.0 + Gear + Atma/Atmacite + AMII Merits + Trait
     
-    Gear category caps at 40%, traits/JP/gifts/MBB II gear do not.
+    Caps from bg-wiki:
+    - Gear category caps at 40%
+    - Overall MBB (excluding trait) caps at 1.4
+    - Absolute cap is 1.53 (1.4 + max 0.13 from trait at BLM 97+)
+    
+    Reference: https://www.bg-wiki.com/ffxi/Magic_Damage
     
     Args:
         mbb_gear: Magic Burst Bonus from gear (basis points, caps at 4000)
@@ -343,11 +348,18 @@ def calculate_mbb_multiplier(
     # AM II merits: 3% per merit after the first (0, 3, 6, 9, 12%)
     am_ii_bonus = max(0, (am_ii_merits - 1) * 300) if am_ii_merits > 0 else 0
     
-    # Uncapped sources (MBB II gear, trait, JP, gifts)
-    uncapped = mbb_ii_gear + mbb_trait + mbb_jp + mbb_gifts
+    # Uncapped sources (MBB II gear, JP, gifts) - trait handled separately
+    uncapped = mbb_ii_gear + mbb_jp + mbb_gifts
     
-    # Total MBB
-    total = gear_capped + am_ii_bonus + uncapped
+    # Total before trait (caps at 1.4, i.e., 4000 basis points bonus)
+    total_before_trait = gear_capped + am_ii_bonus + uncapped
+    total_before_trait = min(total_before_trait, 4000)  # Cap at 40% bonus
+    
+    # Add trait (not subject to the 1.4 cap, but absolute cap is 1.53)
+    total = total_before_trait + mbb_trait
+    
+    # Absolute cap: 1.53 (5300 basis points bonus)
+    total = min(total, 5300)
     
     return 1.0 + (total / 10000)
 
@@ -407,6 +419,8 @@ def calculate_staff_bonus(
     """
     Calculate elemental staff damage bonus.
     
+    Reference: https://www.bg-wiki.com/ffxi/Magic_Damage
+    
     Args:
         staff_element: Element of equipped staff (None if not elemental)
         spell_element: Element of the spell
@@ -418,11 +432,28 @@ def calculate_staff_bonus(
     if staff_element is None:
         return 1.0
     
+    # Matching element bonus
     if staff_element == spell_element:
-        return 1.15 if is_hq else 1.1
+        return 1.15 if is_hq else 1.10
     
-    # Check for opposed element (simplified - would need full wheel)
-    # For now, return 1.0 for non-matching
+    # Check for opposed element (elemental wheel)
+    # Fire <-> Ice, Wind <-> Earth, Thunder <-> Water, Light <-> Dark
+    opposed_pairs = {
+        (Element.FIRE, Element.ICE),
+        (Element.ICE, Element.FIRE),
+        (Element.WIND, Element.EARTH),
+        (Element.EARTH, Element.WIND),
+        (Element.THUNDER, Element.WATER),
+        (Element.WATER, Element.THUNDER),
+        (Element.LIGHT, Element.DARK),
+        (Element.DARK, Element.LIGHT),
+    }
+    
+    if (staff_element, spell_element) in opposed_pairs:
+        # Opposing element penalty
+        return 0.85 if is_hq else 0.90
+    
+    # Non-matching, non-opposing
     return 1.0
 
 
@@ -592,30 +623,48 @@ def calculate_magic_damage(
 
 def calculate_drain_potency(
     dark_skill: int,
+    drain_tier: int = 1,
     drain_potency_gear: int = 0,
     affinity_bonus: int = 0,
 ) -> Tuple[int, int]:
     """
     Calculate Drain spell potency range.
     
-    Formula:
-        At ≤300 skill: max = Dark Magic Skill + 20
-        At >300 skill: max = Skill × 5/8 + 132.5
-        
-    Min is 75% of max. Actual randomly falls between min and max.
+    Formulas:
+        Drain I:
+            At ≤300 skill: base = Dark Magic Skill + 20
+            At >300 skill: base = Dark Magic Skill × 5/8 + 132.5
+            Random variation: 50% to 100% of base
+        Drain II:
+            base = Dark Magic Skill + 165
+            Random variation: 66.6% to 100% of base
+        Drain III:
+            base = Dark Magic Skill × 3/2 + 105
+            Random variation: 75% to 100% of base
     
     Args:
         dark_skill: Dark Magic skill
+        drain_tier: Drain spell tier (1, 2, or 3)
         drain_potency_gear: Drain/Aspir potency from gear (basis points)
         affinity_bonus: Dark affinity bonus (basis points)
-        
+    
     Returns:
         Tuple of (min_potency, max_potency)
     """
-    if dark_skill <= 300:
-        base_max = dark_skill + 20
+    if drain_tier == 1:
+        if dark_skill <= 300:
+            base_max = dark_skill + 20
+        else:
+            base_max = int(dark_skill * 5 / 8 + 132.5)
+        min_ratio = 0.50
+    elif drain_tier == 2:
+        base_max = dark_skill + 165
+        min_ratio = 2 / 3  # 66.6%
+    elif drain_tier == 3:
+        base_max = int(dark_skill * 3 / 2 + 105)
+        min_ratio = 0.75
     else:
-        base_max = int(dark_skill * 5 / 8 + 132.5)
+        raise ValueError(f"Invalid drain_tier: {drain_tier}. Must be 1, 2, or 3.")
     
     # Apply potency gear
     potency_mult = 1.0 + (drain_potency_gear / 10000)
@@ -626,11 +675,10 @@ def calculate_drain_potency(
         affinity_mult = 1.0 + (affinity_bonus / 10000)
         max_potency = int(max_potency * affinity_mult)
     
-    # Min is 75% of max
-    min_potency = int(max_potency * 0.75)
+    # Calculate min based on tier-specific ratio
+    min_potency = int(max_potency * min_ratio)
     
     return (min_potency, max_potency)
-
 
 def calculate_aspir_potency(
     dark_skill: int,
@@ -715,7 +763,9 @@ def calculate_paralyze_potency(caster_mnd: int, target_mnd: int, is_para_ii: boo
     Calculate Paralyze proc rate in basis points.
     
     Paralyze I: 5% to 25% based on dMND (caps at ±40)
-    Paralyze II: 10% to 30% based on dMND
+    Paralyze II: 14% to 34% based on dMND (updated Aug 2019)
+    
+    Reference: https://www.bg-wiki.com/ffxi/Paralyze_II
     
     Returns:
         Paralyze proc rate in basis points
@@ -723,9 +773,9 @@ def calculate_paralyze_potency(caster_mnd: int, target_mnd: int, is_para_ii: boo
     dmnd = min(40, max(-40, caster_mnd - target_mnd))
     
     if is_para_ii:
-        # Para II: 10% to 30%
-        base = 1000 + int((dmnd + 40) * 2000 / 80)
-        return min(3000, max(1000, base))
+        # Para II: 14% to 34% (Aug 2019 update changed from 10%-30%)
+        base = 1400 + int((dmnd + 40) * 2000 / 80)
+        return min(3400, max(1400, base))
     else:
         # Para I: 5% to 25%
         base = 500 + int((dmnd + 40) * 2000 / 80)
@@ -771,20 +821,30 @@ def calculate_enspell_damage(
     """
     Calculate Enspell damage per hit.
     
-    Tier I formula:
-        If skill <= 200: floor(6*skill/100) + 3
-        If skill > 200: floor(5*skill/100) + 5
-        Cap: 21
+    Base formula (from bg-wiki):
+        If skill < 180:  floor(skill / 9) + 5
+        If skill >= 180: floor((skill - 180) / 8) + 25
         
-    Tier II formula:
-        Same base, but builds +1 per attack round up to 2x base
-        Cap: 42
-        Only first hit of each round gets full damage
+    Examples from bg-wiki:
+        500 skill → base 65
+        650 skill → base 83
+        
+    There is NO CAP on base Enspell damage - it scales indefinitely with skill.
+    
+    Tier I: Base damage is set at cast time and remains static.
+            Applies to every hit (including multi-attacks).
+            
+    Tier II: Base damage recalculates each attack round.
+             Builds +1 per attack round up to 2× base (hidden counter).
+             Only applies to first hit of each attack round.
+             Also inflicts -10 resistance to the ascendant element.
         
     Full formula:
         (((Base + Merits + JP Gifts + Sword Enhancement +n) 
           × (Composure + Sword Enhancement +n%)) 
           × Staff × Affinity × Resist × Day/Weather × TMDA) × Potency
+    
+    Reference: https://www.bg-wiki.com/ffxi/Category:Enspell
     
     Args:
         enhancing_skill: Caster's Enhancing Magic skill
@@ -799,22 +859,18 @@ def calculate_enspell_damage(
     Returns:
         Base enspell damage before resist/affinity modifiers
     """
-    # Calculate base damage from skill
-    if enhancing_skill <= 200:
-        base = (6 * enhancing_skill // 100) + 3
+    # Calculate base damage from skill (bg-wiki formula)
+    # NO CAP - scales indefinitely with enhancing skill
+    if enhancing_skill < 180:
+        base = (enhancing_skill // 9) + 5
     else:
-        base = (5 * enhancing_skill // 100) + 5
+        base = ((enhancing_skill - 180) // 8) + 25
     
-    # Cap at tier-appropriate value
-    tier_1_cap = 21
-    tier_2_cap = 42
-    
-    base = min(base, tier_1_cap)
-    
-    # For Tier II, add buildup from attack rounds
+    # For Tier II, add buildup from attack rounds (caps at 2× base)
     if tier == 2:
-        buildup = min(attack_rounds, tier_1_cap)  # Can't exceed base cap
-        base = min(base + buildup, tier_2_cap)
+        # Hidden counter adds +1 per attack round, caps at base value
+        buildup = min(attack_rounds, base)
+        base = base + buildup  # Maximum is 2× base
     
     # Add flat bonuses
     damage = base + merit_bonus + jp_gift_bonus + sword_enhancement_flat
@@ -981,3 +1037,539 @@ def calculate_divine_damage(
         damage = int(damage * 1.5)  # Approximate undead weakness
     
     return damage
+
+
+# =============================================================================
+# Healing Magic (Cure) Calculations
+# =============================================================================
+
+def calculate_cure_amount(
+    spell_tier: int,
+    caster_mnd: int,
+    caster_vit: int,
+    healing_skill: int,
+    cure_potency: int = 0,        # Basis points, caps at 5000 (50%)
+    cure_potency_ii: int = 0,     # Basis points, caps at 3000 (30%) - casted additive with potency
+    cure_received: int = 0,       # Basis points, caps at 3000 (30%) - received bonus
+    day_weather_bonus: float = 1.0,
+    jp_bonus: int = 0,            # Job Point / Gift flat HP bonus (e.g., WHM mastered + Solace = 63)
+    raetic_bonus: int = 0,        # Raetic Rod +1 "Cure" +50 bonus
+    divine_seal_active: bool = False,
+    rapture_active: bool = False,
+    rapture_bonus: int = 0,       # Savant's Bonnet bonus (0, 500, 1000 basis points)
+) -> int:
+    """
+    Calculate Cure spell healing amount.
+    
+    Formula from bg-wiki (single target cures):
+        Power = floor(MND÷2) + floor(VIT÷4) + Healing Magic Skill
+        Base = floor((Power - Power Floor) ÷ Rate) + HP Floor
+        Final = floor(floor(floor((Base + JP + Raetic) × Cure Potency) × Cure Received) × Day/Weather)
+    
+    Each cure spell has piecewise soft caps where Rate and HP Floor change.
+    
+    Reference: https://www.bg-wiki.com/ffxi/Cure_Formula
+    
+    Args:
+        spell_tier: Cure tier (1-6)
+        caster_mnd: Caster's MND stat
+        caster_vit: Caster's VIT stat
+        healing_skill: Healing Magic skill
+        cure_potency: Cure Potency from gear (basis points, cap 5000)
+        cure_potency_ii: Cure Potency II from gear (basis points, cap 3000, additive with potency)
+        cure_received: Cure Potency Received on target (basis points, cap 3000)
+        day_weather_bonus: Day/weather multiplier (1.0 to 1.35, additive cap)
+        jp_bonus: Flat HP from Job Points/Gifts (WHM mastered + Solace = 63)
+        raetic_bonus: Flat HP from Raetic Rod +1 (50)
+        divine_seal_active: Divine Seal doubles final result
+        rapture_active: SCH Rapture (+50% base, enhanced by bonnet)
+        rapture_bonus: Savant's Bonnet bonus in basis points (0/500/1000)
+        
+    Returns:
+        HP healed
+    """
+    # Cure spell soft cap tiers: list of (power_floor, rate, hp_floor)
+    # When Power >= power_floor, use that tier's rate and hp_floor
+    # Tiers are checked in descending order of power_floor
+    cure_tiers = {
+        1: [
+            (600, None, 65),      # Hard cap
+            (200, 20, 45),
+            (125, 15, 40),
+            (40, 8.5, 30),
+            (20, 1.33, 15),
+            (0, 4, 10),
+        ],
+        2: [
+            (700, None, 145),     # Hard cap
+            (400, 20, 130),
+            (200, 10, 110),
+            (125, 7.5, 100),
+            (70, 5.5, 90),
+            (40, 1, 60),
+        ],
+        3: [
+            (700, None, 340),     # Hard cap
+            (300, 5, 260),
+            (200, 2.5, 220),
+            (125, 1.15, 155),
+            (70, 2.2, 130),
+        ],
+        4: [
+            (700, None, 640),     # Hard cap
+            (400, 2.5, 520),
+            (300, 1.43, 450),
+            (200, 2, 400),
+            (70, 1, 270),
+        ],
+        5: [
+            (700, None, 780),     # Hard cap
+            (500, 3.33, 720),
+            (300, 2.5, 640),
+            (260, 2, 620),
+            (190, 1.84, 582),
+            (150, 1.25, 550),
+            (80, 0.7, 450),
+        ],
+        6: [
+            (700, None, 1010),    # Hard cap
+            (500, 1.67, 890),
+            (400, 2.5, 850),
+            (300, 1.43, 780),
+            (210, 0.9, 680),
+            (90, 1.5, 600),
+        ],
+    }
+    
+    # Calculate Power
+    power = (caster_mnd // 2) + (caster_vit // 4) + healing_skill
+    
+    # Get tiers for this spell
+    tiers = cure_tiers.get(spell_tier, cure_tiers[2])  # Default to Cure II
+    
+    # Find appropriate tier (tiers are in descending power_floor order)
+    base_hp = 0
+    for power_floor, rate, hp_floor in tiers:
+        if power >= power_floor:
+            if rate is None:
+                # Hard cap
+                base_hp = hp_floor
+            else:
+                # Calculate: floor((Power - Power Floor) / Rate) + HP Floor
+                base_hp = int((power - power_floor) / rate) + hp_floor
+            break
+    
+    # Add JP bonus and Raetic bonus
+    base_hp = base_hp + jp_bonus + raetic_bonus
+    
+    # Apply Cure Potency (capped at 50%) + Cure Potency II (capped at 30%, additive)
+    cure_pot_total = min(cure_potency, 5000) + min(cure_potency_ii, 3000)
+    cure_pot_mult = 1.0 + cure_pot_total / 10000
+    hp = int(base_hp * cure_pot_mult)
+    
+    # Apply Cure Received (capped at 30%)
+    cure_recv_mult = 1.0 + min(cure_received, 3000) / 10000
+    hp = int(hp * cure_recv_mult)
+    
+    # Apply day/weather bonus (additive, caps at 0.35 bonus)
+    hp = int(hp * day_weather_bonus)
+    
+    # Divine Seal doubles the final result
+    if divine_seal_active:
+        hp = hp * 2
+    
+    # Rapture: +50% base, or more with Savant's Bonnet
+    if rapture_active:
+        rapture_mult = 1.50 + (rapture_bonus / 10000)
+        hp = int(hp * rapture_mult)
+    
+    return hp
+
+
+def calculate_curaga_amount(
+    spell_tier: int,
+    caster_mnd: int,
+    caster_vit: int,
+    healing_skill: int,
+    cure_potency: int = 0,
+    cure_potency_ii: int = 0,
+    cure_received: int = 0,
+    day_weather_bonus: float = 1.0,
+    jp_bonus: int = 0,
+    raetic_bonus: int = 0,
+    divine_seal_active: bool = False,
+) -> int:
+    """
+    Calculate Curaga (AoE cure) healing amount per target.
+    
+    Formula from bg-wiki (multiple target cures and blue magic):
+        Power = 3×MND + VIT + 3×floor(Healing Magic Skill÷5)
+        Base = (floor(Power÷2)÷Rate) + Const
+        Final = floor(floor(floor((Base + JP + Raetic) × Cure Potency) × Cure Received) × Day/Weather)
+    
+    Note: 1 MND = 3 VIT = 5 Healing Skill for these formulas.
+    
+    Reference: https://www.bg-wiki.com/ffxi/Cure_Formula
+    
+    Args:
+        spell_tier: Curaga tier (1-5)
+        caster_mnd: Caster's MND stat
+        caster_vit: Caster's VIT stat
+        healing_skill: Healing Magic skill
+        cure_potency: Cure Potency from gear (basis points, cap 5000)
+        cure_potency_ii: Cure Potency II (basis points, cap 3000, additive)
+        cure_received: Cure Potency Received (basis points, cap 3000)
+        day_weather_bonus: Day/weather multiplier
+        jp_bonus: Flat HP from Job Points/Gifts
+        raetic_bonus: Flat HP from Raetic Rod +1
+        divine_seal_active: Divine Seal doubles final result
+        
+    Returns:
+        HP healed per target
+    """
+    # Curaga soft cap tiers: list of (soft_cap, rate, const, min_cap)
+    # soft_cap is the Power threshold, rate/const are used in formula
+    curaga_tiers = {
+        1: [
+            (90, 35.66, 87.62, 60),   # Final tier
+            (75, 2, 47.5, 60),
+            (0, 1, 20, 60),           # Base tier
+        ],
+        2: [
+            (190, 15.66, 180.43, 130),
+            (160, 2, 115, 130),
+            (0, 1, 70, 130),
+        ],
+        3: [
+            (390, 6.5, 354.66, 270),
+            (330, 2, 275, 270),
+            (0, 0.6666, 165, 270),
+        ],
+        4: [
+            (690, 2.833, 591.2, 450),
+            (570, 1, 410, 450),
+            (0, 0.6666, 330, 450),
+        ],
+        5: [
+            (780, 1.278, 655, 835),   # min_cap needs verification
+            (0, 1, 570, 835),
+        ],
+    }
+    
+    # Calculate Power for AoE cures
+    # Power = 3×MND + VIT + 3×floor(Healing Skill÷5)
+    power = (3 * caster_mnd) + caster_vit + (3 * (healing_skill // 5))
+    
+    # Get tiers for this spell
+    tiers = curaga_tiers.get(spell_tier, curaga_tiers[2])
+    
+    # Find appropriate tier
+    base_hp = 0
+    min_cap = tiers[0][3]  # Get min cap from first (highest) tier
+    
+    for soft_cap, rate, const, _ in tiers:
+        if power >= soft_cap or soft_cap == 0:
+            # Base = (floor(Power÷2)÷Rate) + Const
+            base_hp = int((power // 2) / rate) + int(const)
+            break
+    
+    # Apply minimum cap
+    base_hp = max(base_hp, min_cap)
+    
+    # Add JP bonus and Raetic bonus
+    base_hp = base_hp + jp_bonus + raetic_bonus
+    
+    # Apply Cure Potency (capped at 50%) + Cure Potency II (capped at 30%, additive)
+    cure_pot_total = min(cure_potency, 5000) + min(cure_potency_ii, 3000)
+    cure_pot_mult = 1.0 + cure_pot_total / 10000
+    hp = int(base_hp * cure_pot_mult)
+    
+    # Apply Cure Received (capped at 30%)
+    cure_recv_mult = 1.0 + min(cure_received, 3000) / 10000
+    hp = int(hp * cure_recv_mult)
+    
+    # Apply day/weather bonus
+    hp = int(hp * day_weather_bonus)
+    
+    # Divine Seal doubles the final result
+    if divine_seal_active:
+        hp = hp * 2
+    
+    return hp
+
+
+# =============================================================================
+# Enhancing Magic Potency Calculations
+# =============================================================================
+
+def calculate_phalanx_potency(
+    enhancing_skill: int,
+    phalanx_received: int = 0,  # "Phalanx +" gear on target
+) -> int:
+    """
+    Calculate Phalanx damage reduction per hit.
+    
+    Formula from bg-wiki:
+        Under 300 skill: floor(Enhancing Magic Skill / 10) - 2
+        Over 300 skill:  28 + floor((Enhancing Magic Skill - 300.5) / 28.5)
+    
+    Phalanx caps at 500 enhancing skill (35 base damage reduction).
+    
+    Reference: https://www.bg-wiki.com/ffxi/Phalanx
+    
+    Args:
+        enhancing_skill: Caster's Enhancing Magic skill
+        phalanx_received: "Phalanx +" bonus from target's gear
+        
+    Returns:
+        Damage reduced per hit
+    """
+    if enhancing_skill <= 300:
+        # Under 300 skill: floor(skill / 10) - 2
+        # Minimum of 0 at very low skill
+        base = max(0, (enhancing_skill // 10) - 2)
+    else:
+        # Over 300 skill: 28 + floor((skill - 300.5) / 28.5)
+        base = 28 + int((enhancing_skill - 300.5) // 28.5)
+    
+    # Add received bonus (from "Phalanx +" gear on target)
+    total = base + phalanx_received
+    
+    return total
+
+
+def calculate_regen_potency(
+    enhancing_skill: int,
+    regen_tier: int = 1,
+    regen_potency_gear: int = 0,  # "Regen potency +" basis points (percent-based gear)
+    regen_potency_flat: int = 0,  # Flat "Regen +" HP from gear (like Cleric's Briault)
+    whm_merits: int = 0,          # WHM Regen Effect merits (+1 HP/tick per merit, max 5)
+    whm_gifts: int = 0,           # WHM 550 Gift (+5 HP/tick)
+    light_arts_bonus: int = 0,    # SCH Light Arts bonus (level-dependent, up to +24 HP/tick at 99)
+) -> int:
+    """
+    Calculate Regen HP per tick (3 seconds).
+    
+    Base values from bg-wiki:
+        Regen I:   5 HP/tick
+        Regen II:  12 HP/tick
+        Regen III: 20 HP/tick
+        Regen IV:  30 HP/tick
+        Regen V:   40 HP/tick
+    
+    Note: Regen potency is NOT affected by Enhancing Magic skill.
+    Potency is enhanced by gear, WHM merits/gifts, and SCH Light Arts.
+    
+    Formula: (((Base + gear%) × Embolden) + flat gear) + merits + gifts + Light Arts
+    
+    Reference: https://www.bg-wiki.com/ffxi/Category:Regen_Spell
+    
+    Args:
+        enhancing_skill: Caster's Enhancing Magic skill (no effect on potency)
+        regen_tier: Regen tier (1-5)
+        regen_potency_gear: Regen potency % bonus from gear (basis points)
+        regen_potency_flat: Flat "Regen +" HP from gear
+        whm_merits: WHM Regen Effect merits (0-5, +1 HP/tick each)
+        whm_gifts: WHM 550 Gift bonus (+5 HP/tick)
+        light_arts_bonus: SCH Light Arts bonus (up to +24 HP/tick at level 99)
+        
+    Returns:
+        HP per tick
+    """
+    # Base HP/tick by tier (from bg-wiki)
+    tier_base = {
+        1: 5,
+        2: 12,
+        3: 20,
+        4: 30,
+        5: 40,
+    }
+    
+    base = tier_base.get(regen_tier, 5)
+    
+    # Apply percent-based potency gear
+    if regen_potency_gear > 0:
+        base = int(base * (1.0 + regen_potency_gear / 10000))
+    
+    # Add flat bonuses
+    total = base + regen_potency_flat + whm_merits + whm_gifts + light_arts_bonus
+    
+    return total
+
+
+def calculate_refresh_potency(
+    enhancing_skill: int,
+    refresh_tier: int = 1,
+    refresh_potency_gear: int = 0,  # "Refresh potency +" basis points
+    composure_active: bool = False,
+) -> int:
+    """
+    Calculate Refresh MP per tick (3 seconds).
+    
+    Base values from bg-wiki:
+        Refresh I:   3 MP/tick (150 MP total)
+        Refresh II:  6 MP/tick (300 MP total)
+        Refresh III: 9 MP/tick (450 MP total)
+    
+    Note: Refresh potency is NOT affected by Enhancing Magic skill.
+    
+    Reference: https://www.bg-wiki.com/ffxi/Refresh
+    
+    Args:
+        enhancing_skill: Caster's Enhancing Magic skill (no effect on potency)
+        refresh_tier: Refresh tier (1-3)
+        refresh_potency_gear: Refresh potency bonus (basis points)
+        composure_active: RDM Composure active (triples duration, not potency)
+        
+    Returns:
+        MP per tick
+    """
+    # Base MP/tick by tier (from bg-wiki)
+    tier_base = {
+        1: 3,
+        2: 6,
+        3: 9,
+    }
+    
+    base = tier_base.get(refresh_tier, 3)
+    
+    # Apply potency gear (if any exists)
+    if refresh_potency_gear > 0:
+        base = int(base * (1.0 + refresh_potency_gear / 10000))
+    
+    return base
+
+
+def calculate_haste_potency(
+    enhancing_skill: int,
+    is_haste_ii: bool = False,
+) -> int:
+    """
+    Calculate Haste spell potency (magic haste).
+    
+    Haste I: 15% (1500 basis points) fixed
+    Haste II: 30% (3000 basis points) fixed
+    
+    Note: Magic haste caps at 43.75% (4375 basis points) combined.
+    
+    Args:
+        enhancing_skill: Caster's Enhancing Magic skill (doesn't affect potency)
+        is_haste_ii: Whether this is Haste II
+        
+    Returns:
+        Magic haste in basis points
+    """
+    if is_haste_ii:
+        return 3000  # 30%
+    else:
+        return 1500  # 15%
+
+
+def calculate_enhancing_duration(
+    base_duration: float,
+    enhancing_skill: int,
+    duration_gear: int = 0,  # Basis points
+    composure_active: bool = False,
+    perpetuance_active: bool = False,
+) -> float:
+    """
+    Calculate enhanced spell duration.
+    
+    Duration bonuses stack multiplicatively.
+    
+    Args:
+        base_duration: Base spell duration in seconds
+        enhancing_skill: Caster's Enhancing Magic skill (minor effect)
+        duration_gear: "Enhancing magic duration +" from gear (basis points)
+        composure_active: RDM Composure (+50% duration on self)
+        perpetuance_active: SCH Perpetuance (+100% duration)
+        
+    Returns:
+        Final duration in seconds
+    """
+    duration = base_duration
+    
+    # Skill bonus (small: +1% per 50 skill above 300, capped)
+    skill_bonus = min(20, max(0, (enhancing_skill - 300) // 50))  # Cap +20%
+    duration = duration * (1.0 + skill_bonus / 100)
+    
+    # Gear bonus
+    if duration_gear > 0:
+        duration = duration * (1.0 + duration_gear / 10000)
+    
+    # Composure (+50% on self-cast)
+    if composure_active:
+        duration = duration * 1.50
+    
+    # Perpetuance (+100%)
+    if perpetuance_active:
+        duration = duration * 2.00
+    
+    return duration
+
+
+def calculate_temper_potency(
+    enhancing_skill: int,
+    is_temper_ii: bool = False,
+) -> int:
+    """
+    Calculate Temper spell multi-attack bonus.
+    
+    Temper I grants Double Attack:
+        Enhancing Skill < 360:  DA% = 5%
+        Enhancing Skill >= 360: DA% = floor((Enhancing Skill - 300) / 10)%
+        No longer capped at 500 skill.
+    
+    Temper II grants Triple Attack:
+        TA% = floor((Enhancing Magic Skill - 300) / 10)%
+    
+    Reference: https://www.bg-wiki.com/ffxi/Temper
+               https://www.bg-wiki.com/ffxi/Temper_II
+    
+    Args:
+        enhancing_skill: Caster's Enhancing Magic skill
+        is_temper_ii: Whether this is Temper II
+        
+    Returns:
+        Multi-attack bonus in basis points (Double Attack for I, Triple Attack for II)
+    """
+    if is_temper_ii:
+        # Temper II: Triple Attack = floor((skill - 300) / 10)%
+        if enhancing_skill <= 300:
+            return 0
+        ta_percent = (enhancing_skill - 300) // 10
+        return ta_percent * 100  # Convert to basis points
+    else:
+        # Temper I: Double Attack
+        # < 360 skill: 5%
+        # >= 360 skill: floor((skill - 300) / 10)%
+        if enhancing_skill < 360:
+            return 500  # 5%
+        da_percent = (enhancing_skill - 300) // 10
+        return da_percent * 100  # Convert to basis points
+
+
+def calculate_gain_potency(
+    enhancing_skill: int,
+) -> int:
+    """
+    Calculate Gain-STR/DEX/etc. stat bonus.
+    
+    Formula from bg-wiki:
+        Gain Spell Potency = floor((Enhancing Magic Skill - 300) / 10) + 5
+        Minimum: 5 (at skill <= 300)
+        Maximum: 25 (at skill >= 500)
+    
+    Reference: https://www.bg-wiki.com/ffxi/Category:Gain_Spell
+    
+    Args:
+        enhancing_skill: Caster's Enhancing Magic skill
+        
+    Returns:
+        Stat bonus amount
+    """
+    if enhancing_skill <= 300:
+        return 5
+    
+    bonus = 5 + (enhancing_skill - 300) // 10
+    return min(25, bonus)  # Caps at 25 at 500 skill

@@ -301,6 +301,7 @@ class LuaGenerator:
         Format an item for Lua output.
         
         Handles augmented items with proper GearSwap syntax.
+        Uses single quotes for augment strings (Lua convention).
         """
         if not item.augments_raw:
             # Simple item - just the name
@@ -309,14 +310,14 @@ class LuaGenerator:
         # Augmented item - use table syntax
         # { name="Item Name", augments={'aug1', 'aug2', ...} }
         
-        # Format augments
+        # Format augments using single quotes (Lua convention)
+        # Internal double quotes like "Fast Cast" are fine inside single quotes
         aug_parts = []
         for aug in item.augments_raw:
             if aug and aug != 'none' and aug != '':
                 if isinstance(aug, str):
-                    # Escape quotes in augment text
-                    escaped = aug.replace('"', '\\"')
-                    aug_parts.append(f'"{escaped}"')
+                    # Use single quotes - internal double quotes are preserved
+                    aug_parts.append(f"'{aug}'")
                 else:
                     # Numeric augment - keep as number
                     aug_parts.append(str(aug))

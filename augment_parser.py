@@ -411,6 +411,40 @@ STAT_LOOKUP = {
     'Magic Burst Damage II': ('magic_burst_damage_ii', 100),
     'MBII': ('magic_burst_damage_ii', 100),
     
+    # -------------------------------------------------------------------------
+    # Dark Magic / Absorb Spells (DRK)
+    # Per BG-Wiki: Absorb potency is NOT affected by Dark Magic Skill
+    # Potency comes from equipment bonuses (Liberator, Pavor Gauntlets, etc.)
+    # -------------------------------------------------------------------------
+    # Absorb effect potency (equipment-based, not skill-based)
+    '\\"Absorb\\"': ('absorb_potency', 100),
+    '"Absorb"': ('absorb_potency', 100),
+    'Absorb': ('absorb_potency', 100),
+    '\\"Absorb\\"+': ('absorb_potency', 100),
+    '"Absorb"+': ('absorb_potency', 100),
+    'Absorb potency': ('absorb_potency', 100),
+    '\\"Absorb\\" effect potency': ('absorb_potency', 100),
+    '"Absorb" effect potency': ('absorb_potency', 100),
+    
+    # Absorb effect duration
+    '\\"Absorb\\" effect duration': ('absorb_effect_duration', 100),
+    '"Absorb" effect duration': ('absorb_effect_duration', 100),
+    'Absorb effect duration': ('absorb_effect_duration', 100),
+    'Absorb duration': ('absorb_effect_duration', 100),
+    
+    # Dark magic duration (affects Absorb duration via skill formula)
+    'Dark magic duration': ('dark_magic_duration', 100),
+    'Dark magic effect duration': ('dark_magic_duration', 100),
+    '\\"Dark magic duration\\"': ('dark_magic_duration', 100),
+    '"Dark magic duration"': ('dark_magic_duration', 100),
+    
+    # Drain/Aspir potency (for completeness - skill-based)
+    'Drain and Aspir potency': ('drain_aspir_potency', 100),
+    '\\"Drain\\" and \\"Aspir\\" potency': ('drain_aspir_potency', 100),
+    '"Drain" and "Aspir" potency': ('drain_aspir_potency', 100),
+    'Drain potency': ('drain_aspir_potency', 100),
+    'Aspir potency': ('drain_aspir_potency', 100),
+    
     # =========================================================================
     # JOB-SPECIFIC STATS
     # =========================================================================
