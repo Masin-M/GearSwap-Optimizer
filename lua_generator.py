@@ -362,8 +362,8 @@ class LuaGenerator:
         magic_indicators = [
             getattr(stats, 'magic_attack', 0),
             getattr(stats, 'magic_accuracy', 0),
-            getattr(stats, 'magic_burst_bonus', 0),
-            getattr(stats, 'magic_burst_bonus_ii', 0),
+            getattr(stats, 'magic_burst_damage', 0),
+            getattr(stats, 'magic_burst_damage_ii', 0),
             getattr(stats, 'magic_damage', 0),
         ]
         melee_indicators = [

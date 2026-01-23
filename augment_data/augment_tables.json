@@ -12654,7 +12654,7 @@
             "16": {
               "stats": {
                 "magic_damage": 16,
-                "magic_burst_bonus_ii": 1,
+                "magic_burst_damage_ii": 1,
                 "magic_attack": 21
               },
               "description": "\"Mag. Atk. Bns.\"+21 Magic Damage+16 Magic burst damage II +1",
@@ -12663,7 +12663,7 @@
             "17": {
               "stats": {
                 "magic_damage": 17,
-                "magic_burst_bonus_ii": 1,
+                "magic_burst_damage_ii": 1,
                 "magic_attack": 22
               },
               "description": "\"Mag. Atk. Bns.\"+22 Magic Damage+17 Magic burst damage II +1",
@@ -12672,7 +12672,7 @@
             "18": {
               "stats": {
                 "magic_damage": 18,
-                "magic_burst_bonus_ii": 2,
+                "magic_burst_damage_ii": 2,
                 "magic_attack": 23
               },
               "description": "\"Mag. Atk. Bns.\"+23 Magic Damage+18 Magic burst damage II +2",
@@ -12681,7 +12681,7 @@
             "19": {
               "stats": {
                 "magic_damage": 19,
-                "magic_burst_bonus_ii": 2,
+                "magic_burst_damage_ii": 2,
                 "magic_attack": 24
               },
               "description": "\"Mag. Atk. Bns.\"+24 Magic Damage+19 Magic burst damage II +2",
@@ -12690,7 +12690,7 @@
             "20": {
               "stats": {
                 "magic_damage": 20,
-                "magic_burst_bonus_ii": 2,
+                "magic_burst_damage_ii": 2,
                 "magic_attack": 25
               },
               "description": "\"Mag. Atk. Bns.\"+25 Magic Damage+20 Magic burst damage II +2",
@@ -12700,7 +12700,7 @@
               "stats": {
                 "magic_accuracy": 1,
                 "magic_damage": 21,
-                "magic_burst_bonus_ii": 3,
+                "magic_burst_damage_ii": 3,
                 "magic_attack": 26
               },
               "description": "\"Mag. Atk. Bns.\"+26 Magic Damage+21 Magic burst damage II +3 Mag. Acc.+1",
@@ -12710,7 +12710,7 @@
               "stats": {
                 "magic_accuracy": 2,
                 "magic_damage": 22,
-                "magic_burst_bonus_ii": 3,
+                "magic_burst_damage_ii": 3,
                 "magic_attack": 27
               },
               "description": "\"Mag. Atk. Bns.\"+27 Magic Damage+22 Magic burst damage II +3 Mag. Acc.+2",
@@ -12720,7 +12720,7 @@
               "stats": {
                 "magic_accuracy": 3,
                 "magic_damage": 23,
-                "magic_burst_bonus_ii": 3,
+                "magic_burst_damage_ii": 3,
                 "magic_attack": 28
               },
               "description": "\"Mag. Atk. Bns.\"+28 Magic Damage+23 Magic burst damage II +3 Mag. Acc.+3",
@@ -12730,7 +12730,7 @@
               "stats": {
                 "magic_accuracy": 4,
                 "magic_damage": 24,
-                "magic_burst_bonus_ii": 4,
+                "magic_burst_damage_ii": 4,
                 "magic_attack": 29
               },
               "description": "\"Mag. Atk. Bns.\"+29 Magic Damage+24 Magic burst damage II +4 Mag. Acc.+4",
@@ -12740,7 +12740,7 @@
               "stats": {
                 "magic_accuracy": 5,
                 "magic_damage": 25,
-                "magic_burst_bonus_ii": 4,
+                "magic_burst_damage_ii": 4,
                 "magic_attack": 30
               },
               "description": "\"Mag. Atk. Bns.\"+30 Magic Damage+25 Magic burst damage II +4 Mag. Acc.+5",
@@ -12750,7 +12750,7 @@
               "stats": {
                 "magic_accuracy": 6,
                 "magic_damage": 26,
-                "magic_burst_bonus_ii": 4,
+                "magic_burst_damage_ii": 4,
                 "magic_attack": 31
               },
               "description": "\"Mag. Atk. Bns.\"+31 Magic Damage+26 Magic burst damage II +4 Mag. Acc.+6",
@@ -12760,7 +12760,7 @@
               "stats": {
                 "magic_accuracy": 7,
                 "magic_damage": 27,
-                "magic_burst_bonus_ii": 5,
+                "magic_burst_damage_ii": 5,
                 "magic_attack": 32
               },
               "description": "\"Mag. Atk. Bns.\"+32 Magic Damage+27 Magic burst damage II +5 Mag. Acc.+7",
@@ -12770,7 +12770,7 @@
               "stats": {
                 "magic_accuracy": 8,
                 "magic_damage": 28,
-                "magic_burst_bonus_ii": 5,
+                "magic_burst_damage_ii": 5,
                 "magic_attack": 33
               },
               "description": "\"Mag. Atk. Bns.\"+33 Magic Damage+28 Magic burst damage II +5 Mag. Acc.+8",
@@ -12780,7 +12780,7 @@
               "stats": {
                 "magic_accuracy": 9,
                 "magic_damage": 29,
-                "magic_burst_bonus_ii": 5,
+                "magic_burst_damage_ii": 5,
                 "magic_attack": 34
               },
               "description": "\"Mag. Atk. Bns.\"+34 Magic Damage+29 Magic burst damage II +5 Mag. Acc.+9",
@@ -12790,7 +12790,7 @@
               "stats": {
                 "magic_accuracy": 10,
                 "magic_damage": 30,
-                "magic_burst_bonus_ii": 6,
+                "magic_burst_damage_ii": 6,
                 "magic_attack": 35
               },
               "description": "\"Mag. Atk. Bns.\"+35 Magic Damage+30 Magic burst damage II +6 Mag. Acc.+10",
@@ -13895,7 +13895,7 @@
             "16": {
               "stats": {
                 "magic_damage": 26,
-                "magic_burst_bonus_ii": 1,
+                "magic_burst_damage_ii": 1,
                 "magic_attack": 21
               },
               "description": "\"Mag. Atk. Bns.\"+21 Magic Damage+26 Magic burst damage II +1",
@@ -13904,7 +13904,7 @@
             "17": {
               "stats": {
                 "magic_damage": 27,
-                "magic_burst_bonus_ii": 1,
+                "magic_burst_damage_ii": 1,
                 "magic_attack": 22
               },
               "description": "\"Mag. Atk. Bns.\"+22 Magic Damage+27 Magic burst damage II +1",
@@ -13913,7 +13913,7 @@
             "18": {
               "stats": {
                 "magic_damage": 28,
-                "magic_burst_bonus_ii": 2,
+                "magic_burst_damage_ii": 2,
                 "magic_attack": 23
               },
               "description": "\"Mag. Atk. Bns.\"+23 Magic Damage+28 Magic burst damage II +2",
@@ -13922,7 +13922,7 @@
             "19": {
               "stats": {
                 "magic_damage": 29,
-                "magic_burst_bonus_ii": 2,
+                "magic_burst_damage_ii": 2,
                 "magic_attack": 24
               },
               "description": "\"Mag. Atk. Bns.\"+24 Magic Damage+29 Magic burst damage II +2",
@@ -13931,7 +13931,7 @@
             "20": {
               "stats": {
                 "magic_damage": 30,
-                "magic_burst_bonus_ii": 3,
+                "magic_burst_damage_ii": 3,
                 "magic_attack": 25
               },
               "description": "\"Mag. Atk. Bns.\"+25 Magic Damage+30 Magic burst damage II +3",
@@ -13941,7 +13941,7 @@
               "stats": {
                 "CHR": 1,
                 "magic_damage": 31,
-                "magic_burst_bonus_ii": 3,
+                "magic_burst_damage_ii": 3,
                 "magic_attack": 26
               },
               "description": "\"Mag. Atk. Bns.\"+26 Magic Damage+31 Magic burst damage II +3 INT/MND/CHR+1",
@@ -13951,7 +13951,7 @@
               "stats": {
                 "CHR": 2,
                 "magic_damage": 32,
-                "magic_burst_bonus_ii": 4,
+                "magic_burst_damage_ii": 4,
                 "magic_attack": 27
               },
               "description": "\"Mag. Atk. Bns.\"+27 Magic Damage+32 Magic burst damage II +4 INT/MND/CHR+2",
@@ -13961,7 +13961,7 @@
               "stats": {
                 "CHR": 3,
                 "magic_damage": 33,
-                "magic_burst_bonus_ii": 4,
+                "magic_burst_damage_ii": 4,
                 "magic_attack": 28
               },
               "description": "\"Mag. Atk. Bns.\"+28 Magic Damage+33 Magic burst damage II +4 INT/MND/CHR+3",
@@ -13971,7 +13971,7 @@
               "stats": {
                 "CHR": 4,
                 "magic_damage": 34,
-                "magic_burst_bonus_ii": 5,
+                "magic_burst_damage_ii": 5,
                 "magic_attack": 29
               },
               "description": "\"Mag. Atk. Bns.\"+29 Magic Damage+34 Magic burst damage II +5 INT/MND/CHR+4",
@@ -13981,7 +13981,7 @@
               "stats": {
                 "CHR": 5,
                 "magic_damage": 35,
-                "magic_burst_bonus_ii": 5,
+                "magic_burst_damage_ii": 5,
                 "magic_attack": 30
               },
               "description": "\"Mag. Atk. Bns.\"+30 Magic Damage+35 Magic burst damage II +5 INT/MND/CHR+5",
@@ -13991,7 +13991,7 @@
               "stats": {
                 "CHR": 6,
                 "magic_damage": 36,
-                "magic_burst_bonus_ii": 6,
+                "magic_burst_damage_ii": 6,
                 "magic_attack": 31
               },
               "description": "\"Mag. Atk. Bns.\"+31 Magic Damage+36 Magic burst damage II +6 INT/MND/CHR+6",
@@ -14001,7 +14001,7 @@
               "stats": {
                 "CHR": 7,
                 "magic_damage": 37,
-                "magic_burst_bonus_ii": 6,
+                "magic_burst_damage_ii": 6,
                 "magic_attack": 32
               },
               "description": "\"Mag. Atk. Bns.\"+32 Magic Damage+37 Magic burst damage II +6 INT/MND/CHR+7",
@@ -14011,7 +14011,7 @@
               "stats": {
                 "CHR": 8,
                 "magic_damage": 38,
-                "magic_burst_bonus_ii": 7,
+                "magic_burst_damage_ii": 7,
                 "magic_attack": 33
               },
               "description": "\"Mag. Atk. Bns.\"+33 Magic Damage+38 Magic burst damage II +7 INT/MND/CHR+8",
@@ -14021,7 +14021,7 @@
               "stats": {
                 "CHR": 9,
                 "magic_damage": 39,
-                "magic_burst_bonus_ii": 7,
+                "magic_burst_damage_ii": 7,
                 "magic_attack": 34
               },
               "description": "\"Mag. Atk. Bns.\"+34 Magic Damage+39 Magic burst damage II +7 INT/MND/CHR+9",
@@ -14031,7 +14031,7 @@
               "stats": {
                 "CHR": 10,
                 "magic_damage": 40,
-                "magic_burst_bonus_ii": 7,
+                "magic_burst_damage_ii": 7,
                 "magic_attack": 35
               },
               "description": "\"Mag. Atk. Bns.\"+35 Magic Damage+40 Magic burst damage II +7 INT/MND/CHR+10",
@@ -15121,7 +15121,7 @@
             "16": {
               "stats": {
                 "magic_damage": 16,
-                "magic_burst_bonus_ii": 1,
+                "magic_burst_damage_ii": 1,
                 "magic_attack": 21
               },
               "description": "\"Mag. Atk. Bns.\"+21 Magic Damage+16 Magic burst damage II +1",
@@ -15130,7 +15130,7 @@
             "17": {
               "stats": {
                 "magic_damage": 17,
-                "magic_burst_bonus_ii": 1,
+                "magic_burst_damage_ii": 1,
                 "magic_attack": 22
               },
               "description": "\"Mag. Atk. Bns.\"+22 Magic Damage+17 Magic burst damage II +1",
@@ -15139,7 +15139,7 @@
             "18": {
               "stats": {
                 "magic_damage": 18,
-                "magic_burst_bonus_ii": 1,
+                "magic_burst_damage_ii": 1,
                 "magic_attack": 23
               },
               "description": "\"Mag. Atk. Bns.\"+23 Magic Damage+18 Magic burst damage II +1",
@@ -15148,7 +15148,7 @@
             "19": {
               "stats": {
                 "magic_damage": 19,
-                "magic_burst_bonus_ii": 2,
+                "magic_burst_damage_ii": 2,
                 "magic_attack": 24
               },
               "description": "\"Mag. Atk. Bns.\"+24 Magic Damage+19 Magic burst damage II +2",
@@ -15157,7 +15157,7 @@
             "20": {
               "stats": {
                 "magic_damage": 20,
-                "magic_burst_bonus_ii": 2,
+                "magic_burst_damage_ii": 2,
                 "magic_attack": 25
               },
               "description": "\"Mag. Atk. Bns.\"+25 Magic Damage+20 Magic burst damage II +2",
@@ -15167,7 +15167,7 @@
               "stats": {
                 "MND": 2,
                 "magic_damage": 21,
-                "magic_burst_bonus_ii": 2,
+                "magic_burst_damage_ii": 2,
                 "magic_attack": 26
               },
               "description": "\"Mag. Atk. Bns.\"+26 Magic Damage+21 Magic burst damage II +2 MND+2",
@@ -15177,7 +15177,7 @@
               "stats": {
                 "MND": 4,
                 "magic_damage": 22,
-                "magic_burst_bonus_ii": 3,
+                "magic_burst_damage_ii": 3,
                 "magic_attack": 27
               },
               "description": "\"Mag. Atk. Bns.\"+27 Magic Damage+22 Magic burst damage II +3 MND+4",
@@ -15187,7 +15187,7 @@
               "stats": {
                 "MND": 6,
                 "magic_damage": 23,
-                "magic_burst_bonus_ii": 3,
+                "magic_burst_damage_ii": 3,
                 "magic_attack": 28
               },
               "description": "\"Mag. Atk. Bns.\"+28 Magic Damage+23 Magic burst damage II +3 MND+6",
@@ -15197,7 +15197,7 @@
               "stats": {
                 "MND": 8,
                 "magic_damage": 24,
-                "magic_burst_bonus_ii": 3,
+                "magic_burst_damage_ii": 3,
                 "magic_attack": 29
               },
               "description": "\"Mag. Atk. Bns.\"+29 Magic Damage+24 Magic burst damage II +3 MND+8",
@@ -15207,7 +15207,7 @@
               "stats": {
                 "MND": 10,
                 "magic_damage": 25,
-                "magic_burst_bonus_ii": 4,
+                "magic_burst_damage_ii": 4,
                 "magic_attack": 30
               },
               "description": "\"Mag. Atk. Bns.\"+30 Magic Damage+25 Magic burst damage II +4 MND+10",
@@ -15217,7 +15217,7 @@
               "stats": {
                 "MND": 11,
                 "magic_damage": 26,
-                "magic_burst_bonus_ii": 4,
+                "magic_burst_damage_ii": 4,
                 "magic_attack": 31
               },
               "description": "\"Mag. Atk. Bns.\"+31 Magic Damage+26 Magic burst damage II +4 MND+11",
@@ -15227,7 +15227,7 @@
               "stats": {
                 "MND": 12,
                 "magic_damage": 27,
-                "magic_burst_bonus_ii": 4,
+                "magic_burst_damage_ii": 4,
                 "magic_attack": 32
               },
               "description": "\"Mag. Atk. Bns.\"+32 Magic Damage+27 Magic burst damage II +4 MND+12",
@@ -15237,7 +15237,7 @@
               "stats": {
                 "MND": 13,
                 "magic_damage": 28,
-                "magic_burst_bonus_ii": 5,
+                "magic_burst_damage_ii": 5,
                 "magic_attack": 33
               },
               "description": "\"Mag. Atk. Bns.\"+33 Magic Damage+28 Magic burst damage II +5 MND+13",
@@ -15247,7 +15247,7 @@
               "stats": {
                 "MND": 14,
                 "magic_damage": 29,
-                "magic_burst_bonus_ii": 5,
+                "magic_burst_damage_ii": 5,
                 "magic_attack": 34
               },
               "description": "\"Mag. Atk. Bns.\"+34 Magic Damage+29 Magic burst damage II +5 MND+14",
@@ -15257,7 +15257,7 @@
               "stats": {
                 "MND": 15,
                 "magic_damage": 30,
-                "magic_burst_bonus_ii": 5,
+                "magic_burst_damage_ii": 5,
                 "magic_attack": 35
               },
               "description": "\"Mag. Atk. Bns.\"+35 Magic Damage+30 Magic burst damage II +5 MND+15",
@@ -16362,7 +16362,7 @@
             "16": {
               "stats": {
                 "magic_damage": 21,
-                "magic_burst_bonus_ii": 1,
+                "magic_burst_damage_ii": 1,
                 "magic_attack": 21
               },
               "description": "\"Mag. Atk. Bns.\"+21 Magic Damage+21 Magic burst damage II +1",
@@ -16371,7 +16371,7 @@
             "17": {
               "stats": {
                 "magic_damage": 22,
-                "magic_burst_bonus_ii": 1,
+                "magic_burst_damage_ii": 1,
                 "magic_attack": 22
               },
               "description": "\"Mag. Atk. Bns.\"+22 Magic Damage+22 Magic burst damage II +1",
@@ -16380,7 +16380,7 @@
             "18": {
               "stats": {
                 "magic_damage": 23,
-                "magic_burst_bonus_ii": 1,
+                "magic_burst_damage_ii": 1,
                 "magic_attack": 23
               },
               "description": "\"Mag. Atk. Bns.\"+23 Magic Damage+23 Magic burst damage II +1",
@@ -16389,7 +16389,7 @@
             "19": {
               "stats": {
                 "magic_damage": 24,
-                "magic_burst_bonus_ii": 2,
+                "magic_burst_damage_ii": 2,
                 "magic_attack": 24
               },
               "description": "\"Mag. Atk. Bns.\"+24 Magic Damage+24 Magic burst damage II +2",
@@ -16398,7 +16398,7 @@
             "20": {
               "stats": {
                 "magic_damage": 25,
-                "magic_burst_bonus_ii": 2,
+                "magic_burst_damage_ii": 2,
                 "magic_attack": 25
               },
               "description": "\"Mag. Atk. Bns.\"+25 Magic Damage+25 Magic burst damage II +2",
@@ -16408,7 +16408,7 @@
               "stats": {
                 "INT": 2,
                 "magic_damage": 26,
-                "magic_burst_bonus_ii": 2,
+                "magic_burst_damage_ii": 2,
                 "magic_attack": 26
               },
               "description": "\"Mag. Atk. Bns.\"+26 Magic Damage+26 Magic burst damage II +2 INT+2",
@@ -16418,7 +16418,7 @@
               "stats": {
                 "INT": 4,
                 "magic_damage": 27,
-                "magic_burst_bonus_ii": 3,
+                "magic_burst_damage_ii": 3,
                 "magic_attack": 27
               },
               "description": "\"Mag. Atk. Bns.\"+27 Magic Damage+27 Magic burst damage II +3 INT+4",
@@ -16428,7 +16428,7 @@
               "stats": {
                 "INT": 6,
                 "magic_damage": 28,
-                "magic_burst_bonus_ii": 3,
+                "magic_burst_damage_ii": 3,
                 "magic_attack": 28
               },
               "description": "\"Mag. Atk. Bns.\"+28 Magic Damage+28 Magic burst damage II +3 INT+6",
@@ -16438,7 +16438,7 @@
               "stats": {
                 "INT": 8,
                 "magic_damage": 29,
-                "magic_burst_bonus_ii": 3,
+                "magic_burst_damage_ii": 3,
                 "magic_attack": 29
               },
               "description": "\"Mag. Atk. Bns.\"+29 Magic Damage+29 Magic burst damage II +3 INT+8",
@@ -16448,7 +16448,7 @@
               "stats": {
                 "INT": 10,
                 "magic_damage": 30,
-                "magic_burst_bonus_ii": 4,
+                "magic_burst_damage_ii": 4,
                 "magic_attack": 30
               },
               "description": "\"Mag. Atk. Bns.\"+30 Magic Damage+30 Magic burst damage II +4 INT+10",
@@ -16458,7 +16458,7 @@
               "stats": {
                 "INT": 11,
                 "magic_damage": 31,
-                "magic_burst_bonus_ii": 4,
+                "magic_burst_damage_ii": 4,
                 "magic_attack": 31
               },
               "description": "\"Mag. Atk. Bns.\"+31 Magic Damage+31 Magic burst damage II +4 INT+11",
@@ -16468,7 +16468,7 @@
               "stats": {
                 "INT": 12,
                 "magic_damage": 32,
-                "magic_burst_bonus_ii": 4,
+                "magic_burst_damage_ii": 4,
                 "magic_attack": 32
               },
               "description": "\"Mag. Atk. Bns.\"+32 Magic Damage+32 Magic burst damage II +4 INT+12",
@@ -16478,7 +16478,7 @@
               "stats": {
                 "INT": 13,
                 "magic_damage": 33,
-                "magic_burst_bonus_ii": 5,
+                "magic_burst_damage_ii": 5,
                 "magic_attack": 33
               },
               "description": "\"Mag. Atk. Bns.\"+33 Magic Damage+33 Magic burst damage II +5 INT+13",
@@ -16488,7 +16488,7 @@
               "stats": {
                 "INT": 14,
                 "magic_damage": 34,
-                "magic_burst_bonus_ii": 5,
+                "magic_burst_damage_ii": 5,
                 "magic_attack": 34
               },
               "description": "\"Mag. Atk. Bns.\"+34 Magic Damage+34 Magic burst damage II +5 INT+14",
@@ -16498,7 +16498,7 @@
               "stats": {
                 "INT": 15,
                 "magic_damage": 35,
-                "magic_burst_bonus_ii": 5,
+                "magic_burst_damage_ii": 5,
                 "magic_attack": 35
               },
               "description": "\"Mag. Atk. Bns.\"+35 Magic Damage+35 Magic burst damage II +5 INT+15",
@@ -17598,7 +17598,7 @@
             "16": {
               "stats": {
                 "magic_damage": 16,
-                "magic_burst_bonus_ii": 1,
+                "magic_burst_damage_ii": 1,
                 "magic_attack": 21
               },
               "description": "\"Mag. Atk. Bns.\"+21 Magic Damage+16 Magic burst damage II +1",
@@ -17607,7 +17607,7 @@
             "17": {
               "stats": {
                 "magic_damage": 17,
-                "magic_burst_bonus_ii": 1,
+                "magic_burst_damage_ii": 1,
                 "magic_attack": 22
               },
               "description": "\"Mag. Atk. Bns.\"+22 Magic Damage+17 Magic burst damage II +1",
@@ -17616,7 +17616,7 @@
             "18": {
               "stats": {
                 "magic_damage": 18,
-                "magic_burst_bonus_ii": 2,
+                "magic_burst_damage_ii": 2,
                 "magic_attack": 23
               },
               "description": "\"Mag. Atk. Bns.\"+23 Magic Damage+18 Magic burst damage II +2",
@@ -17625,7 +17625,7 @@
             "19": {
               "stats": {
                 "magic_damage": 19,
-                "magic_burst_bonus_ii": 2,
+                "magic_burst_damage_ii": 2,
                 "magic_attack": 24
               },
               "description": "\"Mag. Atk. Bns.\"+24 Magic Damage+19 Magic burst damage II +2",
@@ -17634,7 +17634,7 @@
             "20": {
               "stats": {
                 "magic_damage": 20,
-                "magic_burst_bonus_ii": 2,
+                "magic_burst_damage_ii": 2,
                 "magic_attack": 25
               },
               "description": "\"Mag. Atk. Bns.\"+25 Magic Damage+20 Magic burst damage II +2",
@@ -17644,7 +17644,7 @@
               "stats": {
                 "CHR": 2,
                 "magic_damage": 21,
-                "magic_burst_bonus_ii": 3,
+                "magic_burst_damage_ii": 3,
                 "magic_attack": 26
               },
               "description": "\"Mag. Atk. Bns.\"+26 Magic Damage+21 Magic burst damage II +3 CHR+2",
@@ -17654,7 +17654,7 @@
               "stats": {
                 "CHR": 4,
                 "magic_damage": 22,
-                "magic_burst_bonus_ii": 3,
+                "magic_burst_damage_ii": 3,
                 "magic_attack": 27
               },
               "description": "\"Mag. Atk. Bns.\"+27 Magic Damage+22 Magic burst damage II +3 CHR+4",
@@ -17664,7 +17664,7 @@
               "stats": {
                 "CHR": 6,
                 "magic_damage": 23,
-                "magic_burst_bonus_ii": 3,
+                "magic_burst_damage_ii": 3,
                 "magic_attack": 28
               },
               "description": "\"Mag. Atk. Bns.\"+28 Magic Damage+23 Magic burst damage II +3 CHR+6",
@@ -17674,7 +17674,7 @@
               "stats": {
                 "CHR": 8,
                 "magic_damage": 24,
-                "magic_burst_bonus_ii": 4,
+                "magic_burst_damage_ii": 4,
                 "magic_attack": 29
               },
               "description": "\"Mag. Atk. Bns.\"+29 Magic Damage+24 Magic burst damage II +4 CHR+8",
@@ -17684,7 +17684,7 @@
               "stats": {
                 "CHR": 10,
                 "magic_damage": 25,
-                "magic_burst_bonus_ii": 4,
+                "magic_burst_damage_ii": 4,
                 "magic_attack": 30
               },
               "description": "\"Mag. Atk. Bns.\"+30 Magic Damage+25 Magic burst damage II +4 CHR+10",
@@ -17694,7 +17694,7 @@
               "stats": {
                 "CHR": 11,
                 "magic_damage": 26,
-                "magic_burst_bonus_ii": 4,
+                "magic_burst_damage_ii": 4,
                 "magic_attack": 31
               },
               "description": "\"Mag. Atk. Bns.\"+31 Magic Damage+26 Magic burst damage II +4 CHR+11",
@@ -17704,7 +17704,7 @@
               "stats": {
                 "CHR": 12,
                 "magic_damage": 27,
-                "magic_burst_bonus_ii": 5,
+                "magic_burst_damage_ii": 5,
                 "magic_attack": 32
               },
               "description": "\"Mag. Atk. Bns.\"+32 Magic Damage+27 Magic burst damage II +5 CHR+12",
@@ -17714,7 +17714,7 @@
               "stats": {
                 "CHR": 13,
                 "magic_damage": 28,
-                "magic_burst_bonus_ii": 5,
+                "magic_burst_damage_ii": 5,
                 "magic_attack": 33
               },
               "description": "\"Mag. Atk. Bns.\"+33 Magic Damage+28 Magic burst damage II +5 CHR+13",
@@ -17724,7 +17724,7 @@
               "stats": {
                 "CHR": 14,
                 "magic_damage": 29,
-                "magic_burst_bonus_ii": 5,
+                "magic_burst_damage_ii": 5,
                 "magic_attack": 34
               },
               "description": "\"Mag. Atk. Bns.\"+34 Magic Damage+29 Magic burst damage II +5 CHR+14",
@@ -17734,7 +17734,7 @@
               "stats": {
                 "CHR": 15,
                 "magic_damage": 30,
-                "magic_burst_bonus_ii": 6,
+                "magic_burst_damage_ii": 6,
                 "magic_attack": 35
               },
               "description": "\"Mag. Atk. Bns.\"+35 Magic Damage+30 Magic burst damage II +6 CHR+15",
@@ -21572,7 +21572,7 @@
               "stats": {
                 "attack": 1,
                 "magic_damage": 1,
-                "magic_burst_bonus_ii": 1
+                "magic_burst_damage_ii": 1
               },
               "description": "Attack+1 Magic Damage+1 Magic burst damage II +1",
               "interpolated": false
@@ -21581,7 +21581,7 @@
               "stats": {
                 "attack": 2,
                 "magic_damage": 2,
-                "magic_burst_bonus_ii": 1
+                "magic_burst_damage_ii": 1
               },
               "description": "Attack+2 Magic Damage+2 Magic burst damage II +1",
               "interpolated": false
@@ -21590,7 +21590,7 @@
               "stats": {
                 "attack": 3,
                 "magic_damage": 3,
-                "magic_burst_bonus_ii": 1
+                "magic_burst_damage_ii": 1
               },
               "description": "Attack+3 Magic Damage+3 Magic burst damage II +1",
               "interpolated": false
@@ -21599,7 +21599,7 @@
               "stats": {
                 "attack": 4,
                 "magic_damage": 4,
-                "magic_burst_bonus_ii": 1
+                "magic_burst_damage_ii": 1
               },
               "description": "Attack+4 Magic Damage+4 Magic burst damage II +1",
               "interpolated": false
@@ -21608,7 +21608,7 @@
               "stats": {
                 "attack": 5,
                 "magic_damage": 5,
-                "magic_burst_bonus_ii": 1
+                "magic_burst_damage_ii": 1
               },
               "description": "Attack+5 Magic Damage+5 Magic burst damage II +1",
               "interpolated": false
@@ -21617,7 +21617,7 @@
               "stats": {
                 "attack": 6,
                 "magic_damage": 6,
-                "magic_burst_bonus_ii": 2
+                "magic_burst_damage_ii": 2
               },
               "description": "Attack+6 Magic Damage+6 Magic burst damage II +2",
               "interpolated": false
@@ -21626,7 +21626,7 @@
               "stats": {
                 "attack": 7,
                 "magic_damage": 7,
-                "magic_burst_bonus_ii": 2
+                "magic_burst_damage_ii": 2
               },
               "description": "Attack+7 Magic Damage+7 Magic burst damage II +2",
               "interpolated": false
@@ -21635,7 +21635,7 @@
               "stats": {
                 "attack": 8,
                 "magic_damage": 8,
-                "magic_burst_bonus_ii": 2
+                "magic_burst_damage_ii": 2
               },
               "description": "Attack+8 Magic Damage+8 Magic burst damage II +2",
               "interpolated": false
@@ -21644,7 +21644,7 @@
               "stats": {
                 "attack": 9,
                 "magic_damage": 9,
-                "magic_burst_bonus_ii": 2
+                "magic_burst_damage_ii": 2
               },
               "description": "Attack+9 Magic Damage+9 Magic burst damage II +2",
               "interpolated": false
@@ -21653,7 +21653,7 @@
               "stats": {
                 "attack": 10,
                 "magic_damage": 10,
-                "magic_burst_bonus_ii": 2
+                "magic_burst_damage_ii": 2
               },
               "description": "Attack+10 Magic Damage+10 Magic burst damage II +2",
               "interpolated": false
@@ -21662,7 +21662,7 @@
               "stats": {
                 "attack": 11,
                 "magic_damage": 11,
-                "magic_burst_bonus_ii": 3
+                "magic_burst_damage_ii": 3
               },
               "description": "Attack+11 Magic Damage+11 Magic burst damage II +3",
               "interpolated": false
@@ -21671,7 +21671,7 @@
               "stats": {
                 "attack": 12,
                 "magic_damage": 12,
-                "magic_burst_bonus_ii": 3
+                "magic_burst_damage_ii": 3
               },
               "description": "Attack+12 Magic Damage+12 Magic burst damage II +3",
               "interpolated": false
@@ -21680,7 +21680,7 @@
               "stats": {
                 "attack": 13,
                 "magic_damage": 13,
-                "magic_burst_bonus_ii": 3
+                "magic_burst_damage_ii": 3
               },
               "description": "Attack+13 Magic Damage+13 Magic burst damage II +3",
               "interpolated": false
@@ -21689,7 +21689,7 @@
               "stats": {
                 "attack": 14,
                 "magic_damage": 14,
-                "magic_burst_bonus_ii": 3
+                "magic_burst_damage_ii": 3
               },
               "description": "Attack+14 Magic Damage+14 Magic burst damage II +3",
               "interpolated": false
@@ -21698,7 +21698,7 @@
               "stats": {
                 "attack": 15,
                 "magic_damage": 15,
-                "magic_burst_bonus_ii": 3
+                "magic_burst_damage_ii": 3
               },
               "description": "Attack+15 Magic Damage+15 Magic burst damage II +3",
               "interpolated": false
@@ -21709,7 +21709,7 @@
                 "accuracy": 1,
                 "attack": 16,
                 "magic_damage": 16,
-                "magic_burst_bonus_ii": 4
+                "magic_burst_damage_ii": 4
               },
               "description": "Attack+16 Magic Damage+16 Magic burst damage II +4 Accuracy+1 Mag. Acc.+1",
               "interpolated": false
@@ -21720,7 +21720,7 @@
                 "accuracy": 2,
                 "attack": 17,
                 "magic_damage": 17,
-                "magic_burst_bonus_ii": 4
+                "magic_burst_damage_ii": 4
               },
               "description": "Attack+17 Magic Damage+17 Magic burst damage II +4 Accuracy+2 Mag. Acc.+2",
               "interpolated": false
@@ -21731,7 +21731,7 @@
                 "accuracy": 3,
                 "attack": 18,
                 "magic_damage": 18,
-                "magic_burst_bonus_ii": 4
+                "magic_burst_damage_ii": 4
               },
               "description": "Attack+18 Magic Damage+18 Magic burst damage II +4 Accuracy+3 Mag. Acc.+3",
               "interpolated": false
@@ -21742,7 +21742,7 @@
                 "accuracy": 4,
                 "attack": 19,
                 "magic_damage": 19,
-                "magic_burst_bonus_ii": 4
+                "magic_burst_damage_ii": 4
               },
               "description": "Attack+19 Magic Damage+19 Magic burst damage II +4 Accuracy+4 Mag. Acc.+4",
               "interpolated": false
@@ -21753,7 +21753,7 @@
                 "accuracy": 5,
                 "attack": 20,
                 "magic_damage": 20,
-                "magic_burst_bonus_ii": 4
+                "magic_burst_damage_ii": 4
               },
               "description": "Attack+20 Magic Damage+20 Magic burst damage II +4 Accuracy+5 Mag. Acc.+5",
               "interpolated": false
@@ -21765,7 +21765,7 @@
                 "accuracy": 6,
                 "attack": 21,
                 "magic_damage": 21,
-                "magic_burst_bonus_ii": 5
+                "magic_burst_damage_ii": 5
               },
               "description": "Attack+21 Magic Damage+21 Magic burst damage II +5 Accuracy+6 Mag. Acc.+6 MND+1",
               "interpolated": false
@@ -21777,7 +21777,7 @@
                 "accuracy": 7,
                 "attack": 22,
                 "magic_damage": 22,
-                "magic_burst_bonus_ii": 5
+                "magic_burst_damage_ii": 5
               },
               "description": "Attack+22 Magic Damage+22 Magic burst damage II +5 Accuracy+7 Mag. Acc.+7 MND+1",
               "interpolated": false
@@ -21789,7 +21789,7 @@
                 "accuracy": 8,
                 "attack": 23,
                 "magic_damage": 23,
-                "magic_burst_bonus_ii": 5
+                "magic_burst_damage_ii": 5
               },
               "description": "Attack+23 Magic Damage+23 Magic burst damage II +5 Accuracy+8 Mag. Acc.+8 MND+2",
               "interpolated": false
@@ -21801,7 +21801,7 @@
                 "accuracy": 9,
                 "attack": 24,
                 "magic_damage": 24,
-                "magic_burst_bonus_ii": 5
+                "magic_burst_damage_ii": 5
               },
               "description": "Attack+24 Magic Damage+24 Magic burst damage II +5 Accuracy+9 Mag. Acc.+9 MND+2",
               "interpolated": false
@@ -21813,7 +21813,7 @@
                 "accuracy": 10,
                 "attack": 25,
                 "magic_damage": 25,
-                "magic_burst_bonus_ii": 5
+                "magic_burst_damage_ii": 5
               },
               "description": "Attack+25 Magic Damage+25 Magic burst damage II +5 Accuracy+10 Mag. Acc.+10 MND+3",
               "interpolated": false
@@ -21825,7 +21825,7 @@
                 "accuracy": 11,
                 "attack": 26,
                 "magic_damage": 26,
-                "magic_burst_bonus_ii": 6
+                "magic_burst_damage_ii": 6
               },
               "description": "Attack+26 Magic Damage+26 Magic burst damage II +6 Accuracy+11 Mag. Acc.+11 MND+3",
               "interpolated": false
@@ -21837,7 +21837,7 @@
                 "accuracy": 12,
                 "attack": 27,
                 "magic_damage": 27,
-                "magic_burst_bonus_ii": 6
+                "magic_burst_damage_ii": 6
               },
               "description": "Attack+27 Magic Damage+27 Magic burst damage II +6 Accuracy+12 Mag. Acc.+12 MND+4",
               "interpolated": false
@@ -21849,7 +21849,7 @@
                 "accuracy": 13,
                 "attack": 28,
                 "magic_damage": 28,
-                "magic_burst_bonus_ii": 6
+                "magic_burst_damage_ii": 6
               },
               "description": "Attack+28 Magic Damage+28 Magic burst damage II +6 Accuracy+13 Mag. Acc.+13 MND+4",
               "interpolated": false
@@ -21861,7 +21861,7 @@
                 "accuracy": 14,
                 "attack": 29,
                 "magic_damage": 29,
-                "magic_burst_bonus_ii": 6
+                "magic_burst_damage_ii": 6
               },
               "description": "Attack+29 Magic Damage+29 Magic burst damage II +6 Accuracy+14 Mag. Acc.+14 MND+5",
               "interpolated": false
@@ -21873,7 +21873,7 @@
                 "accuracy": 15,
                 "attack": 30,
                 "magic_damage": 30,
-                "magic_burst_bonus_ii": 6
+                "magic_burst_damage_ii": 6
               },
               "description": "Attack+30 Magic Damage+30 Magic burst damage II +6 Accuracy+15 Mag. Acc.+15 MND+5",
               "interpolated": false
@@ -23040,7 +23040,7 @@
           "tiers": {
             "1": {
               "stats": {
-                "magic_burst_bonus_ii": 1,
+                "magic_burst_damage_ii": 1,
                 "magic_attack": 1
               },
               "description": "\"Mag. Atk. Bns.\"+1 Magic burst damage II +1",
@@ -23048,7 +23048,7 @@
             },
             "2": {
               "stats": {
-                "magic_burst_bonus_ii": 1,
+                "magic_burst_damage_ii": 1,
                 "magic_attack": 2
               },
               "description": "\"Mag. Atk. Bns.\"+2 Magic burst damage II +1",
@@ -23056,7 +23056,7 @@
             },
             "3": {
               "stats": {
-                "magic_burst_bonus_ii": 1,
+                "magic_burst_damage_ii": 1,
                 "magic_attack": 3
               },
               "description": "\"Mag. Atk. Bns.\"+3 Magic burst damage II +1",
@@ -23064,7 +23064,7 @@
             },
             "4": {
               "stats": {
-                "magic_burst_bonus_ii": 1,
+                "magic_burst_damage_ii": 1,
                 "magic_attack": 4
               },
               "description": "\"Mag. Atk. Bns.\"+4 Magic burst damage II +1",
@@ -23072,7 +23072,7 @@
             },
             "5": {
               "stats": {
-                "magic_burst_bonus_ii": 1,
+                "magic_burst_damage_ii": 1,
                 "magic_attack": 5
               },
               "description": "\"Mag. Atk. Bns.\"+5 Magic burst damage II +1",
@@ -23080,7 +23080,7 @@
             },
             "6": {
               "stats": {
-                "magic_burst_bonus_ii": 2,
+                "magic_burst_damage_ii": 2,
                 "magic_attack": 6
               },
               "description": "\"Mag. Atk. Bns.\"+6 Magic burst damage II +2",
@@ -23088,7 +23088,7 @@
             },
             "7": {
               "stats": {
-                "magic_burst_bonus_ii": 2,
+                "magic_burst_damage_ii": 2,
                 "magic_attack": 7
               },
               "description": "\"Mag. Atk. Bns.\"+7 Magic burst damage II +2",
@@ -23096,7 +23096,7 @@
             },
             "8": {
               "stats": {
-                "magic_burst_bonus_ii": 2,
+                "magic_burst_damage_ii": 2,
                 "magic_attack": 8
               },
               "description": "\"Mag. Atk. Bns.\"+8 Magic burst damage II +2",
@@ -23104,7 +23104,7 @@
             },
             "9": {
               "stats": {
-                "magic_burst_bonus_ii": 2,
+                "magic_burst_damage_ii": 2,
                 "magic_attack": 9
               },
               "description": "\"Mag. Atk. Bns.\"+9 Magic burst damage II +2",
@@ -23112,7 +23112,7 @@
             },
             "10": {
               "stats": {
-                "magic_burst_bonus_ii": 2,
+                "magic_burst_damage_ii": 2,
                 "magic_attack": 10
               },
               "description": "\"Mag. Atk. Bns.\"+10 Magic burst damage II +2",
@@ -23120,7 +23120,7 @@
             },
             "11": {
               "stats": {
-                "magic_burst_bonus_ii": 3,
+                "magic_burst_damage_ii": 3,
                 "magic_attack": 11
               },
               "description": "\"Mag. Atk. Bns.\"+11 Magic burst damage II +3",
@@ -23128,7 +23128,7 @@
             },
             "12": {
               "stats": {
-                "magic_burst_bonus_ii": 3,
+                "magic_burst_damage_ii": 3,
                 "magic_attack": 12
               },
               "description": "\"Mag. Atk. Bns.\"+12 Magic burst damage II +3",
@@ -23136,7 +23136,7 @@
             },
             "13": {
               "stats": {
-                "magic_burst_bonus_ii": 3,
+                "magic_burst_damage_ii": 3,
                 "magic_attack": 13
               },
               "description": "\"Mag. Atk. Bns.\"+13 Magic burst damage II +3",
@@ -23144,7 +23144,7 @@
             },
             "14": {
               "stats": {
-                "magic_burst_bonus_ii": 3,
+                "magic_burst_damage_ii": 3,
                 "magic_attack": 14
               },
               "description": "\"Mag. Atk. Bns.\"+14 Magic burst damage II +3",
@@ -23152,7 +23152,7 @@
             },
             "15": {
               "stats": {
-                "magic_burst_bonus_ii": 3,
+                "magic_burst_damage_ii": 3,
                 "magic_attack": 15
               },
               "description": "\"Mag. Atk. Bns.\"+15 Magic burst damage II +3",
@@ -23162,7 +23162,7 @@
               "stats": {
                 "magic_accuracy": 1,
                 "accuracy": 1,
-                "magic_burst_bonus_ii": 4,
+                "magic_burst_damage_ii": 4,
                 "magic_attack": 16
               },
               "description": "\"Mag. Atk. Bns.\"+16 Magic burst damage II +4 Accuracy+1 Mag. Acc.+1",
@@ -23172,7 +23172,7 @@
               "stats": {
                 "magic_accuracy": 2,
                 "accuracy": 2,
-                "magic_burst_bonus_ii": 4,
+                "magic_burst_damage_ii": 4,
                 "magic_attack": 17
               },
               "description": "\"Mag. Atk. Bns.\"+17 Magic burst damage II +4 Accuracy+2 Mag. Acc.+2",
@@ -23182,7 +23182,7 @@
               "stats": {
                 "magic_accuracy": 3,
                 "accuracy": 3,
-                "magic_burst_bonus_ii": 4,
+                "magic_burst_damage_ii": 4,
                 "magic_attack": 18
               },
               "description": "\"Mag. Atk. Bns.\"+18 Magic burst damage II +4 Accuracy+3 Mag. Acc.+3",
@@ -23192,7 +23192,7 @@
               "stats": {
                 "magic_accuracy": 4,
                 "accuracy": 4,
-                "magic_burst_bonus_ii": 4,
+                "magic_burst_damage_ii": 4,
                 "magic_attack": 19
               },
               "description": "\"Mag. Atk. Bns.\"+19 Magic burst damage II +4 Accuracy+4 Mag. Acc.+4",
@@ -23202,7 +23202,7 @@
               "stats": {
                 "magic_accuracy": 5,
                 "accuracy": 5,
-                "magic_burst_bonus_ii": 4,
+                "magic_burst_damage_ii": 4,
                 "magic_attack": 20
               },
               "description": "\"Mag. Atk. Bns.\"+20 Magic burst damage II +4 Accuracy+5 Mag. Acc.+5",
@@ -23213,7 +23213,7 @@
                 "magic_accuracy": 6,
                 "MND": 1,
                 "accuracy": 6,
-                "magic_burst_bonus_ii": 5,
+                "magic_burst_damage_ii": 5,
                 "magic_attack": 21
               },
               "description": "\"Mag. Atk. Bns.\"+21 Magic burst damage II +5 Accuracy+6 Mag. Acc.+6 MND+1",
@@ -23224,7 +23224,7 @@
                 "magic_accuracy": 7,
                 "MND": 1,
                 "accuracy": 7,
-                "magic_burst_bonus_ii": 5,
+                "magic_burst_damage_ii": 5,
                 "magic_attack": 21
               },
               "description": "\"Mag. Atk. Bns.\"+21 Magic burst damage II +5 Accuracy+7 Mag. Acc.+7 MND+1",
@@ -23235,7 +23235,7 @@
                 "magic_accuracy": 8,
                 "MND": 2,
                 "accuracy": 8,
-                "magic_burst_bonus_ii": 5,
+                "magic_burst_damage_ii": 5,
                 "magic_attack": 22
               },
               "description": "\"Mag. Atk. Bns.\"+22 Magic burst damage II +5 Accuracy+8 Mag. Acc.+8 MND+2",
@@ -23246,7 +23246,7 @@
                 "magic_accuracy": 9,
                 "MND": 2,
                 "accuracy": 9,
-                "magic_burst_bonus_ii": 5,
+                "magic_burst_damage_ii": 5,
                 "magic_attack": 22
               },
               "description": "\"Mag. Atk. Bns.\"+22 Magic burst damage II +5 Accuracy+9 Mag. Acc.+9 MND+2",
@@ -23257,7 +23257,7 @@
                 "magic_accuracy": 10,
                 "MND": 3,
                 "accuracy": 10,
-                "magic_burst_bonus_ii": 5,
+                "magic_burst_damage_ii": 5,
                 "magic_attack": 23
               },
               "description": "\"Mag. Atk. Bns.\"+23 Magic burst damage II +5 Accuracy+10 Mag. Acc.+10 MND+3",
@@ -23268,7 +23268,7 @@
                 "magic_accuracy": 11,
                 "MND": 3,
                 "accuracy": 11,
-                "magic_burst_bonus_ii": 6,
+                "magic_burst_damage_ii": 6,
                 "magic_attack": 23
               },
               "description": "\"Mag. Atk. Bns.\"+23 Magic burst damage II +6 Accuracy+11 Mag. Acc.+11 MND+3",
@@ -23279,7 +23279,7 @@
                 "magic_accuracy": 12,
                 "MND": 4,
                 "accuracy": 12,
-                "magic_burst_bonus_ii": 6,
+                "magic_burst_damage_ii": 6,
                 "magic_attack": 24
               },
               "description": "\"Mag. Atk. Bns.\"+24 Magic burst damage II +6 Accuracy+12 Mag. Acc.+12 MND+4",
@@ -23290,7 +23290,7 @@
                 "magic_accuracy": 13,
                 "MND": 4,
                 "accuracy": 13,
-                "magic_burst_bonus_ii": 6,
+                "magic_burst_damage_ii": 6,
                 "magic_attack": 24
               },
               "description": "\"Mag. Atk. Bns.\"+24 Magic burst damage II +6 Accuracy+13 Mag. Acc.+13 MND+4",
@@ -23301,7 +23301,7 @@
                 "magic_accuracy": 14,
                 "MND": 5,
                 "accuracy": 14,
-                "magic_burst_bonus_ii": 6,
+                "magic_burst_damage_ii": 6,
                 "magic_attack": 25
               },
               "description": "\"Mag. Atk. Bns.\"+25 Magic burst damage II +6 Accuracy+14 Mag. Acc.+14 MND+5",
@@ -23312,7 +23312,7 @@
                 "magic_accuracy": 15,
                 "MND": 5,
                 "accuracy": 15,
-                "magic_burst_bonus_ii": 6,
+                "magic_burst_damage_ii": 6,
                 "magic_attack": 25
               },
               "description": "\"Mag. Atk. Bns.\"+25 Magic burst damage II +6 Accuracy+15 Mag. Acc.+15 MND+5",

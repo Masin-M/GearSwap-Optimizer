@@ -16,6 +16,7 @@ from models import (
     Slot, Job, GearSet, ItemInstance, OptimizationProfile,
     Stats,
 )
+from ws_database import get_weaponskill, WeaponskillData
 
 
 # =============================================================================
@@ -670,37 +671,31 @@ def infer_profile_from_set(set_def: LuaSetDefinition,
     if 'acc' in context_lower:
         return make_tp_profile(name=set_def.name, acc_focus=True)
     
-    # Check for specific WS names
-    ws_profiles = {
-        'entropy': ('INT', 'MND', True),
-        'insurgency': ('STR', 'INT', True),
-        'torcleaver': ('VIT', None, False),
-        'cross reaper': ('STR', 'MND', False),
-        'catastrophe': ('STR', 'INT', False),
-        'quietus': ('STR', 'MND', False),
-        'resolution': ('STR', None, False),
-        'savage blade': ('STR', 'MND', False),
-        'requiescat': ('MND', None, False),
-        'chant du cygne': ('DEX', None, False),
-        "rudra's storm": ('DEX', None, False),
-        'evisceration': ('DEX', None, False),
-        'sanguine blade': ('INT', 'MND', False),  # Magical WS
-        'seraph blade': ('STR', 'MND', False),    # Light WS
-        'red lotus blade': ('STR', 'INT', False),
-        'circle blade': ('STR', None, False),
-        'spirits within': ('HP', None, False),    # HP-based
-        'atonement': ('VIT', None, False),        # Enmity-based
-        'death blossom': ('STR', 'INT', False),
-        'expiacion': ('STR', 'INT', False),
-    }
+    # Check for WS names using the database
+    # Extract potential WS name from set path (e.g., "sets.precast.WS['Savage Blade']" -> "Savage Blade")
+    def extract_ws_name(set_name: str) -> Optional[str]:
+        """Extract weaponskill name from set path."""
+        # Match bracket notation: WS['Name'] or WS["Name"]
+        bracket_match = re.search(r"WS\[(['\"])([^'\"]+)\1\]", set_name, re.IGNORECASE)
+        if bracket_match:
+            return bracket_match.group(2)
+        # Match dot notation after WS: WS.Name
+        dot_match = re.search(r"WS\.(\w+)", set_name, re.IGNORECASE)
+        if dot_match:
+            return dot_match.group(1)
+        return None
     
-    for ws_name, (primary, secondary, ftp) in ws_profiles.items():
-        if ws_name in name_lower:
-            return make_ws_profile(
+    ws_name_extracted = extract_ws_name(set_def.name)
+    if ws_name_extracted:
+        ws_data = get_weaponskill(ws_name_extracted)
+        if ws_data:
+            # Use the database's stat weights directly
+            weights = ws_data.get_stat_weights(include_attack=True)
+            return OptimizationProfile(
                 name=set_def.name,
-                primary_stat=primary,
-                secondary_stat=secondary,
-                ftp_replicating=ftp,
+                weights=weights,
+                exclude_slots={Slot.MAIN, Slot.SUB},
+                job=job,
             )
     
     # Check path patterns
@@ -756,24 +751,56 @@ def infer_profile_from_set(set_def: LuaSetDefinition,
     if 'midcast' in path_lower:
         # Elemental Magic / Nuking
         if 'elemental' in name_lower or 'nuke' in name_lower or 'mb' in name_lower:
-            weights = {
+
+            if 'mb' in name_lower:
+                weights = {
+                    'magic_attack': 10.0,
+                    'magic_damage': 8.0,
+                    'INT': 5.0,
+                    'magic_accuracy': 3.0,
+                    'magic_accuracy': 3.0,
+                    'magic_burst_damage_ii': 5,
+                    'magic_burst_bonus':5,
+                    }
+                return OptimizationProfile(
+                    name=set_def.name,
+                    weights=weights,
+                    hard_caps={'magic_burst_bonus': 4000},
+                    exclude_slots={Slot.MAIN, Slot.SUB},
+                    job=job,
+                )
+            else:
+                weights = {
                 'magic_attack': 10.0,
                 'magic_damage': 8.0,
+                'magic accuracy': 5.0,
+                'elemental_skill'
                 'INT': 5.0,
-                'magic_accuracy': 3.0,
-                'magic_burst_bonus': 8.0,
-            }
-            return OptimizationProfile(
-                name=set_def.name,
-                weights=weights,
-                hard_caps={'magic_burst_bonus': 4000},
-                exclude_slots={Slot.MAIN, Slot.SUB},
-                job=job,
-            )
-        if 'dark' in name_lower or 'drain' in name_lower or 'aspir' in name_lower:
+                
+
+                }
+                return OptimizationProfile(
+                    name=set_def.name,
+                    weights=weights,
+                    exclude_slots={Slot.MAIN, Slot.SUB},
+                    job=job,
+                )
+        if 'dark' in name_lower:
             return OptimizationProfile(
                 name=set_def.name,
                 weights={
+                    'dark_magic_skill': 10.0,
+                    'magic_accuracy': 5.0,
+                    'INT': 2.0,
+                },
+                exclude_slots={Slot.MAIN, Slot.SUB},
+                job=job,
+            )
+        if 'drain' in name_lower or 'aspir' in name_lower:
+            return OptimizationProfile(
+                name=set_def.name,
+                weights={
+                    'drain_aspir_potency': 20.0,
                     'dark_magic_skill': 10.0,
                     'magic_accuracy': 5.0,
                     'INT': 2.0,
