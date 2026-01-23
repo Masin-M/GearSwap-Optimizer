@@ -633,7 +633,7 @@ def simulate_ws(
         input_tp=tp,
         ws_type=ws_type,
         input_metric="Damage",
-        simulation=True,
+        simulation=False,
     )
     
     return damage, player.stats
@@ -753,7 +753,7 @@ def _ws_simulation_worker(args: Tuple) -> Tuple[int, float, Any]:
             input_tp=tp,
             ws_type=ws_type_str,
             input_metric="Damage",
-            simulation=True,
+            simulation=False,
         )
         
         return (idx, damage, None)
