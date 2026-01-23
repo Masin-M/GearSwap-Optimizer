@@ -742,36 +742,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# =============================================================================
-# Shutdown Callback (for launcher.py)
-# =============================================================================
-
-_shutdown_callback = None
-
-
-def set_shutdown_callback(callback):
-    """Set the callback function to be called when shutdown is requested."""
-    global _shutdown_callback
-    _shutdown_callback = callback
-
-
-@app.post("/api/shutdown")
-async def shutdown_server():
-    """Shutdown the server gracefully."""
-    global _shutdown_callback
-    if _shutdown_callback:
-        import threading
-        import time
-        # Delay shutdown slightly to allow response to be sent
-        threading.Thread(
-            target=lambda: (time.sleep(0.5), _shutdown_callback()),
-            daemon=True
-        ).start()
-        return {"success": True, "message": "Server shutting down..."}
-    return {"success": False, "message": "No shutdown callback registered"}
-
-
 # =============================================================================
 # Global State
 # =============================================================================
@@ -1573,23 +1543,6 @@ async def root():
     if html_path.exists():
         return FileResponse(html_path)
     return HTMLResponse("<h1>FFXI Gear Optimizer API</h1><p>Static files not found</p>")
-
-
-@app.get("/favicon.ico")
-async def favicon():
-    """Serve the favicon."""
-    # Check multiple possible locations
-    possible_paths = [
-        SCRIPT_DIR / "static" / "favicon.ico",
-        SCRIPT_DIR / "favicon.ico",
-        SCRIPT_DIR / "static" / "icons" / "favicon.ico",
-    ]
-    for path in possible_paths:
-        if path.exists():
-            return FileResponse(path, media_type="image/x-icon")
-    # Return 204 No Content if not found (prevents 404 errors in browser)
-    from fastapi.responses import JSONResponse
-    return JSONResponse(content={}, status_code=204)
 
 
 @app.get("/api/status", response_model=StatusResponse)

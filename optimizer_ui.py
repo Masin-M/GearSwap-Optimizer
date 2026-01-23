@@ -57,6 +57,8 @@ from beam_search_optimizer import (
     SLOT_TO_WSDIST,
 )
 
+# from fast_beam_search_optimizer import FastBeamSearchOptimizer
+
 from numba_beam_search_optimizer import NumbaBeamSearchOptimizer
 
 from ws_database import (
@@ -698,7 +700,7 @@ def simulate_tp_set(
         starting_tp=starting_tp,
         ws_threshold=ws_threshold,
         input_metric="Time to WS",
-        simulation=False,
+        simulation=True,
     )
     
     # result format: (metric, [damage, tp_per_round, time_per_round, invert], magic_damage)
@@ -787,7 +789,7 @@ def _tp_simulation_worker(args: Tuple) -> Tuple[int, Dict[str, float], Any]:
             starting_tp=0,
             ws_threshold=ws_threshold,
             input_metric="Time to WS",
-            simulation=False,
+            simulation=True,
         )
         
         time_to_ws = result[0]

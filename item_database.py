@@ -354,6 +354,7 @@ class ItemDatabase:
         (r'Campaign:\s*', None),
         (r'Assault:\s*', None),
         (r'Salvage:\s*', None),
+        (r'Domain Invasion:\s*', None),
     ]
     
     # Common stat patterns in FFXI item descriptions
