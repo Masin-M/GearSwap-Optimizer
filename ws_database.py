@@ -73,15 +73,15 @@ class WeaponskillData:
         """
         Calculate recommended stat weights for this WS.
         
-        Returns weights suitable for optimization.
+        Key insight:
+        - WSD% typically only affects first hit
+        - FTP replicating: each hit does full fTP damage, so multi-attack is HUGE
+        - Non-FTP replicating: subsequent hits are fTP=1.0, so WSD is better
         """
         weights = {}
         
-        # Base stat modifiers - higher modifier = higher weight
-        # The α correction (0.85) is already factored into base damage
+        # Base stat modifiers
         for stat, pct in self.stat_modifiers.items():
-            # Weight based on modifier percentage
-            # 50% mod = weight of ~2.0, 80% mod = weight of ~3.0
             weights[stat] = pct / 25.0
         
         # Attack is always valuable for physical WS
@@ -89,28 +89,82 @@ class WeaponskillData:
             weights['attack'] = 1.5
         
         # Accuracy is important
-        weights['accuracy'] = 1.0
+        weights['accuracy'] = 2.0
         
-        # WS damage bonus is very powerful
-        weights['ws_damage'] = 10.0
-        
-        # Multi-hit WS benefit more from multi-attack
-        if self.hits >= 2 and not self.ftp_replicating:
-            weights['double_attack'] = 3.0
-            weights['triple_attack'] = 4.5
-            weights['quad_attack'] = 6.0
+        # Determine WS category and set weights accordingly
+        if self.ws_type == WSType.MAGICAL:
+            # Magical WS: WSD applies to full damage
+            weights['ws_damage'] = 8.0
+            weights['magic_attack'] = 5.0
+            weights['INT'] = weights.get('INT', 0) + 2.0
+            # No multi-attack benefit for magical WS
+            
+        elif self.ws_type == WSType.HYBRID:
+            # Hybrid: physical + magic component
+            weights['ws_damage'] = 6.0
+            weights['magic_attack'] = 3.0
+            # Limited multi-attack value
+            weights['double_attack'] = 1.5
+            weights['triple_attack'] = 2.0
+            weights['quad_attack'] = 2.5
+            
+        else:  # Physical WS
+            if self.ftp_replicating:
+                # FTP REPLICATING: Multi-attack is KING
+                # Each additional hit does full fTP damage
+                # WSD only affects first hit, so less valuable
+                
+                if self.hits >= 6:
+                    # Already near 8-hit cap (e.g., Asuran Fists at 8 hits)
+                    # Multi-attack has diminishing/zero value
+                    weights['ws_damage'] = 6.0
+                    weights['double_attack'] = 0.5  # Might not even proc due to cap
+                    weights['triple_attack'] = 0.5
+                    weights['quad_attack'] = 0.5
+                else:
+                    # FTP replicating with room for multi-attack
+                    # Multi-attack extremely valuable
+                    weights['ws_damage'] = 3.0  # Only affects first hit
+                    
+                    # Value scales with fTP - higher fTP = more valuable multi-attack
+                    # Blade: Shun has 5 hits, can get up to 8 with procs
+                    ma_multiplier = 1.5  # Could be adjusted based on fTP values
+                    
+                    weights['double_attack'] = 4.0 * ma_multiplier
+                    weights['triple_attack'] = 5.5 * ma_multiplier
+                    weights['quad_attack'] = 7.0 * ma_multiplier
+                    
+            else:
+                # NON-FTP REPLICATING: WSD is more valuable
+                # Subsequent hits are fTP=1.0, much weaker
+                
+                if self.hits == 1:
+                    # Single hit WS: WSD applies to everything, only 1 MA check
+                    weights['ws_damage'] = 10.0
+                    weights['double_attack'] = 2.0  # Only 1 proc chance
+                    weights['triple_attack'] = 3.0
+                    weights['quad_attack'] = 4.0
+                    
+                elif self.hits == 2:
+                    # 2-hit non-replicating (like Savage Blade)
+                    # First hit dominates damage, WSD very strong
+                    weights['ws_damage'] = 7.0
+                    weights['double_attack'] = 2.5  # 2 proc chances but hits are weak
+                    weights['triple_attack'] = 3.5
+                    weights['quad_attack'] = 4.5
+                    
+                else:
+                    # 3+ hit non-replicating
+                    # Many weak hits, but still first-hit dominant
+                    weights['ws_damage'] = 5.0
+                    weights['double_attack'] = 3.0
+                    weights['triple_attack'] = 4.0
+                    weights['quad_attack'] = 5.0
         
         # Crit rate/damage for WS that can crit
         if self.can_crit:
-            weights['crit_rate'] = 4.0
+            weights['crit_rate'] = 6.0
             weights['crit_damage'] = 5.0
-        
-        # Magic stats for magical/hybrid
-        if self.ws_type == WSType.MAGICAL:
-            weights['magic_attack'] = 5.0
-            weights['INT'] = weights.get('INT', 0) + 2.0
-        elif self.ws_type == WSType.HYBRID:
-            weights['magic_attack'] = 3.0
         
         return weights
 

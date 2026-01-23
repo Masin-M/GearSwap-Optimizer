@@ -388,7 +388,7 @@ def create_ws_profile_from_data(job: Job, ws_data: WeaponskillData) -> Optimizat
     
     # Get base weights from WS data
     weights = ws_data.get_stat_weights()
-    
+    print(weights)
     # Scale weights for our basis point system
     scaled_weights = {}
     for stat, weight in weights.items():
@@ -454,7 +454,7 @@ def create_tp_profile(job: Job, tp_type: TPSetType = TPSetType.PURE_TP,
             'triple_attack': 120.0,
             'quad_attack': 160.0,
             'gear_haste': 70.0,
-            'accuracy': 3.0,
+            'accuracy': 30.0,
             'attack': 1.0,
             'crit_rate': 2.0,
         }
@@ -468,7 +468,7 @@ def create_tp_profile(job: Job, tp_type: TPSetType = TPSetType.PURE_TP,
             'triple_attack': 100.0,
             'quad_attack': 140.0,
             'gear_haste': 60.0,
-            'accuracy': 5.0,
+            'accuracy': 35.0,
             'attack': 3.0,
             'crit_rate': 4.0,
             'crit_damage': 3.0,
@@ -485,7 +485,7 @@ def create_tp_profile(job: Job, tp_type: TPSetType = TPSetType.PURE_TP,
             'triple_attack': 75.0,
             'quad_attack': 100.0,
             'gear_haste': 50.0,
-            'accuracy': 15.0,           # Much higher priority on accuracy
+            'accuracy': 75.0,           # Much higher priority on accuracy
             'attack': 2.0,
             'DEX': 1.0,                 # DEX gives accuracy
             'AGI': 0.5,                 # AGI gives ranged acc
@@ -501,7 +501,7 @@ def create_tp_profile(job: Job, tp_type: TPSetType = TPSetType.PURE_TP,
             'triple_attack': 60.0,
             'quad_attack': 80.0,
             'gear_haste': 40.0,
-            'accuracy': 4.0,
+            'accuracy': 45.0,
             'attack': 1.0,
             # Defensive stats
             'damage_taken': -50.0,      # Negative = reduction is good
@@ -521,7 +521,7 @@ def create_tp_profile(job: Job, tp_type: TPSetType = TPSetType.PURE_TP,
             'triple_attack': 60.0,
             'quad_attack': 80.0,
             'gear_haste': 40.0,
-            'accuracy': 3.0,
+            'accuracy': 30.0,
             'attack': 1.0,
             # MP stats
             'refresh': 100.0,           # Refresh is very valuable
@@ -538,7 +538,7 @@ def create_tp_profile(job: Job, tp_type: TPSetType = TPSetType.PURE_TP,
             'triple_attack': 120.0,
             'quad_attack': 160.0,
             'gear_haste': 70.0,
-            'accuracy': 3.0,
+            'accuracy': 40.0,
             'attack': 1.0,
         }
         name = f"TP Set ({job.name})"
