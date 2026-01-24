@@ -23,7 +23,7 @@ For a full walkthrough of installation requirements and other details please see
 
 **Disclaimers**
 
-Also, this code is not completed. I'll come back to it eventually, but right now it's more of an "as is" thing. The simulator works well but the automated lua template reader still has a bit to be desired. The feeder code, gearswap skeleton is in a similar state. I got it functional for the classes that i play the most. If you want to make changes, please just create a fork, and give it a go. If you think you have made progress and want to merge your additions, just set up a pull request and we can go over it.
+This code is not designed to replace Kastra's wsdist. It is not designed for hyperoptimizers or end game pushers. It's really designed for people who want to use gearswap but dont' want to go through the trouble of setting it up. It's for people that want to get some marginal DPS increases without having to spend hours and hours poring over their gearswap files. That being said, since the inventory parser works as a compatibility between the game and wsdist, you can more easily optimize things like WSs, TP, and Magic with the tab based method where you are selecting your own weapons for each and running simulations one at a time. With that in mind, you should be able to get some decent gear optimizations, though if you truly want the best and most accurate results, Kastra's Wsdist is your best bet.
 
 
 **Acknowledgments**
