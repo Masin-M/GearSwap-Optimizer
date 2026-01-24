@@ -562,10 +562,15 @@ def run_dt_optimization(
     results = optimizer.search(fixed_gear=fixed_gear if fixed_gear else None)
     
     # Set up TP simulation - we can calculate TP if:
-    # 1. main_weapon was passed explicitly, OR
-    # 2. include_weapons is True (weapons will be in candidate gear)
+    # 1. dt_type is DT_TP (only type that needs TP metrics for sorting), AND
+    # 2. main_weapon was passed explicitly, OR include_weapons is True
+    # 
+    # OPTIMIZATION: Skip TP simulation for non-DT_TP types - it's expensive
+    # and the TP metrics aren't used for sorting those results
+    needs_tp_simulation = dt_type == DTSetType.DT_TP
+    print(f"DEBUG: dt_type={dt_type}, needs_tp_simulation={needs_tp_simulation}")
     print(f"DEBUG: main_weapon={main_weapon is not None}, include_weapons={include_weapons}")
-    can_calculate_tp = WSDIST_AVAILABLE and (main_weapon is not None or include_weapons)
+    can_calculate_tp = needs_tp_simulation and WSDIST_AVAILABLE and (main_weapon is not None or include_weapons)
     print(f"DEBUG: can_calculate_tp={can_calculate_tp}")
     enemy = None
     
