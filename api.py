@@ -2822,6 +2822,104 @@ async def get_inventory(slot: str = None, job: str = None, show_all: bool = Fals
         show_all: If true, show all items from database (not just inventory)
         search: Search string to filter items by name
     """
+    from models import Slot, SLOT_BITMASK
+    
+    # Create mapping from item type to slot name
+    def get_slot_from_type(item_type):
+        """Convert wsdist Type to a slot name for filtering."""
+        if not item_type:
+            return 'Unknown'
+        type_lower = item_type.lower()
+        
+        # Map common type names to slot categories
+        type_to_slot = {
+            'head': 'Head',
+            'body': 'Body',
+            'hands': 'Hands',
+            'legs': 'Legs',
+            'feet': 'Feet',
+            'neck': 'Neck',
+            'waist': 'Waist',
+            'back': 'Back',
+            'earring': 'Ear',
+            'ring': 'Ring',
+            'ammo': 'Ammo',
+            'grip': 'Sub',
+            'shield': 'Sub',
+        }
+        
+        for type_key, slot_name in type_to_slot.items():
+            if type_key in type_lower:
+                return slot_name
+        
+        # Check for weapon types
+        weapon_types = ['sword', 'axe', 'club', 'staff', 'dagger', 'katana', 
+                       'scythe', 'polearm', 'bow', 'gun', 'instrument', 'hand-to-hand']
+        for wtype in weapon_types:
+            if wtype in type_lower:
+                return 'Main'
+        
+        return 'Unknown'
+    
+    def get_slot_name(item_base, wsdist_item):
+        """Get slot name from item base slots bitmask or wsdist Type."""
+        # First try to get from item type (most reliable)
+        item_type = wsdist_item.get("Type", "")
+        slot_from_type = get_slot_from_type(item_type)
+        if slot_from_type != 'Unknown':
+            return slot_from_type
+        
+        # Fallback to bitmask for weapon slots
+        if hasattr(item_base, 'slots') and item_base.slots:
+            slot_checks = [
+                (Slot.MAIN, 'Main'),
+                (Slot.SUB, 'Sub'),
+                (Slot.RANGE, 'Range'),
+                (Slot.AMMO, 'Ammo'),
+                (Slot.HEAD, 'Head'),
+                (Slot.NECK, 'Neck'),
+                (Slot.LEFT_EAR, 'Ear'),
+                (Slot.RIGHT_EAR, 'Ear'),
+                (Slot.BODY, 'Body'),
+                (Slot.HANDS, 'Hands'),
+                (Slot.LEFT_RING, 'Ring'),
+                (Slot.RIGHT_RING, 'Ring'),
+                (Slot.BACK, 'Back'),
+                (Slot.WAIST, 'Waist'),
+                (Slot.LEGS, 'Legs'),
+                (Slot.FEET, 'Feet'),
+            ]
+            for slot_enum, slot_name in slot_checks:
+                mask = SLOT_BITMASK.get(slot_enum, 0)
+                if mask and (item_base.slots & mask):
+                    return slot_name
+        
+        return 'Unknown'
+    
+    # Map slot filter names to matching function
+    def slot_matches_filter(slot_name, filter_name):
+        """Check if a slot name matches the filter."""
+        if not filter_name:
+            return True
+        filter_lower = filter_name.lower()
+        slot_lower = slot_name.lower()
+        
+        # Direct match
+        if filter_lower == slot_lower:
+            return True
+        
+        # Handle special cases
+        if filter_lower == 'ear' and slot_lower == 'ear':
+            return True
+        if filter_lower == 'ring' and slot_lower == 'ring':
+            return True
+        if filter_lower == 'ranged' and slot_lower == 'range':
+            return True
+        if filter_lower == 'range' and slot_lower == 'range':
+            return True
+            
+        return False
+    
     items = []
     
     if show_all:
@@ -2847,6 +2945,13 @@ async def get_inventory(slot: str = None, job: str = None, show_all: bool = Fals
                     if not wsdist_item:
                         continue
                     
+                    # Get slot name
+                    slot_name = get_slot_name(item_base, wsdist_item)
+                    
+                    # Filter by slot if specified
+                    if slot and not slot_matches_filter(slot_name, slot):
+                        continue
+                    
                     # Filter by job if specified
                     if job and job.upper() in JOB_ENUM_MAP:
                         job_enum = JOB_ENUM_MAP[job.upper()]
@@ -2866,7 +2971,7 @@ async def get_inventory(slot: str = None, job: str = None, show_all: bool = Fals
                         "name": item_base.name,
                         "name2": wsdist_item.get("Name2", item_base.name),
                         "type": wsdist_item.get("Type", "Unknown"),
-                        "slot": wsdist_item.get("Slot", "Unknown"),
+                        "slot": slot_name,
                         "item_level": wsdist_item.get("Item Level", 0),
                         "jobs": wsdist_item.get("Jobs", []),
                         "stats": {k: v for k, v in wsdist_item.items() 
@@ -2889,6 +2994,13 @@ async def get_inventory(slot: str = None, job: str = None, show_all: bool = Fals
             if not wsdist_item:
                 continue
             
+            # Get slot name
+            slot_name = get_slot_name(item.base, wsdist_item)
+            
+            # Filter by slot if specified
+            if slot and not slot_matches_filter(slot_name, slot):
+                continue
+            
             # Filter by job if specified
             if job and job.upper() in JOB_ENUM_MAP:
                 job_enum = JOB_ENUM_MAP[job.upper()]
@@ -2908,7 +3020,7 @@ async def get_inventory(slot: str = None, job: str = None, show_all: bool = Fals
                 "name": item.base.name,
                 "name2": wsdist_item.get("Name2", item.base.name),
                 "type": wsdist_item.get("Type", "Unknown"),
-                "slot": wsdist_item.get("Slot", "Unknown"),
+                "slot": slot_name,
                 "item_level": wsdist_item.get("Item Level", 0),
                 "jobs": wsdist_item.get("Jobs", []),
                 "stats": {k: v for k, v in wsdist_item.items() 
