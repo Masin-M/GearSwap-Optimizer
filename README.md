@@ -1,8 +1,9 @@
 # GearSwap-Optimizer
 An optimizer based off of a custom magic simulator and wsdist. Includes a webui and a lua template reader based on GearSwap Skeleton.
 
+If you plan on using the exe, you'll need to download 7zip. This is because of file size limitations, so i had to split the .exe up in the main directory. You can navigate to the releases page if you want to download the full zip directly without installing 7zip.
 
-When you download the file you'll need to unzip the icons folders for the code to work.
+When you download the file you'll need to unzip the icons folders for the code to work if you're planning to run this from a python terminal. If you use the exe, that won't be necessary.
 
 You deploy with "python start_server.py" and it will set up at port 8080 for you. You can change this with commands, so just call --help and it will walk  you through it.
 
