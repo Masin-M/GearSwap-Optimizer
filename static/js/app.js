@@ -4918,11 +4918,13 @@ const LuaOptimizer = {
                 optimization_type: optType,
                 magic_burst: set.set_type === 'magic_burst',
                 skillchain_steps: set.set_type === 'magic_burst' ? 2 : 0,
-                target: 'Apex Toad',
+                target: 'apex_mob',
                 main_weapon: weapons.main || null,
                 sub_weapon: weapons.sub || null,
                 include_weapons: !weapons.main,
                 beam_width: beamWidth,
+                buffs: {},
+                debuffs: [],
             }),
         });
         
@@ -5069,7 +5071,7 @@ const LuaOptimizer = {
                 items: this.extractGearItems(best.gear),
                 score: best.score || 0,
                 optimization_type: 'enhancing_skill',
-                simulation_value: null,
+                simulation_value: best.potency_score || best.score || 0,
                 simulation_details: {
                     note: 'Maximized Enhancing Magic Skill',
                     spell: representativeSpell,
@@ -5112,7 +5114,7 @@ const LuaOptimizer = {
                 items: this.extractGearItems(best.gear),
                 score: best.score || 0,
                 optimization_type: 'enhancing_duration',
-                simulation_value: null,
+                simulation_value: best.potency_score || best.score || 0,
                 simulation_details: {
                     note: 'Maximized Enhancing Duration %',
                     spell: representativeSpell,
@@ -5155,7 +5157,7 @@ const LuaOptimizer = {
                 items: this.extractGearItems(best.gear),
                 score: best.score || 0,
                 optimization_type: 'healing',
-                simulation_value: null,
+                simulation_value: best.potency_score || best.score || 0,
                 simulation_details: {
                     note: 'Maximized Cure Potency and MND',
                     spell: representativeSpell,
@@ -5570,6 +5572,9 @@ const LuaOptimizer = {
             'magic_damage': '<span class="text-xs bg-purple-500/30 text-purple-400 px-2 py-0.5 rounded">Magic Sim</span>',
             'magic_burst': '<span class="text-xs bg-purple-500/30 text-purple-400 px-2 py-0.5 rounded">MB Sim</span>',
             'magic_accuracy': '<span class="text-xs bg-cyan-500/30 text-cyan-400 px-2 py-0.5 rounded">M.Acc</span>',
+            'healing': '<span class="text-xs bg-pink-500/30 text-pink-400 px-2 py-0.5 rounded">Cure</span>',
+            'enhancing_skill': '<span class="text-xs bg-green-500/30 text-green-400 px-2 py-0.5 rounded">Enh Skill</span>',
+            'enhancing_duration': '<span class="text-xs bg-green-500/30 text-green-400 px-2 py-0.5 rounded">Enh Dur</span>',
             'dt_capped': '<span class="text-xs bg-ffxi-green/30 text-ffxi-green px-2 py-0.5 rounded">DT Cap</span>',
             'fc_capped': '<span class="text-xs bg-yellow-500/30 text-yellow-400 px-2 py-0.5 rounded">FC Cap</span>',
             'beam_only': '<span class="text-xs bg-ffxi-border text-ffxi-text-dim px-2 py-0.5 rounded">Beam</span>',
@@ -5587,6 +5592,11 @@ const LuaOptimizer = {
                 return `${Math.round(value).toLocaleString()} dmg`;
             case 'magic_accuracy':
                 return `${Math.round(value)} M.Acc`;
+            case 'healing':
+                return `${Math.round(value)} HP`;
+            case 'enhancing_skill':
+            case 'enhancing_duration':
+                return `Score: ${Math.round(value)}`;
             case 'tp_simulation':
                 return `${value.toFixed(2)}s to WS`;
             case 'dt_capped':
