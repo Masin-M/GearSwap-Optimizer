@@ -476,6 +476,12 @@ class ItemBase:
     # Description text (for parsing additional stats)
     description: str = ''
     
+    # Multi-slot flag - True if this item blocks additional slots
+    # (e.g., Onca Suit occupies body but blocks legs)
+    # These items are excluded from optimization since their stats
+    # can't be fairly compared to single-slot items
+    is_multi_slot: bool = False
+    
     def can_equip(self, job: Job) -> bool:
         """Check if the given job can equip this item."""
         if self.jobs == 0:

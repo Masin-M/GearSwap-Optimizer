@@ -748,6 +748,18 @@ class ItemDatabase:
             except ValueError:
                 pass
     
+    # Pattern to detect multi-slot items (e.g., "Cannot equip headgear")
+    # These items occupy multiple slots and their stats can't be properly compared
+    # to single-slot items, so we skip parsing them entirely
+    # Note: "leggear" is a typo in game data but we need to match it
+    MULTI_SLOT_PATTERN = re.compile(
+        r'[Cc]annot\s+(?:be\s+)?equip(?:ped)?\s+(?:with\s+)?'
+        r'(headgear|head\s*gear|body\s*armor|handgear|hand\s*gear|'
+        r'legwear|leg\s*wear|leggear|footgear|foot\s*gear|'
+        r'head|body|hands|legs|feet)',
+        re.IGNORECASE
+    )
+    
     def _parse_description_stats(self, item: ItemBase):
         """
         Parse stats from item description text.
@@ -761,9 +773,28 @@ class ItemDatabase:
         - Daytime: stats go into item.daytime_stats
         - Day-specific (Firesday:, etc.) go into item.day_stats dict
         - Ignored prefixes (Reives:, Campaign:, etc.) are skipped entirely
+        
+        Multi-slot items (those with "Cannot equip X" in description) are
+        skipped entirely as their stats can't be properly compared to
+        single-slot items in the optimizer.
         """
         desc = item.description
         if not desc:
+            return
+        
+        # Check for multi-slot items (e.g., Onca Suit which blocks legs)
+        # These items have "Cannot equip X" in their description
+        multi_slot_match = self.MULTI_SLOT_PATTERN.search(desc)
+        if multi_slot_match:
+            blocked_slot = multi_slot_match.group(1)
+            item.is_multi_slot = True
+            item.base_stats.special_effects.append(
+                f"Multi-slot item (blocks {blocked_slot}) - stats not parsed"
+            )
+
+            print(item.name)
+            # Don't parse stats - the item will have empty stats and won't
+            # be selected by the optimizer
             return
         
         # Segment the description by conditional prefixes
