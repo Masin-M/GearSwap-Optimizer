@@ -1208,7 +1208,7 @@ if __name__ == "__main__":
     print("=" * 70)
     
     # This would normally use your actual inventory
-    inventory_path = "inventory_full_Masinmanci_20260119_184539.csv"
+    inventory_path = ""
     
     # Example weapon (would come from user selection)
     naegling = {

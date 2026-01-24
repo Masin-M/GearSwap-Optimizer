@@ -1737,7 +1737,7 @@ class OptimizerUI:
 
 def main():
     # Default inventory path
-    default_path = "inventory_full_Masinmanci_20260111_124357.csv"
+    default_path = ""
     
     if len(sys.argv) > 1:
         inventory_path = sys.argv[1]

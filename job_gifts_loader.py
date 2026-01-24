@@ -313,7 +313,7 @@ if __name__ == "__main__":
     import sys
     
     # Default path
-    csv_path = "jobgifts_Masinmanci_20260111_124357.csv"
+    csv_path = ""
     if len(sys.argv) > 1:
         csv_path = sys.argv[1]
     

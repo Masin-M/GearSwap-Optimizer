@@ -1977,7 +1977,7 @@ if __name__ == "__main__":
     print("="*70)
     
     # Example usage
-    inventory_path = "inventory_full_Masinmanci_20260111_124357.csv"
+    inventory_path = ""
     
     try:
         results = quick_magic_optimize(
