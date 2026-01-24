@@ -344,4 +344,4 @@ Your inventory data is **cached in your browser** for convenience:
 
 FFXI Gear Optimizer — Built for the Final Fantasy XI community.
 
-For bug reports or feature requests, please use the feedback system or contact the developer.
+For bug reports or feature requests, please use GitHub and It'll be handled at some point in time. Or not at all. Dealer's choice.
