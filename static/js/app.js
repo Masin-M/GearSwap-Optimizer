@@ -3240,6 +3240,7 @@ const InventoryBrowser = {
     compareSlotA: null,
     compareSlotB: null,
     currentModalItem: null,
+    selectedStatFilters: [],  // Array of stat names to filter by (AND logic)
     
     async init() {
         this.setupEventListeners();
@@ -3265,13 +3266,37 @@ const InventoryBrowser = {
         // Slot filter
         const slotFilter = document.getElementById('inventory-slot-filter');
         if (slotFilter) {
-            slotFilter.addEventListener('change', () => this.filterAndDisplay());
+            slotFilter.addEventListener('change', () => {
+                const showAll = document.getElementById('inventory-show-all')?.checked;
+                if (showAll) {
+                    // Reload from server for large dataset
+                    this.loadItems();
+                } else {
+                    // Client-side filter for inventory items
+                    this.filterAndDisplay();
+                }
+            });
         }
         
         // Job filter
         const jobFilter = document.getElementById('inventory-job-filter');
         if (jobFilter) {
             jobFilter.addEventListener('change', () => this.filterAndDisplay());
+        }
+        
+        // Stat filter - adds to list of selected stats
+        const statFilter = document.getElementById('inventory-stat-filter');
+        if (statFilter) {
+            statFilter.addEventListener('change', () => {
+                const selectedStat = statFilter.value;
+                if (selectedStat && !this.selectedStatFilters.includes(selectedStat)) {
+                    this.selectedStatFilters.push(selectedStat);
+                    this.renderStatTags();
+                    this.filterAndDisplay();
+                }
+                // Reset dropdown to placeholder
+                statFilter.value = '';
+            });
         }
         
         // Show all checkbox
@@ -3319,6 +3344,7 @@ const InventoryBrowser = {
         const showAll = document.getElementById('inventory-show-all')?.checked;
         const job = document.getElementById('inventory-job-filter')?.value || '';
         const search = document.getElementById('inventory-search')?.value || '';
+        const slotFilter = document.getElementById('inventory-slot-filter')?.value || '';
         
         // Show loading indicator
         const grid = document.getElementById('inventory-grid');
@@ -3332,6 +3358,7 @@ const InventoryBrowser = {
             if (job) params.append('job', job);
             if (showAll) params.append('show_all', 'true');
             if (search && showAll) params.append('search', search); // Server-side search for large dataset
+            if (slotFilter && showAll) params.append('slot', slotFilter); // Server-side slot filter for large dataset
             if (params.toString()) url += '?' + params.toString();
             
             const response = await API.fetch(url);
@@ -3343,6 +3370,9 @@ const InventoryBrowser = {
                 this.items = response.items || [];
             }
             
+            // Extract and populate stat filter options
+            this.populateStatFilter();
+            
             this.currentPage = 1;
             this.filterAndDisplay();
         } catch (error) {
@@ -3353,25 +3383,123 @@ const InventoryBrowser = {
         }
     },
     
+    // Extract unique stat names from loaded items and populate dropdown
+    populateStatFilter() {
+        const statFilter = document.getElementById('inventory-stat-filter');
+        if (!statFilter) return;
+        
+        // Collect all unique stat names
+        const statNames = new Set();
+        this.items.forEach(item => {
+            if (item.stats) {
+                Object.keys(item.stats).forEach(statName => {
+                    // Skip internal fields
+                    if (!statName.startsWith('_')) {
+                        statNames.add(statName);
+                    }
+                });
+            }
+        });
+        
+        // Sort alphabetically
+        const sortedStats = [...statNames].sort((a, b) => a.localeCompare(b));
+        
+        // Clear and repopulate
+        statFilter.innerHTML = '<option value="">+ Add Stat Filter</option>';
+        sortedStats.forEach(stat => {
+            const option = document.createElement('option');
+            option.value = stat;
+            option.textContent = stat;
+            statFilter.appendChild(option);
+        });
+        
+        // Re-render existing tags
+        this.renderStatTags();
+    },
+    
+    // Render selected stat filters as removable tags
+    renderStatTags() {
+        const container = document.getElementById('inventory-stat-tags');
+        const wrapper = document.getElementById('inventory-stat-tags-container');
+        if (!container) return;
+        
+        if (this.selectedStatFilters.length === 0) {
+            container.innerHTML = '';
+            if (wrapper) wrapper.classList.add('hidden');
+            return;
+        }
+        
+        if (wrapper) wrapper.classList.remove('hidden');
+        
+        container.innerHTML = this.selectedStatFilters.map(stat => `
+            <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-ffxi-accent/20 text-ffxi-accent text-sm">
+                ${stat}
+                <button onclick="InventoryBrowser.removeStatFilter('${stat.replace(/'/g, "\\'")}')" 
+                        class="hover:text-ffxi-red ml-1" title="Remove filter">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </span>
+        `).join('');
+    },
+    
+    // Remove a stat from the filter list
+    removeStatFilter(stat) {
+        this.selectedStatFilters = this.selectedStatFilters.filter(s => s !== stat);
+        this.renderStatTags();
+        this.filterAndDisplay();
+    },
+    
+    // Clear all stat filters
+    clearStatFilters() {
+        this.selectedStatFilters = [];
+        this.renderStatTags();
+        this.filterAndDisplay();
+    },
+    
     filterAndDisplay() {
-        const search = document.getElementById('inventory-search')?.value?.toLowerCase() || '';
+        const search = document.getElementById('inventory-search')?.value?.toLowerCase().trim() || '';
         const slotFilter = document.getElementById('inventory-slot-filter')?.value || '';
         const jobFilter = document.getElementById('inventory-job-filter')?.value?.toLowerCase() || '';
         
         this.filteredItems = this.items.filter(item => {
-            // Search filter
-            if (search && !item.name.toLowerCase().includes(search) && 
-                !item.name2?.toLowerCase().includes(search)) {
-                return false;
+            // Name search - simple substring match on name/name2 only
+            if (search) {
+                const nameLower = item.name.toLowerCase();
+                const name2Lower = item.name2?.toLowerCase() || '';
+                if (!nameLower.includes(search) && !name2Lower.includes(search)) {
+                    return false;
+                }
+            }
+            
+            // Stat filters - item must have ALL selected stats (AND logic)
+            if (this.selectedStatFilters.length > 0) {
+                if (!item.stats) return false;
+                
+                // Check that item has every selected stat
+                for (const stat of this.selectedStatFilters) {
+                    if (!(stat in item.stats)) {
+                        return false;
+                    }
+                }
             }
             
             // Slot filter
             if (slotFilter) {
-                const itemSlot = (item.slot || item.type || '').toLowerCase();
-                if (slotFilter === 'ear' && !itemSlot.includes('ear')) return false;
-                else if (slotFilter === 'ring' && !itemSlot.includes('ring')) return false;
-                else if (slotFilter !== 'ear' && slotFilter !== 'ring' && 
-                         !itemSlot.includes(slotFilter)) return false;
+                const itemSlot = (item.slot || '').toLowerCase();
+                const filterLower = slotFilter.toLowerCase();
+                
+                // Handle special cases
+                if (filterLower === 'ear') {
+                    if (itemSlot !== 'ear') return false;
+                } else if (filterLower === 'ring') {
+                    if (itemSlot !== 'ring') return false;
+                } else if (filterLower === 'ranged' || filterLower === 'range') {
+                    if (itemSlot !== 'range' && itemSlot !== 'ranged') return false;
+                } else {
+                    if (itemSlot !== filterLower) return false;
+                }
             }
             
             // Job filter
@@ -3422,10 +3550,14 @@ const InventoryBrowser = {
             return;
         }
         
-        grid.innerHTML = pageItems.map(item => this.renderItemCard(item)).join('');
+        // Pass the actual index in filteredItems (not just page-relative index)
+        grid.innerHTML = pageItems.map((item, pageIndex) => {
+            const filteredIndex = start + pageIndex;
+            return this.renderItemCard(item, filteredIndex);
+        }).join('');
     },
     
-    renderItemCard(item) {
+    renderItemCard(item, filteredIndex) {
         const iconUrl = `/static/icons/${item.id}.png`;
         const displayName = item.name2 || item.name;
         const ilvl = item.item_level || item.stats?.['Item Level'] || 0;
@@ -3463,9 +3595,10 @@ const InventoryBrowser = {
         
         const previewText = statPreview.slice(0, 5).join(' ') || 'No stats';
         
+        // Use filteredIndex to ensure we show the exact item clicked
         return `
             <div class="item-card bg-ffxi-dark rounded p-3 border border-ffxi-border hover:border-ffxi-accent transition-colors cursor-pointer"
-                 onclick="InventoryBrowser.showItemModal(${item.id})">
+                 onclick="InventoryBrowser.showItemModal(${filteredIndex})">
                 <div class="flex items-start gap-3">
                     <div class="w-10 h-10 bg-ffxi-darker rounded flex items-center justify-center flex-shrink-0">
                         <img src="${iconUrl}" alt="" class="w-8 h-8 object-contain" 
@@ -3481,8 +3614,9 @@ const InventoryBrowser = {
         `;
     },
     
-    showItemModal(itemId) {
-        const item = this.items.find(i => i.id === itemId);
+    showItemModal(filteredIndex) {
+        // Use the index into filteredItems to get the exact item clicked
+        const item = this.filteredItems[filteredIndex];
         if (!item) return;
         
         this.currentModalItem = item;
