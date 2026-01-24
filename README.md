@@ -25,7 +25,4 @@ I'd like to thank bg-wiki, kastra for ws-dist, and all the people that worked to
 The augments field is not quite completed yet, but i'll make a note of it when I upload the completed set after i've finished parsing it.
 
 
-For a full walkthrough of installation requirements and other details please see README_WEBUI.md.
-
-
-I have added an executable for windows. You'll need 7zip to take the parts and re-combine it. You'll need to navigate to the "static" folder and unzip the icons folder within. The program will open a browser tab or open your default browser when it starts and it will put an icon in your system tray. If you close the browser the server will stay open until you close the system tray.
+For a full walkthrough of installation requirements and other details please see [README_WEBUI.md](/README_WEBUI.md).
