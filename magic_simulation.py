@@ -622,7 +622,7 @@ class MagicSimulator:
         if 'slow' in spell_lower:
             is_slow_ii = 'ii' in spell_lower
             potency_value = calculate_slow_potency(
-                caster.enfeebling_magic_skill, caster.mnd_stat, target.mnd_stat, is_slow_ii
+                caster.mnd_stat, target.mnd_stat, is_slow_ii
             )
             # Add enfeebling effect bonus (approximate: each point = +0.1% potency)
             potency_value = potency_value + caster.enfeebling_effect * 10

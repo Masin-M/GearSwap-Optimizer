@@ -63,6 +63,80 @@ from job_gifts_loader import JobGifts
 
 
 # =============================================================================
+# TARGET LADDER FOR ADAPTIVE DIFFICULTY
+# =============================================================================
+
+# Ordered list of targets by magic evasion (easiest to hardest)
+# Used when results are capped to find a target that provides stratification
+TARGET_LADDER = [
+    {"id": "apex_mob", "name": "Apex Mob", "int_stat": 200, "mnd_stat": 200, "magic_evasion": 600, "magic_defense_bonus": 30},
+    {"id": "ambuscade_vd", "name": "Ambuscade VD", "int_stat": 220, "mnd_stat": 220, "magic_evasion": 650, "magic_defense_bonus": 25},
+    {"id": "odyssey_nm", "name": "Odyssey NM", "int_stat": 250, "mnd_stat": 250, "magic_evasion": 750, "magic_defense_bonus": 50},
+    {"id": "sortie_boss", "name": "Sortie Boss", "int_stat": 280, "mnd_stat": 280, "magic_evasion": 800, "magic_defense_bonus": 40},
+    {"id": "high_resist", "name": "High Resist", "int_stat": 300, "mnd_stat": 300, "magic_evasion": 900, "magic_defense_bonus": 60},
+    {"id": "odyssey_v15", "name": "Odyssey V15", "int_stat": 290, "mnd_stat": 290, "magic_evasion": 1000, "magic_defense_bonus": 60},
+    {"id": "odyssey_v20", "name": "Odyssey V20", "int_stat": 320, "mnd_stat": 320, "magic_evasion": 1100, "magic_defense_bonus": 70},
+    {"id": "odyssey_v25", "name": "Odyssey V25", "int_stat": 350, "mnd_stat": 350, "magic_evasion": 1200, "magic_defense_bonus": 80},
+]
+
+
+def check_stratification(scores: List[float], threshold: float = 0.02) -> bool:
+    """
+    Check if scores have sufficient stratification (not all capped at same value).
+    
+    Args:
+        scores: List of scores to check
+        threshold: Minimum relative range to consider stratified (default 2%)
+    
+    Returns:
+        True if results are stratified (have meaningful differences), False if capped
+    """
+    if len(scores) < 2:
+        return True
+    
+    max_score = max(scores)
+    min_score = min(scores)
+    
+    if max_score == 0:
+        return False
+    
+    relative_range = (max_score - min_score) / max_score
+    return relative_range >= threshold
+
+
+def get_next_target(current_target: MagicTargetStats) -> Optional[MagicTargetStats]:
+    """
+    Get the next harder target in the ladder.
+    
+    Args:
+        current_target: Current target stats
+    
+    Returns:
+        Next harder MagicTargetStats, or None if at max difficulty
+    """
+    current_meva = current_target.magic_evasion
+    
+    for target_data in TARGET_LADDER:
+        if target_data["magic_evasion"] > current_meva:
+            return MagicTargetStats(
+                int_stat=target_data["int_stat"],
+                mnd_stat=target_data["mnd_stat"],
+                magic_evasion=target_data["magic_evasion"],
+                magic_defense_bonus=target_data["magic_defense_bonus"],
+            )
+    
+    return None  # Already at hardest target
+
+
+def get_target_name(target: MagicTargetStats) -> str:
+    """Get the name of a target based on its magic evasion."""
+    for target_data in TARGET_LADDER:
+        if target_data["magic_evasion"] == target.magic_evasion:
+            return target_data["name"]
+    return f"Custom ({target.magic_evasion} MEva)"
+
+
+# =============================================================================
 # OPTIMIZATION TYPES
 # =============================================================================
 
@@ -401,9 +475,9 @@ def create_magic_potency_profile(
             weights['enfeebling_effect'] = 20.0
             # Filler weights to prevent beam collapse (keeps candidates alive)
             weights['fast_cast'] = 0.05
-            weights['damage_taken'] = -1.0
-            weights['physical_dt'] = -1.0
-            weights['magical_dt'] = -1.0
+            weights['damage_taken'] = -.05
+            weights['physical_dt'] = -.05
+            weights['magical_dt'] = -.05
             # Zero out irrelevant weights
             weights['cure_potency'] = 0.0
             weights['drain_aspir_potency'] = 0.0
@@ -420,9 +494,9 @@ def create_magic_potency_profile(
             weights['enfeebling_effect'] = 20.0
             # Filler weights to prevent beam collapse (keeps candidates alive)
             weights['fast_cast'] = 0.05
-            weights['damage_taken'] = -1.0
-            weights['physical_dt'] = -1.0
-            weights['magical_dt'] = -1.0
+            weights['damage_taken'] = -.05
+            weights['physical_dt'] = -.05
+            weights['magical_dt'] = -.05
             # Zero out irrelevant weights
             weights['cure_potency'] = 0.0
             weights['drain_aspir_potency'] = 0.0
@@ -463,9 +537,9 @@ def create_magic_potency_profile(
                 
                 # Filler weights to prevent beam collapse
                 weights['fast_cast'] = 0.05
-                weights['damage_taken'] = -1.0
-                weights['physical_dt'] = -1.0
-                weights['magical_dt'] = -1.0
+                weights['damage_taken'] = -.05
+                weights['physical_dt'] = -.05
+                weights['magical_dt'] = -.05
                 
                 # Zero out irrelevant weights
                 weights['cure_potency'] = 0.0
@@ -487,9 +561,9 @@ def create_magic_potency_profile(
                 
                 # Filler weights
                 weights['fast_cast'] = 0.05
-                weights['damage_taken'] = -1.0
-                weights['physical_dt'] = -1.0
-                weights['magical_dt'] = -1.0
+                weights['damage_taken'] = -.05
+                weights['physical_dt'] = -.05
+                weights['magical_dt'] = -.05
                 
                 # Zero out irrelevant
                 weights['cure_potency'] = 0.0
@@ -508,9 +582,9 @@ def create_magic_potency_profile(
                 
                 # Filler weights
                 weights['fast_cast'] = 0.05
-                weights['damage_taken'] = -1.0
-                weights['physical_dt'] = -1.0
-                weights['magical_dt'] = -1.0
+                weights['damage_taken'] = -.05
+                weights['physical_dt'] = -.05
+                weights['magical_dt'] = -.05
                 
                 # Zero out irrelevant
                 weights['cure_potency'] = 0.0
@@ -528,9 +602,9 @@ def create_magic_potency_profile(
             weights['enfeebling_effect'] = 0.0
             # Filler weights to prevent beam collapse (keeps candidates alive)
             weights['fast_cast'] = 0.05
-            weights['damage_taken'] = -1.0
-            weights['physical_dt'] = -1.0
-            weights['magical_dt'] = -1.0
+            weights['damage_taken'] = -.05
+            weights['physical_dt'] = -.05
+            weights['magical_dt'] = -.05
             # Zero out irrelevant weights
             weights['cure_potency'] = 0.0
             weights['drain_aspir_potency'] = 0.0
@@ -549,9 +623,9 @@ def create_magic_potency_profile(
             weights['enfeebling_effect'] = 0.0
             # Filler weights to prevent beam collapse (keeps candidates alive)
             weights['fast_cast'] = 0.05
-            weights['damage_taken'] = -1.0
-            weights['physical_dt'] = -1.0
-            weights['magical_dt'] = -1.0
+            weights['damage_taken'] = -.05
+            weights['physical_dt'] = -.05
+            weights['magical_dt'] = -.05
             # Zero out irrelevant weights
             weights['drain_aspir_potency'] = 0.0
             weights['enhancing_duration'] = 0.0
@@ -567,9 +641,9 @@ def create_magic_potency_profile(
             
             # Filler weights to prevent beam collapse (keeps candidates alive)
             weights['fast_cast'] = 0.05
-            weights['damage_taken'] = -1.0
-            weights['physical_dt'] = -1.0
-            weights['magical_dt'] = -1.0
+            weights['damage_taken'] = -.05
+            weights['physical_dt'] = -.05
+            weights['magical_dt'] = -.05
             
             # Zero out irrelevant weights
             weights['MND'] = 0.0
@@ -818,6 +892,9 @@ def apply_job_gifts_to_magic(
     stats = job_gifts.get_wsdist_stats()
     
     # Create modified preset with skill bonuses applied
+    # NOTE: job_gifts_loader.py converts basis point stats (like MBB) to percentages
+    # using a 0.01 multiplier. The magic system expects basis points, so we must
+    # multiply by 100 to convert back.
     modified_preset = JobMagicPreset(
         base_int=job_preset.base_int,
         base_mnd=job_preset.base_mnd,
@@ -827,18 +904,19 @@ def apply_job_gifts_to_magic(
         divine_skill=job_preset.divine_skill + int(stats.get('Divine Magic Skill', 0)),
         healing_skill=job_preset.healing_skill + int(stats.get('Healing Magic Skill', 0)),
         enhancing_skill=job_preset.enhancing_skill + int(stats.get('Enhancing Magic Skill', 0)),
-        # MBB trait from job gifts is added to the job's innate MBB trait
-        # Note: job_gifts stores this in basis points (e.g., 1600 = 16%)
-        mbb_trait=job_preset.mbb_trait + int(stats.get('Magic Burst Damage Trait', 0)),
+        # MBB trait from job gifts - convert percentage back to basis points
+        # job_gifts_loader converts 1600 -> 16, we need 1600 for magic system
+        mbb_trait=job_preset.mbb_trait + int(stats.get('Magic Burst Damage Trait', 0) * 100),
     )
     
     # Create additional bonuses for stats not in JobMagicPreset
+    # Fast Cast needs conversion: job_gifts_loader converts 800 -> 8, we need 800
     bonuses = JobGiftMagicBonuses(
         magic_accuracy=int(stats.get('Magic Accuracy', 0)),
         magic_attack=int(stats.get('Magic Attack', 0)),
         magic_damage=int(stats.get('Magic Damage', 0)),
-        # Fast Cast from job gifts is already in basis points
-        fast_cast=int(stats.get('Fast Cast', 0)),
+        # Fast Cast: convert percentage back to basis points for magic system
+        fast_cast=int(stats.get('Fast Cast', 0) * 100),
     )
     
     return modified_preset, bonuses
@@ -1258,10 +1336,40 @@ def run_magic_optimization(
     print(f"  Include Weapons: {'Yes' if include_weapons else 'No'}")
     if job_gifts:
         print(f"  Job Gifts: Loaded (JP: {job_gifts.jp_spent})")
+        
+        # Show all applied bonuses - both direct bonuses and skill bonuses
+        print(f"    Applied to CasterStats:")
         if job_gift_bonuses.magic_accuracy > 0:
-            print(f"    - Magic Accuracy: +{job_gift_bonuses.magic_accuracy}")
+            print(f"      Magic Accuracy: +{job_gift_bonuses.magic_accuracy}")
         if job_gift_bonuses.magic_attack > 0:
-            print(f"    - Magic Attack: +{job_gift_bonuses.magic_attack}")
+            print(f"      Magic Attack: +{job_gift_bonuses.magic_attack}")
+        if job_gift_bonuses.magic_damage > 0:
+            print(f"      Magic Damage: +{job_gift_bonuses.magic_damage}")
+        if job_gift_bonuses.fast_cast > 0:
+            print(f"      Fast Cast: +{job_gift_bonuses.fast_cast / 100:.0f}%")
+        
+        # Show skill bonuses (applied to job_preset, compare with base_preset)
+        print(f"    Applied to JobMagicPreset (skills):")
+        skill_deltas = [
+            ("Elemental Magic Skill", job_preset.elemental_skill - base_preset.elemental_skill),
+            ("Dark Magic Skill", job_preset.dark_skill - base_preset.dark_skill),
+            ("Enfeebling Magic Skill", job_preset.enfeebling_skill - base_preset.enfeebling_skill),
+            ("Divine Magic Skill", job_preset.divine_skill - base_preset.divine_skill),
+            ("Healing Magic Skill", job_preset.healing_skill - base_preset.healing_skill),
+            ("Enhancing Magic Skill", job_preset.enhancing_skill - base_preset.enhancing_skill),
+        ]
+        any_skill_bonus = False
+        for skill_name, delta in skill_deltas:
+            if delta > 0:
+                print(f"      {skill_name}: +{delta}")
+                any_skill_bonus = True
+        if not any_skill_bonus:
+            print(f"      (none)")
+        
+        # Show MBB trait bonus if any
+        mbb_delta = job_preset.mbb_trait - base_preset.mbb_trait
+        if mbb_delta > 0:
+            print(f"    Applied to MBB Trait: +{mbb_delta / 100:.0f}%")
     
     # Determine which slots to optimize
     slots_to_optimize = list(ARMOR_SLOTS)
@@ -1321,42 +1429,144 @@ def run_magic_optimization(
         print(f"  With buffs: +{buff_bonuses.get('magic_attack', 0)} MAB, +{buff_bonuses.get('magic_accuracy', 0)} M.Acc")
     print(f"{'-'*70}")
     
+    # Track which target we ended up using for stratification
+    evaluation_target = target
+    stratification_note = None
+    
+    def evaluate_candidates_against_target(
+        candidates: List[GearsetCandidate],
+        eval_target: MagicTargetStats,
+    ) -> List[Tuple[GearsetCandidate, float, float, float]]:
+        """
+        Evaluate all candidates against a target.
+        
+        Returns:
+            List of (candidate, effective_score, potency, hit_rate) tuples
+        """
+        eval_results = []
+        
+        for candidate in candidates:
+            try:
+                if optimization_type == MagicOptimizationType.ACCURACY:
+                    # Score by hit rate only
+                    hit_rate = evaluate_magic_accuracy(
+                        candidate, spell, job_preset, eval_target,
+                        job_gift_bonuses=job_gift_bonuses,
+                        buff_bonuses=buff_bonuses,
+                    )
+                    potency = 0.0
+                    effective_score = hit_rate
+                    
+                elif optimization_type == MagicOptimizationType.POTENCY:
+                    # Score by potency × hit_rate for effective value
+                    potency = evaluate_magic_potency(
+                        candidate, spell, job_preset, eval_target,
+                        job_gift_bonuses=job_gift_bonuses,
+                        buff_bonuses=buff_bonuses,
+                    )
+                    hit_rate = evaluate_magic_accuracy(
+                        candidate, spell, job_preset, eval_target,
+                        job_gift_bonuses=job_gift_bonuses,
+                        buff_bonuses=buff_bonuses,
+                    )
+                    # Effective score is expected potency per cast
+                    effective_score = potency * hit_rate
+                    
+                else:
+                    # DAMAGE and BURST_DAMAGE: score by simulated damage
+                    # (simulation already factors in hit rate via resists)
+                    damage = evaluate_magic_damage(
+                        candidate, spell, job_preset, eval_target,
+                        magic_burst=magic_burst,
+                        skillchain_steps=skillchain_steps,
+                        num_casts=num_sim_casts,
+                        job_gift_bonuses=job_gift_bonuses,
+                        buff_bonuses=buff_bonuses,
+                    )
+                    hit_rate = evaluate_magic_accuracy(
+                        candidate, spell, job_preset, eval_target,
+                        job_gift_bonuses=job_gift_bonuses,
+                        buff_bonuses=buff_bonuses,
+                    )
+                    potency = damage  # For damage, "potency" is the damage value
+                    effective_score = damage
+                
+                eval_results.append((candidate, effective_score, potency, hit_rate))
+                
+            except Exception as e:
+                print(f"  Warning: Failed to evaluate contender: {e}")
+        
+        return eval_results
+    
+    # Initial evaluation against the starting target
+    results_with_details = evaluate_candidates_against_target(contenders, evaluation_target)
+    
+    # Check for stratification - if results are too similar, step up target difficulty
+    # For Enhancing/Healing (self-cast), target doesn't affect results, so skip stepping
+    is_self_cast = spell.magic_type in [MagicType.ENHANCING, MagicType.HEALING]
+    
+    if not is_self_cast:
+        # Sort by score first so we check stratification among TOP candidates only
+        results_with_details.sort(key=lambda x: x[1], reverse=True)
+        
+        # Only check stratification among top N candidates (the ones that matter)
+        TOP_N_FOR_STRATIFICATION = 10
+        top_scores = [r[1] for r in results_with_details[:TOP_N_FOR_STRATIFICATION]]
+        
+        # Calculate initial score range among TOP candidates only
+        score_range = 0.0
+        if top_scores:
+            score_min, score_max = min(top_scores), max(top_scores)
+            score_range = (score_max - score_min) / score_max if score_max > 0 else 0
+            print(f"  Top {len(top_scores)} scores: min={score_min:.2f}, max={score_max:.2f}, range={score_range:.2%}")
+        
+        # Keep stepping up until we get stratification among top candidates or hit max difficulty
+        while not check_stratification(top_scores):
+            next_target = get_next_target(evaluation_target)
+            if next_target is None:
+                print(f"  ⚠ Results still capped at maximum difficulty ({get_target_name(evaluation_target)})")
+                print(f"    Final score range: {score_range:.2%} - may need stat-based tiebreaker")
+                break
+            
+            old_target_name = get_target_name(evaluation_target)
+            evaluation_target = next_target
+            new_target_name = get_target_name(evaluation_target)
+            
+            print(f"  → Top sets capped against {old_target_name} (range: {score_range:.2%}), stepping up to {new_target_name}...")
+            
+            # Re-evaluate against harder target
+            results_with_details = evaluate_candidates_against_target(contenders, evaluation_target)
+            
+            # Re-sort and check top N again
+            results_with_details.sort(key=lambda x: x[1], reverse=True)
+            top_scores = [r[1] for r in results_with_details[:TOP_N_FOR_STRATIFICATION]]
+            
+            # Update range for next iteration
+            if top_scores:
+                score_min, score_max = min(top_scores), max(top_scores)
+                score_range = (score_max - score_min) / score_max if score_max > 0 else 0
+                print(f"    Top {len(top_scores)} scores: min={score_min:.2f}, max={score_max:.2f}, range={score_range:.2%}")
+        
+        # Record if we changed targets
+        if evaluation_target != target:
+            stratification_note = f"Evaluated against {get_target_name(evaluation_target)} for discrimination"
+            print(f"  ✓ {stratification_note}")
+        else:
+            print(f"  ✓ Good stratification at {get_target_name(evaluation_target)} (range: {score_range:.2%})")
+    
+    # Sort by effective score (higher is better)
+    results_with_details.sort(key=lambda x: x[1], reverse=True)
+    
+    # Convert to legacy format for compatibility, but store extra data
+    # Format: (candidate, effective_score) with potency/hit_rate accessible
     results = []
-    
-    for i, candidate in enumerate(contenders):
-        try:
-            if optimization_type == MagicOptimizationType.ACCURACY:
-                # Score by hit rate
-                score = evaluate_magic_accuracy(
-                    candidate, spell, job_preset, target,
-                    job_gift_bonuses=job_gift_bonuses,
-                    buff_bonuses=buff_bonuses,
-                )
-            elif optimization_type == MagicOptimizationType.POTENCY:
-                # Score by potency (skill + effect bonuses)
-                score = evaluate_magic_potency(
-                    candidate, spell, job_preset, target,
-                    job_gift_bonuses=job_gift_bonuses,
-                    buff_bonuses=buff_bonuses,
-                )
-            else:
-                # Score by damage (DAMAGE and BURST_DAMAGE)
-                score = evaluate_magic_damage(
-                    candidate, spell, job_preset, target,
-                    magic_burst=magic_burst,
-                    skillchain_steps=skillchain_steps,
-                    num_casts=num_sim_casts,
-                    job_gift_bonuses=job_gift_bonuses,
-                    buff_bonuses=buff_bonuses,
-                )
-            
-            results.append((candidate, score))
-            
-        except Exception as e:
-            print(f"  Warning: Failed to evaluate contender #{i+1}: {e}")
-    
-    # Sort by score (higher is better)
-    results.sort(key=lambda x: x[1], reverse=True)
+    for candidate, effective_score, potency, hit_rate in results_with_details:
+        # Store the detailed evaluation data on the candidate for later access
+        candidate._eval_potency = potency
+        candidate._eval_hit_rate = hit_rate
+        candidate._eval_target = evaluation_target
+        candidate._stratification_note = stratification_note
+        results.append((candidate, effective_score))
     
     return results
 
@@ -1380,12 +1590,16 @@ def display_magic_results(
     print(f"OPTIMIZATION RESULTS - {spell_name}")
     print(f"{'='*70}")
     
+    # Check for stratification note on first result
+    if results and hasattr(results[0][0], '_stratification_note') and results[0][0]._stratification_note:
+        print(f"  Note: {results[0][0]._stratification_note}")
+    
     # Determine score label and format based on optimization type
     if optimization_type == MagicOptimizationType.ACCURACY:
         score_label = "Hit Rate"
         score_format = "{:.1%}"
     elif optimization_type == MagicOptimizationType.POTENCY:
-        score_label = "Potency Score"
+        score_label = "Effective Score"  # Changed to reflect potency × hit_rate
         score_format = "{:,.0f}"
     else:
         score_label = "Avg Damage"
@@ -1394,6 +1608,19 @@ def display_magic_results(
     for rank, (candidate, score) in enumerate(results[:top_n], 1):
         formatted_score = score_format.format(score)
         print(f"\n#{rank} - {score_label}: {formatted_score}")
+        
+        # Show potency and hit_rate breakdown for POTENCY optimization
+        if optimization_type == MagicOptimizationType.POTENCY:
+            if hasattr(candidate, '_eval_potency') and hasattr(candidate, '_eval_hit_rate'):
+                potency = candidate._eval_potency
+                hit_rate = candidate._eval_hit_rate
+                print(f"    (Potency: {potency:,.0f} × Hit Rate: {hit_rate:.1%})")
+        elif optimization_type != MagicOptimizationType.ACCURACY:
+            # For damage, also show hit rate
+            if hasattr(candidate, '_eval_hit_rate'):
+                hit_rate = candidate._eval_hit_rate
+                print(f"    (Hit Rate: {hit_rate:.1%})")
+        
         print(f"    Beam Score: {candidate.score:.1f}")
         
         # Show key magic stats
@@ -1689,6 +1916,56 @@ def optimize_from_request(
         include_weapons=request.include_weapons,
         beam_width=beam_width,
     )
+
+
+# =============================================================================
+# API HELPER FUNCTIONS
+# =============================================================================
+
+def get_evaluation_details(candidate: GearsetCandidate) -> Dict[str, Any]:
+    """
+    Extract evaluation details from a candidate that went through run_magic_optimization.
+    
+    These details are stored on the candidate during evaluation and include:
+    - potency: The raw potency value (or damage for DAMAGE optimization)
+    - hit_rate: The calculated hit rate against the evaluation target
+    - eval_target: The MagicTargetStats used for final evaluation
+    - stratification_note: Message if target was adjusted for better discrimination
+    
+    Args:
+        candidate: A GearsetCandidate from run_magic_optimization results
+    
+    Returns:
+        Dict with evaluation details, or empty dict if not available
+    """
+    details = {}
+    
+    if hasattr(candidate, '_eval_potency'):
+        details['potency'] = candidate._eval_potency
+    if hasattr(candidate, '_eval_hit_rate'):
+        details['hit_rate'] = candidate._eval_hit_rate
+    if hasattr(candidate, '_eval_target'):
+        details['eval_target'] = candidate._eval_target
+        details['eval_target_name'] = get_target_name(candidate._eval_target)
+    if hasattr(candidate, '_stratification_note'):
+        details['stratification_note'] = candidate._stratification_note
+    
+    return details
+
+
+def get_stratification_note(results: List[Tuple[GearsetCandidate, float]]) -> Optional[str]:
+    """
+    Get the stratification note from optimization results, if any.
+    
+    Args:
+        results: Results from run_magic_optimization
+    
+    Returns:
+        Stratification note string, or None if no adjustment was made
+    """
+    if results and hasattr(results[0][0], '_stratification_note'):
+        return results[0][0]._stratification_note
+    return None
 
 
 # =============================================================================

@@ -177,6 +177,7 @@ class TPSetType(Enum):
     HYBRID_TP = "Hybrid TP (TP + Damage)"
     ACC_TP = "Accuracy TP (High Acc + TP)"
     DT_TP = "DT TP (Survivability + TP)"
+    BALANCED_DT = "Balanced DT (Equal Offense + Defense)"
     REFRESH_TP = "Refresh TP (MP Sustain + TP)"
 
 
@@ -512,6 +513,29 @@ def create_tp_profile(job: Job, tp_type: TPSetType = TPSetType.PURE_TP,
             'magic_evasion': 0.3,
         }
         name = f"DT TP ({job.name})"
+    
+    elif tp_type == TPSetType.BALANCED_DT:
+        # Balanced DT: Equal priority on offense and defense while engaged
+        # For engaged.DT - not focused on STP, just balanced survivability + offense
+        weights = {
+            # Offensive stats - equal-ish weighting
+            'store_tp': 30.0,
+            'double_attack': 50.0,
+            'triple_attack': 75.0,
+            'quad_attack': 100.0,
+            'gear_haste': 50.0,
+            'accuracy': 50.0,
+            'attack': 2.0,
+            'crit_rate': 3.0,
+            # Defensive stats - equal priority with offense
+            'damage_taken': -50.0,
+            'physical_dt': -40.0,
+            'magical_dt': -30.0,
+            'defense': 1.0,
+            'VIT': 0.5,
+            'magic_evasion': 0.5,
+        }
+        name = f"Balanced DT ({job.name})"
         
     elif tp_type == TPSetType.REFRESH_TP:
         # Refresh TP: MP sustain for mage jobs or subjob casting
@@ -550,8 +574,8 @@ def create_tp_profile(job: Job, tp_type: TPSetType = TPSetType.PURE_TP,
     # Set caps
     hard_caps = {'gear_haste': 2500}  # 25% gear haste cap
     
-    # DT cap for DT set
-    if tp_type == TPSetType.DT_TP:
+    # DT cap for DT sets
+    if tp_type in (TPSetType.DT_TP, TPSetType.BALANCED_DT):
         hard_caps['damage_taken'] = -5000  # -50% DT cap
         hard_caps['physical_dt'] = -5000
         hard_caps['magical_dt'] = -5000
@@ -577,6 +601,7 @@ def get_tp_profile_description(tp_type: TPSetType) -> str:
         TPSetType.HYBRID_TP: "Balance TP speed with TP phase damage. Good all-around set.",
         TPSetType.ACC_TP: "High accuracy for tough content. Trades some TP speed for hit rate.",
         TPSetType.DT_TP: "Survivability focus. Damage reduction + reasonable TP gain.",
+        TPSetType.BALANCED_DT: "Equal offense and defense. For engaged.DT style hybrid sets.",
         TPSetType.REFRESH_TP: "MP sustain for casting jobs. Refresh + TP building.",
     }
     return descriptions.get(tp_type, "Unknown TP set type")

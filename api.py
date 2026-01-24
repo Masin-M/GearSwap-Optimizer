@@ -186,6 +186,9 @@ try:
         is_burst_relevant,
         get_job_preset,
         JOB_MAGIC_PRESETS,
+        get_evaluation_details,
+        get_stratification_note,
+        get_target_name,
     )
     from magic_simulation import (
         MagicSimulator,
@@ -897,6 +900,7 @@ class MagicGearsetResult(BaseModel):
     damage: Optional[float] = None
     hit_rate: Optional[float] = None
     potency_score: Optional[float] = None
+    raw_potency: Optional[float] = None  # For POTENCY: the potency before hit_rate multiplication
     gear: Dict[str, Dict[str, Any]]
     stats: Dict[str, Any] = {}
 
@@ -908,6 +912,8 @@ class MagicOptimizeResponse(BaseModel):
     optimization_type: str
     magic_burst: bool
     target: str
+    evaluated_target: Optional[str] = None  # The target actually used (may differ if stratification stepped up)
+    stratification_note: Optional[str] = None  # Message if target was adjusted for discrimination
     results: List[MagicGearsetResult]
     error: Optional[str] = None
 
@@ -3361,6 +3367,12 @@ async def optimize_magic(request: MagicOptimizeRequest):
             buff_bonuses=buff_bonuses,
         )
         
+        # Extract stratification info from results
+        stratification_note = get_stratification_note(results)
+        evaluated_target_name = None
+        if results and hasattr(results[0][0], '_eval_target'):
+            evaluated_target_name = get_target_name(results[0][0]._eval_target)
+        
         # Helper function to create a unique key for a gear set
         def gear_set_key(candidate):
             """Create a unique string key for a gear set based on actual gear names."""
@@ -3439,33 +3451,40 @@ async def optimize_magic(request: MagicOptimizeRequest):
                 "gear_enfeebling_skill": candidate.stats.enfeebling_magic_skill,
             }
             
-            # Calculate hit_rate for ALL optimization types
-            from magic_formulas import calculate_dstat_bonus, calculate_magic_accuracy, calculate_magic_hit_rate
+            # Get evaluation details from the candidate (stored during optimization)
+            eval_details = get_evaluation_details(candidate)
             
-            spell = get_spell(request.spell_name)
-            if spell:
-                # Get relevant stat based on spell type
-                if spell.magic_type in [MagicType.DIVINE, MagicType.ENFEEBLING_MND, MagicType.HEALING]:
-                    caster_stat = caster.mnd_stat
-                    target_stat = target.mnd_stat
-                else:
-                    caster_stat = caster.int_stat
-                    target_stat = target.int_stat
-                
-                # Get skill for spell type
-                skill = caster.get_skill_for_type(spell.magic_type)
-                
-                # Calculate accuracy
-                dstat_bonus = calculate_dstat_bonus(caster_stat, target_stat)
-                total_macc = calculate_magic_accuracy(
-                    skill=skill,
-                    magic_acc_gear=caster.magic_accuracy,
-                    dstat_bonus=int(dstat_bonus),
-                    magic_burst=False,
-                )
-                calculated_hit_rate = calculate_magic_hit_rate(total_macc, target.magic_evasion)
+            # Use stored hit_rate if available, otherwise calculate it
+            if 'hit_rate' in eval_details:
+                calculated_hit_rate = eval_details['hit_rate']
             else:
-                calculated_hit_rate = 0.0
+                # Fallback: Calculate hit_rate against the original requested target
+                from magic_formulas import calculate_dstat_bonus, calculate_magic_accuracy, calculate_magic_hit_rate
+                
+                spell = get_spell(request.spell_name)
+                if spell:
+                    # Get relevant stat based on spell type
+                    if spell.magic_type in [MagicType.DIVINE, MagicType.ENFEEBLING_MND, MagicType.HEALING]:
+                        caster_stat = caster.mnd_stat
+                        target_stat = target.mnd_stat
+                    else:
+                        caster_stat = caster.int_stat
+                        target_stat = target.int_stat
+                    
+                    # Get skill for spell type
+                    skill = caster.get_skill_for_type(spell.magic_type)
+                    
+                    # Calculate accuracy
+                    dstat_bonus = calculate_dstat_bonus(caster_stat, target_stat)
+                    total_macc = calculate_magic_accuracy(
+                        skill=skill,
+                        magic_acc_gear=caster.magic_accuracy,
+                        dstat_bonus=int(dstat_bonus),
+                        magic_burst=False,
+                    )
+                    calculated_hit_rate = calculate_magic_hit_rate(total_macc, target.magic_evasion)
+                else:
+                    calculated_hit_rate = 0.0
             
             # Determine what score represents based on optimization type
             result_entry = MagicGearsetResult(
@@ -3476,12 +3495,15 @@ async def optimize_magic(request: MagicOptimizeRequest):
             )
             
             # Add type-specific score interpretation AND always include hit_rate
-            result_entry.hit_rate = calculated_hit_rate  # Always include hit rate
+            result_entry.hit_rate = calculated_hit_rate
             
             if opt_type == MagicOptimizationType.ACCURACY:
                 pass  # hit_rate already set, score is also hit_rate
             elif opt_type == MagicOptimizationType.POTENCY:
-                result_entry.potency_score = score
+                result_entry.potency_score = score  # This is now effective_score = potency × hit_rate
+                # Also provide the raw potency for display
+                if 'potency' in eval_details:
+                    result_entry.raw_potency = eval_details['potency']
             else:
                 result_entry.damage = score  # Score is average damage
             
@@ -3493,6 +3515,8 @@ async def optimize_magic(request: MagicOptimizeRequest):
             optimization_type=request.optimization_type,
             magic_burst=request.magic_burst,
             target=request.target,
+            evaluated_target=evaluated_target_name,
+            stratification_note=stratification_note,
             results=formatted_results,
         )
     
@@ -4058,12 +4082,18 @@ def classify_lua_set_type(set_name: str, context: str = "") -> str:
         if any(x in name_lower for x in ['elemental', 'nuke', 'thunder', 'fire', 
                                           'blizzard', 'aero', 'water']):
             # Note: removed 'stone' from this list - handled separately below
+            # Check for accuracy/resistant variant - prioritize landing spells
+            if 'resistant' in name_lower or ('acc' in name_lower and 'magic' not in name_lower):
+                return 'magic_accuracy'
             if 'mb' in name_lower or 'burst' in name_lower or 'burst' in context_lower:
                 return 'magic_burst'
             return 'magic_damage'
         
         # Stone element (but not Stoneskin which was caught above)
         if 'stone' in name_lower and 'skin' not in name_lower:
+            # Check for accuracy/resistant variant
+            if 'resistant' in name_lower or ('acc' in name_lower and 'magic' not in name_lower):
+                return 'magic_accuracy'
             if 'mb' in name_lower or 'burst' in name_lower or 'burst' in context_lower:
                 return 'magic_burst'
             return 'magic_damage'

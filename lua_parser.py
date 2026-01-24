@@ -9,7 +9,8 @@ Phase 3 of the GearSwap Optimizer project.
 
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Set
+from typing import Dict, List, Optional, Tuple, Set, Union
+
 from pathlib import Path
 
 from models import (
@@ -17,6 +18,84 @@ from models import (
     Stats,
 )
 from ws_database import get_weaponskill, WeaponskillData
+from optimizer_ui import TPSetType, create_tp_profile
+
+# Import greedy optimizer for JA and idle/DT sets
+try:
+    from greedy_optimizer import (
+        JAEnhancementIndex,
+        run_ja_optimization,
+    )
+    HAS_GREEDY_OPTIMIZER = True
+except ImportError:
+    HAS_GREEDY_OPTIMIZER = False
+    JAEnhancementIndex = None
+
+
+# =============================================================================
+# Dual Wield Detection
+# =============================================================================
+
+# Jobs that natively dual wield
+DUAL_WIELD_JOBS = {'NIN', 'DNC', 'BLU'}
+
+# Jobs that can sub for dual wield
+DUAL_WIELD_SUBJOBS = {'NIN', 'DNC'}
+
+# 1H weapon types that can be dual wielded
+DUAL_WIELD_WEAPON_TYPES = {'Sword', 'Dagger', 'Club', 'Katana', 'Axe'}
+
+
+def detect_dual_wield(job: Optional[Job], 
+                      sub_job: Optional[str] = None,
+                      main_weapon: Optional[Dict] = None,
+                      sub_weapon: Optional[Dict] = None) -> bool:
+    """
+    Detect if the current setup uses dual wield.
+    
+    Args:
+        job: Main job
+        sub_job: Sub job abbreviation (e.g., 'NIN')
+        main_weapon: Main weapon dict with 'Skill Type' key
+        sub_weapon: Sub weapon dict with 'Skill Type' or 'Type' key
+        
+    Returns:
+        True if dual wielding, False otherwise
+    """
+    if job is None:
+        return False
+    
+    job_name = job.name.upper()
+    
+    # Check if job or subjob can dual wield
+    can_dual_wield = (
+        job_name in DUAL_WIELD_JOBS or 
+        (sub_job and sub_job.upper() in DUAL_WIELD_SUBJOBS)
+    )
+    
+    if not can_dual_wield:
+        return False
+    
+    # If we have weapon info, verify both are 1H weapons
+    if main_weapon and sub_weapon:
+        main_skill = main_weapon.get('Skill Type', '')
+        sub_type = sub_weapon.get('Type', '')
+        sub_skill = sub_weapon.get('Skill Type', '')
+        
+        # Sub must be a weapon (not shield/grip)
+        if sub_type != 'Weapon':
+            return False
+        
+        # Both must be dual-wieldable weapon types
+        if main_skill not in DUAL_WIELD_WEAPON_TYPES:
+            return False
+        if sub_skill and sub_skill not in DUAL_WIELD_WEAPON_TYPES:
+            return False
+        
+        return True
+    
+    # If no weapon info, assume DW based on job capability
+    return can_dual_wield
 
 
 # =============================================================================
@@ -117,21 +196,41 @@ class LuaParser:
     """
     
     # Regex patterns for set definitions
+    # 
+    # These patterns need to handle various GearSwap naming conventions:
+    # - Pure dot notation: sets.idle.DT
+    # - Bracket at end: sets.WS['Savage Blade']
+    # - Mixed (bracket in middle): sets.midcast['Elemental Magic'].Resistant
+    # - Mixed (bracket in middle): sets.midcast['Elemental Magic'].MB
+    #
+    # The key insight is that bracket notation can appear ANYWHERE in the path,
+    # and can be followed by more dot notation for variants like .Resistant, .MB, etc.
+    
+    # Path segment patterns (reusable components)
+    # A segment is either .identifier or ['string'] or ["string"]
+    _DOT_SEGMENT = r'\.[a-zA-Z_][a-zA-Z0-9_]*'
+    _BRACKET_SINGLE = r"\['[^']+'\]"
+    _BRACKET_DOUBLE = r'\["[^"]+"\]'
+    _ANY_SEGMENT = rf'(?:{_DOT_SEGMENT}|{_BRACKET_SINGLE}|{_BRACKET_DOUBLE})'
+    
     # Pattern 1: Simple dot notation - sets.idle = { ... }
+    # Kept for backwards compatibility, but PATTERN_MIXED handles this too
     PATTERN_DOT = re.compile(
         r'^(\s*)(sets(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+)\s*=\s*\{',
         re.MULTILINE
     )
     
     # Pattern 2: Bracket notation with single quotes - sets.WS['Entropy'] = { ... }
+    # Now also matches sets.midcast['Elemental Magic'].Resistant = { ... }
     PATTERN_BRACKET_SINGLE = re.compile(
-        r"^(\s*)(sets(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*\['[^']+'\])\s*=\s*\{",
+        rf"^(\s*)(sets(?:{_ANY_SEGMENT})*\['[^']+'\](?:{_DOT_SEGMENT})*)\s*=\s*\{{",
         re.MULTILINE
     )
     
     # Pattern 3: Bracket notation with double quotes - sets.WS["Cross Reaper"] = { ... }
+    # Now also matches sets.midcast["Elemental Magic"].MB = { ... }
     PATTERN_BRACKET_DOUBLE = re.compile(
-        r'^(\s*)(sets(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*\["[^"]+"\])\s*=\s*\{',
+        rf'^(\s*)(sets(?:{_ANY_SEGMENT})*\["[^"]+"\](?:{_DOT_SEGMENT})*)\s*=\s*\{{',
         re.MULTILINE
     )
     
@@ -141,9 +240,10 @@ class LuaParser:
         re.MULTILINE
     )
     
-    # Pattern 4b: set_combine with bracket notation
+    # Pattern 4b: set_combine with bracket notation (bracket anywhere in path)
+    # Matches: sets.midcast['Elemental Magic'].MB = set_combine(...)
     PATTERN_SET_COMBINE_BRACKET = re.compile(
-        r"^(\s*)(sets(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*\[(?:'[^']+'\s*|\"[^\"]+\"\s*)\])\s*=\s*set_combine\s*\(\s*(sets[^,]+)\s*,\s*\{",
+        rf"^(\s*)(sets(?:{_ANY_SEGMENT})*(?:\['[^']+'\]|\[\"[^\"]+\"\])(?:{_DOT_SEGMENT})*)\s*=\s*set_combine\s*\(\s*(sets[^,]+)\s*,\s*\{{",
         re.MULTILINE
     )
     
@@ -537,17 +637,74 @@ def resolve_set_combine(gsfile: GearSwapFile,
     return base_items
 
 
+def extract_ja_name_from_set(set_def: LuaSetDefinition) -> Optional[str]:
+    """
+    Extract Job Ability name from a JA set definition.
+    
+    Handles patterns like:
+    - sets.precast.JA['Berserk']
+    - sets.precast.JA["Aggressor"]
+    - sets.precast.JA.Berserk
+    
+    Args:
+        set_def: The set definition
+        
+    Returns:
+        JA name if found, None otherwise
+    """
+    set_name = set_def.name
+    
+    # Pattern 1: Bracket notation with quotes - JA['Name'] or JA["Name"]
+    bracket_match = re.search(r"JA\[(['\"])([^'\"]+)\1\]", set_name, re.IGNORECASE)
+    if bracket_match:
+        return bracket_match.group(2)
+    
+    # Pattern 2: Dot notation - JA.Name
+    dot_match = re.search(r"JA\.(\w+)", set_name, re.IGNORECASE)
+    if dot_match:
+        return dot_match.group(1)
+    
+    # Pattern 3: Check placeholder context for JA name hints
+    if set_def.placeholder_context:
+        # Look for JA names in the context (e.g., "PLACEHOLDER: Berserk")
+        context = set_def.placeholder_context.strip()
+        if context and not ' ' in context:
+            # Single word - likely a JA name
+            return context
+    
+    return None
+
+
+def is_ja_profile(profile: OptimizationProfile) -> bool:
+    """Check if a profile is for a JA set (name starts with 'JA:')."""
+    return profile.name.startswith("JA:")
+
+
+def get_ja_name_from_profile(profile: OptimizationProfile) -> Optional[str]:
+    """Extract JA name from a JA profile."""
+    if is_ja_profile(profile):
+        return profile.name[3:]  # Remove "JA:" prefix
+    return None
+
+
 def infer_profile_from_set(set_def: LuaSetDefinition, 
-                           job: Optional[Job] = None) -> OptimizationProfile:
+                           job: Optional[Job] = None,
+                           sub_job: Optional[str] = None,
+                           main_weapon: Optional[Dict] = None,
+                           sub_weapon: Optional[Dict] = None) -> OptimizationProfile:
     """
     Infer optimization profile from set name/path.
     
     Uses set naming conventions to determine the appropriate
-    optimization profile.
+    optimization profile. For TP/engaged sets, delegates to the
+    standardized create_tp_profile from optimizer_ui.
     
     Args:
         set_def: The set definition
         job: Optional job for job-specific profiles
+        sub_job: Optional sub job for dual wield detection
+        main_weapon: Optional main weapon dict for dual wield detection
+        sub_weapon: Optional sub weapon dict for dual wield detection
         
     Returns:
         An appropriate OptimizationProfile
@@ -556,29 +713,12 @@ def infer_profile_from_set(set_def: LuaSetDefinition,
     path_lower = [p.lower() for p in set_def.path]
     context_lower = set_def.placeholder_context.lower()
     
-    # =========================================================================
-    # Helper profile creators (inline)
-    # =========================================================================
+    # Detect dual wield for TP profiles
+    is_dual_wield = detect_dual_wield(job, sub_job, main_weapon, sub_weapon)
     
-    def make_tp_profile(name: str, acc_focus: bool = False) -> OptimizationProfile:
-        """Create a TP building profile."""
-        weights = {
-            'store_tp': 10.0,
-            'double_attack': 8.0,
-            'triple_attack': 12.0,
-            'quad_attack': 15.0,
-            'gear_haste': 7.0,
-            'dual_wield': 6.0,
-            'accuracy': 5.0 if not acc_focus else 15.0,
-            'attack': 3.0,
-        }
-        return OptimizationProfile(
-            name=name,
-            weights=weights,
-            hard_caps={'gear_haste': 2500},
-            exclude_slots={Slot.MAIN, Slot.SUB},
-            job=job,
-        )
+    # =========================================================================
+    # Helper profile creators (for non-TP sets)
+    # =========================================================================
     
     def make_dt_profile(name: str, pdt_focus: bool = False, mdt_focus: bool = False) -> OptimizationProfile:
         """Create a DT/idle profile."""
@@ -602,74 +742,17 @@ def infer_profile_from_set(set_def: LuaSetDefinition,
             job=job,
         )
     
-    def make_hybrid_tp_dt_profile(name: str, dt_priority: float = 0.5) -> OptimizationProfile:
-        """Create a hybrid TP + DT profile."""
-        tp_weight = 1.0 - dt_priority
-        dt_weight = dt_priority
-        weights = {
-            # TP stats scaled
-            'store_tp': 10.0 * tp_weight,
-            'double_attack': 8.0 * tp_weight,
-            'triple_attack': 12.0 * tp_weight,
-            'gear_haste': 7.0 * tp_weight,
-            'accuracy': 5.0 * tp_weight,
-            # DT stats scaled
-            'damage_taken': -100.0 * dt_weight,
-            'physical_dt': -80.0 * dt_weight,
-            'magical_dt': -60.0 * dt_weight,
-            'HP': 3.0 * dt_weight,
-        }
-        return OptimizationProfile(
-            name=name,
-            weights=weights,
-            hard_caps={
-                'gear_haste': 2500,
-                'damage_taken': -5000,
-                'physical_dt': -5000,
-                'magical_dt': -5000,
-            },
-            exclude_slots={Slot.MAIN, Slot.SUB},
-            job=job,
-        )
-    
-    def make_ws_profile(name: str, primary_stat: str = 'STR', 
-                        secondary_stat: Optional[str] = None,
-                        ftp_replicating: bool = False) -> OptimizationProfile:
-        """Create a weaponskill profile."""
-        weights = {
-            'ws_damage': 15.0,
-            'attack': 5.0,
-            'accuracy': 3.0,
-            primary_stat: 10.0,
-        }
-        if secondary_stat:
-            weights[secondary_stat] = 6.0
-        if ftp_replicating:
-            # fTP replicating WS benefit more from multi-attack
-            weights['double_attack'] = 4.0
-            weights['triple_attack'] = 6.0
-        else:
-            # Single-hit WS benefit from crit
-            weights['crit_rate'] = 4.0
-            weights['crit_damage'] = 3.0
-        return OptimizationProfile(
-            name=name,
-            weights=weights,
-            exclude_slots={Slot.MAIN, Slot.SUB},
-            job=job,
-        )
-    
     # =========================================================================
     # Profile inference logic
     # =========================================================================
     
     # Check placeholder context for hints
     if 'haste' in context_lower and 'max' in context_lower:
-        return make_tp_profile(name=set_def.name)
+        return create_tp_profile(job, TPSetType.PURE_TP, is_dual_wield)
     if 'haste ii' in context_lower or 'haste 2' in context_lower:
-        return make_tp_profile(name=set_def.name)
+        return create_tp_profile(job, TPSetType.PURE_TP, is_dual_wield)
     if 'acc' in context_lower:
-        return make_tp_profile(name=set_def.name, acc_focus=True)
+        return create_tp_profile(job, TPSetType.ACC_TP, is_dual_wield)
     
     # Check for WS names using the database
     # Extract potential WS name from set path (e.g., "sets.precast.WS['Savage Blade']" -> "Savage Blade")
@@ -685,57 +768,111 @@ def infer_profile_from_set(set_def: LuaSetDefinition,
             return dot_match.group(1)
         return None
     
-    ws_name_extracted = extract_ws_name(set_def.name)
-    if ws_name_extracted:
-        ws_data = get_weaponskill(ws_name_extracted)
-        if ws_data:
-            # Use the database's stat weights directly
-            weights = ws_data.get_stat_weights(include_attack=True)
+    # Check path patterns - IDLE sets
+    if 'idle' in path_lower:
+        # Pet idle sets - not implemented yet
+        # TODO: Implement pet-specific optimization (e.g., dragoon wyvern casting)
+        # if 'pet' in path_lower:
+        #     return None
+        if 'dt' in path_lower:
+            return make_dt_profile(name=set_def.name, pdt_focus=True)
+        if 'regen' in path_lower:
+            # Regen idle - prioritize HP recovery
             return OptimizationProfile(
                 name=set_def.name,
-                weights=weights,
+                weights={
+                    'regen': 15.0,
+                    'HP': 5.0,
+                    'damage_taken': -50.0,
+                    'physical_dt': -40.0,
+                    'magical_dt': -30.0,
+                },
+                hard_caps={
+                    'damage_taken': -5000,
+                    'physical_dt': -5000,
+                    'magical_dt': -5000,
+                },
                 exclude_slots={Slot.MAIN, Slot.SUB},
                 job=job,
             )
-    
-    # Check path patterns
-    if 'idle' in path_lower:
-        if 'dt' in path_lower:
-            return make_dt_profile(name=set_def.name, pdt_focus=True)
         if 'refresh' in path_lower:
             return make_dt_profile(name=set_def.name)
         if 'mdt' in path_lower:
             return make_dt_profile(name=set_def.name, mdt_focus=True)
         return make_dt_profile(name=set_def.name)
     
+    # ENGAGED sets - use standardized TP profiles from optimizer_ui
     if 'engaged' in path_lower:
-        if 'dt' in path_lower or 'hybrid' in path_lower:
-            return make_hybrid_tp_dt_profile(name=set_def.name, dt_priority=0.5)
-        if 'acc' in path_lower or 'fullacc' in path_lower:
-            return make_tp_profile(name=set_def.name, acc_focus=True)
-        if 'maxhaste' in name_lower or 'max' in path_lower:
-            return make_tp_profile(name=set_def.name)
-        if 'midcast' in path_lower:
-            return make_hybrid_tp_dt_profile(name=set_def.name, dt_priority=0.3)
-        return make_tp_profile(name=set_def.name)
+        # Check for STP.DT pattern (e.g., engaged.STP.DT)
+        has_stp = 'stp' in path_lower or 'stp' in name_lower
+        has_dt = 'dt' in path_lower or 'hybrid' in path_lower
+        has_acc = 'acc' in path_lower or 'fullacc' in path_lower
+        
+        if has_stp and has_dt:
+            # engaged.STP.DT -> DT_TP (survivability + TP focus)
+            return create_tp_profile(job, TPSetType.DT_TP, is_dual_wield)
+        elif has_dt:
+            # engaged.DT -> BALANCED_DT (equal offense + defense)
+            return create_tp_profile(job, TPSetType.BALANCED_DT, is_dual_wield)
+        elif has_acc:
+            # engaged.Acc -> ACC_TP (high accuracy + TP)
+            return create_tp_profile(job, TPSetType.ACC_TP, is_dual_wield)
+        elif has_stp:
+            # engaged.STP -> PURE_TP (fastest TP gain)
+            return create_tp_profile(job, TPSetType.PURE_TP, is_dual_wield)
+        elif 'maxhaste' in name_lower or 'max' in path_lower:
+            # explicit max haste -> PURE_TP
+            return create_tp_profile(job, TPSetType.PURE_TP, is_dual_wield)
+        else:
+            # Base engaged -> HYBRID_TP (balanced damage + TP)
+            return create_tp_profile(job, TPSetType.HYBRID_TP, is_dual_wield)
     
+    # WEAPONSKILL sets - use database
     if 'ws' in path_lower or 'weaponskill' in path_lower or 'precast.ws' in name_lower:
-        return make_ws_profile(name=set_def.name, primary_stat='STR')
+        ws_name_extracted = extract_ws_name(set_def.name)
+        if ws_name_extracted:
+            ws_data = get_weaponskill(ws_name_extracted)
+            if ws_data:
+                # Use the database's stat weights directly
+                weights = ws_data.get_stat_weights(include_attack=True)
+                return OptimizationProfile(
+                    name=set_def.name,
+                    weights=weights,
+                    exclude_slots={Slot.MAIN, Slot.SUB},
+                    job=job,
+                )
     
+    # PRECAST sets
     if 'precast' in path_lower:
+        # JA (Job Ability) sets - check for JA name in path
+        if 'ja' in path_lower:
+            ja_name = extract_ja_name_from_set(set_def)
+            if ja_name:
+                # Return a special "JA profile" that signals we need JA optimization
+                # The actual optimization is handled in optimize_placeholder_set()
+                return OptimizationProfile(
+                    name=f"JA:{ja_name}",
+                    weights={
+                        # Secondary priority: DT while using JA
+                        'damage_taken': -100.0,
+                        'physical_dt': -80.0,
+                        'magical_dt': -60.0,
+                        'HP': 3.0,
+                    },
+                    hard_caps={
+                        'damage_taken': -5000,
+                        'physical_dt': -5000,
+                        'magical_dt': -5000,
+                    },
+                    exclude_slots={Slot.MAIN, Slot.SUB},
+                    job=job,
+                )
+        
         if 'fc' in path_lower or 'fast' in name_lower or 'fc' in name_lower:
             return OptimizationProfile(
                 name=set_def.name,
                 weights={'fast_cast': 10.0, 'HP': 1.0},
                 hard_caps={'fast_cast': 8000},
-                exclude_slots={Slot.MAIN, Slot.SUB},
-                job=job,
-            )
-        if 'ja' in path_lower:
-            # Job ability sets - return a generic profile
-            return OptimizationProfile(
-                name=set_def.name,
-                weights={'HP': 1.0},
                 exclude_slots={Slot.MAIN, Slot.SUB},
                 job=job,
             )
@@ -748,20 +885,36 @@ def infer_profile_from_set(set_def: LuaSetDefinition,
             job=job,
         )
     
+    # MIDCAST sets (magic - kept as-is since user said they're reasonable)
     if 'midcast' in path_lower:
         # Elemental Magic / Nuking
         if 'elemental' in name_lower or 'nuke' in name_lower or 'mb' in name_lower:
-
+            # Check for accuracy/resistant variant FIRST
+            # These prioritize landing the spell over raw damage
+            if 'resistant' in name_lower or 'acc' in name_lower:
+                weights = {
+                    'magic_accuracy': 15.0,       # Primary focus
+                    'elemental_magic_skill': 10.0, # Contributes to accuracy
+                    'INT': 8.0,                   # Also contributes to accuracy
+                    'magic_attack': 5.0,          # Secondary damage
+                    'magic_damage': 3.0,          # Tertiary damage
+                }
+                return OptimizationProfile(
+                    name=set_def.name,
+                    weights=weights,
+                    exclude_slots={Slot.MAIN, Slot.SUB},
+                    job=job,
+                )
+            # Magic Burst variant - prioritize MB stats
             if 'mb' in name_lower:
                 weights = {
                     'magic_attack': 10.0,
                     'magic_damage': 8.0,
                     'INT': 5.0,
                     'magic_accuracy': 3.0,
-                    'magic_accuracy': 3.0,
                     'magic_burst_damage_ii': 5,
-                    'magic_burst_bonus':5,
-                    }
+                    'magic_burst_bonus': 5,
+                }
                 return OptimizationProfile(
                     name=set_def.name,
                     weights=weights,
@@ -771,13 +924,11 @@ def infer_profile_from_set(set_def: LuaSetDefinition,
                 )
             else:
                 weights = {
-                'magic_attack': 10.0,
-                'magic_damage': 8.0,
-                'magic accuracy': 5.0,
-                'elemental_skill'
-                'INT': 5.0,
-                
-
+                    'magic_attack': 10.0,
+                    'magic_damage': 8.0,
+                    'magic_accuracy': 5.0,
+                    'elemental_magic_skill': 3.0,
+                    'INT': 5.0,
                 }
                 return OptimizationProfile(
                     name=set_def.name,
@@ -882,8 +1033,8 @@ def infer_profile_from_set(set_def: LuaSetDefinition,
             job=job,
         )
     
-    # Default to TP profile
-    return make_tp_profile(name=set_def.name)
+    # Default to HYBRID_TP profile (balanced TP + damage)
+    return create_tp_profile(job, TPSetType.HYBRID_TP, is_dual_wield)
 
 
 def generate_set_lua(items: Dict[str, LuaItem],
@@ -1101,7 +1252,8 @@ def update_gearswap_file(gsfile: GearSwapFile,
 
 def update_all_placeholders(gsfile: GearSwapFile,
                             optimizer,  # BeamSearchOptimizer instance
-                            job: Optional[Job] = None) -> Tuple[str, List[str]]:
+                            job: Optional[Job] = None,
+                            inventory: Optional['Inventory'] = None) -> Tuple[str, List[str]]:
     """
     Update all placeholder sets in the file.
     
@@ -1109,11 +1261,23 @@ def update_all_placeholders(gsfile: GearSwapFile,
         gsfile: Parsed GearSwap file
         optimizer: BeamSearchOptimizer instance with loaded inventory
         job: Job for optimization (uses file's detected job if not provided)
+        inventory: Optional inventory for JA optimization (uses optimizer's if not provided)
         
     Returns:
         Tuple of (updated_content, list_of_updated_set_names)
     """
     job = job or (Job[gsfile.job] if gsfile.job else None)
+    
+    # Get inventory from optimizer if not provided
+    if inventory is None and hasattr(optimizer, 'inventory'):
+        inventory = optimizer.inventory
+    
+    # Build JA enhancement index if we have the greedy optimizer
+    ja_index = None
+    if HAS_GREEDY_OPTIMIZER and inventory:
+        ja_index = JAEnhancementIndex(inventory)
+        if ja_index.by_ja:
+            print(f"  JA Enhancement Index: {len(ja_index.by_ja)} JAs with gear")
     
     placeholders = find_placeholder_sets(gsfile)
     updated_names = []
@@ -1123,21 +1287,88 @@ def update_all_placeholders(gsfile: GearSwapFile,
         # Infer the appropriate profile
         profile = infer_profile_from_set(set_def, job)
         
-        # Run optimization using beam search
-        results = optimizer.search(profile=profile)
-        
-        if results:
-            # Get the best result and convert to LuaItems
-            best = results[0]
-            new_items = wsdist_gear_to_lua_items(best.gear)
-            content = update_set_in_content(content, set_def, new_items)
-            updated_names.append(set_def.name)
+        # Check if this is a JA set
+        if is_ja_profile(profile) and ja_index:
+            ja_name = get_ja_name_from_profile(profile)
+            ja_items = ja_index.get_items_for_ja(ja_name) if ja_name else []
+            
+            if ja_items:
+                print(f"  → JA Set '{ja_name}': Found {len(ja_items)} enhancement item(s)")
+                # Use greedy optimizer for JA set
+                new_items = _optimize_ja_set(
+                    inventory=inventory,
+                    job=job,
+                    ja_name=ja_name,
+                    profile=profile,
+                )
+                if new_items:
+                    content = update_set_in_content(content, set_def, new_items)
+                    updated_names.append(set_def.name)
+            else:
+                print(f"  → JA Set '{ja_name}': No enhancement gear found, using DT fill")
+                # Fall back to just DT optimization
+                results = optimizer.search(profile=profile)
+                if results:
+                    best = results[0]
+                    new_items = wsdist_gear_to_lua_items(best.gear)
+                    content = update_set_in_content(content, set_def, new_items)
+                    updated_names.append(set_def.name)
+        else:
+            # Standard optimization using beam search
+            results = optimizer.search(profile=profile)
+            
+            if results:
+                # Get the best result and convert to LuaItems
+                best = results[0]
+                new_items = wsdist_gear_to_lua_items(best.gear)
+                content = update_set_in_content(content, set_def, new_items)
+                updated_names.append(set_def.name)
         
         # Re-parse to get updated positions for next iteration
         parser = LuaParser()
         temp_gsfile = parser.parse_content(content, gsfile.filepath)
     
     return content, updated_names
+
+
+def _optimize_ja_set(inventory: 'Inventory',
+                     job: Job,
+                     ja_name: str,
+                     profile: OptimizationProfile) -> Optional[Dict[str, LuaItem]]:
+    """
+    Optimize a JA set using the greedy optimizer.
+    
+    Args:
+        inventory: Player inventory
+        job: Job for optimization
+        ja_name: Name of the Job Ability
+        profile: The JA profile (used for secondary stat priority)
+        
+    Returns:
+        Dict of slot_name -> LuaItem, or None if optimization failed
+    """
+    if not HAS_GREEDY_OPTIMIZER:
+        print("  ⚠ greedy_optimizer not available")
+        return None
+    
+    # Use run_ja_optimization from greedy_optimizer
+    gear_dict, enhancement_slots = run_ja_optimization(
+        inventory=inventory,
+        job=job,
+        ja_name=ja_name,
+        main_weapon=None,  # JA sets don't need weapons
+        sub_weapon=None,
+        secondary_profile=profile,
+        beam_width=25,
+    )
+    
+    if not gear_dict:
+        return None
+    
+    # Convert to LuaItems
+    lua_items = wsdist_gear_to_lua_items(gear_dict)
+    
+    return lua_items
 
 
 def wsdist_gear_to_lua_items(gear: Dict[str, Dict], exclude_weapons: bool = True) -> Dict[str, LuaItem]:
@@ -1222,3 +1453,129 @@ def parse_gearswap_content(content: str, filepath: str = "<string>") -> GearSwap
     """
     parser = LuaParser()
     return parser.parse_content(content, filepath)
+
+
+def list_ja_enhancements(inventory: 'Inventory', job: Optional[Job] = None) -> Dict[str, List[Tuple[str, str]]]:
+    """
+    List all JAs that have enhancement gear in inventory.
+    
+    Args:
+        inventory: Player inventory
+        job: Optional job filter
+        
+    Returns:
+        Dict of JA name -> list of (slot_name, item_name) tuples
+    """
+    if not HAS_GREEDY_OPTIMIZER:
+        print("Warning: greedy_optimizer not available")
+        return {}
+    
+    ja_index = JAEnhancementIndex(inventory)
+    
+    result = {}
+    for ja_name, items in ja_index.by_ja.items():
+        result[ja_name] = []
+        for slot, item in items:
+            slot_name = slot.name.lower()
+            if slot_name == 'left_ear':
+                slot_name = 'ear1'
+            elif slot_name == 'right_ear':
+                slot_name = 'ear2'
+            elif slot_name == 'left_ring':
+                slot_name = 'ring1'
+            elif slot_name == 'right_ring':
+                slot_name = 'ring2'
+            result[ja_name].append((slot_name, item.name))
+    
+    return result
+
+
+def print_ja_enhancement_summary(inventory: 'Inventory', job: Optional[Job] = None):
+    """
+    Print a summary of JA enhancement gear in inventory.
+    
+    Args:
+        inventory: Player inventory
+        job: Optional job filter
+    """
+    ja_enhancements = list_ja_enhancements(inventory, job)
+    
+    if not ja_enhancements:
+        print("No JA enhancement gear found in inventory.")
+        return
+    
+    print("\n" + "=" * 60)
+    print("JA ENHANCEMENT GEAR AVAILABLE")
+    print("=" * 60)
+    
+    for ja_name in sorted(ja_enhancements.keys()):
+        items = ja_enhancements[ja_name]
+        print(f"\n{ja_name}:")
+        for slot_name, item_name in items:
+            print(f"  {slot_name:8s}: {item_name}")
+    
+    print(f"\nTotal: {len(ja_enhancements)} JAs with enhancement gear")
+
+
+def optimize_single_set(gsfile: GearSwapFile,
+                        set_name: str,
+                        optimizer,
+                        job: Optional[Job] = None,
+                        inventory: Optional['Inventory'] = None) -> Tuple[str, bool]:
+    """
+    Optimize a single set in the GearSwap file.
+    
+    This is useful for optimizing specific sets without updating all placeholders.
+    
+    Args:
+        gsfile: Parsed GearSwap file
+        set_name: Name of set to optimize (e.g., "sets.precast.JA['Berserk']")
+        optimizer: BeamSearchOptimizer instance
+        job: Job for optimization
+        inventory: Optional inventory for JA optimization
+        
+    Returns:
+        Tuple of (updated_content, success_bool)
+    """
+    job = job or (Job[gsfile.job] if gsfile.job else None)
+    
+    if set_name not in gsfile.sets:
+        print(f"Error: Set '{set_name}' not found in file")
+        return gsfile.raw_content, False
+    
+    set_def = gsfile.sets[set_name]
+    
+    # Get inventory from optimizer if not provided
+    if inventory is None and hasattr(optimizer, 'inventory'):
+        inventory = optimizer.inventory
+    
+    # Infer profile
+    profile = infer_profile_from_set(set_def, job)
+    
+    # Check if JA set
+    if is_ja_profile(profile) and HAS_GREEDY_OPTIMIZER and inventory:
+        ja_index = JAEnhancementIndex(inventory)
+        ja_name = get_ja_name_from_profile(profile)
+        
+        if ja_name and ja_index.get_items_for_ja(ja_name):
+            print(f"Optimizing JA set: {ja_name}")
+            new_items = _optimize_ja_set(
+                inventory=inventory,
+                job=job,
+                ja_name=ja_name,
+                profile=profile,
+            )
+            if new_items:
+                content = update_set_in_content(gsfile.raw_content, set_def, new_items)
+                return content, True
+    
+    # Standard optimization
+    results = optimizer.search(profile=profile)
+    
+    if results:
+        best = results[0]
+        new_items = wsdist_gear_to_lua_items(best.gear)
+        content = update_set_in_content(gsfile.raw_content, set_def, new_items)
+        return content, True
+    
+    return gsfile.raw_content, False
