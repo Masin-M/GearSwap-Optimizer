@@ -484,6 +484,103 @@
                                     </div>
                                 </div>
                             </div>
+                            
+                            <!-- Custom Buffs Panel (shared between TP/WS) -->
+                            <div class="space-y-4 mb-6">
+                                <div class="flex items-center justify-between">
+                                    <h3 class="text-xs uppercase tracking-wider text-ffxi-accent font-semibold">Custom Buffs (Advanced)</h3>
+                                    <button id="tp-custom-buffs-toggle" class="text-xs text-ffxi-text-dim hover:text-ffxi-text">
+                                        <span id="tp-custom-buffs-toggle-text">Show</span> ▼
+                                    </button>
+                                </div>
+                                <div id="tp-custom-buffs-panel" class="hidden bg-ffxi-dark rounded-lg p-4 space-y-4">
+                                    <p class="text-xs text-ffxi-text-dim mb-3">
+                                        Enter custom buff values for scenarios where preset buffs don't match your actual potencies (e.g., Idris GEO, lucky COR rolls).
+                                    </p>
+                                    
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <!-- Left Column: Stats & Attack -->
+                                        <div class="space-y-3">
+                                            <div class="text-xs font-semibold text-ffxi-text-dim uppercase mb-2">Primary Stats</div>
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">STR</label>
+                                                    <input type="number" id="tp-custom-str" class="input-field w-full text-sm" min="0" max="150" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">DEX</label>
+                                                    <input type="number" id="tp-custom-dex" class="input-field w-full text-sm" min="0" max="150" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">VIT</label>
+                                                    <input type="number" id="tp-custom-vit" class="input-field w-full text-sm" min="0" max="150" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">AGI</label>
+                                                    <input type="number" id="tp-custom-agi" class="input-field w-full text-sm" min="0" max="150" value="0" placeholder="0">
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="text-xs font-semibold text-ffxi-text-dim uppercase mt-3 mb-2">Attack</div>
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Attack (flat)</label>
+                                                    <input type="number" id="tp-custom-attack" class="input-field w-full text-sm" min="0" max="500" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Attack %</label>
+                                                    <input type="number" id="tp-custom-attack-pct" class="input-field w-full text-sm" min="0" max="100" step="0.1" value="0" placeholder="0">
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs text-ffxi-text-dim mb-1">Accuracy</label>
+                                                <input type="number" id="tp-custom-accuracy" class="input-field w-full text-sm" min="0" max="200" value="0" placeholder="0">
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Right Column: Haste, Multi-attack, etc. -->
+                                        <div class="space-y-3">
+                                            <div class="text-xs font-semibold text-ffxi-text-dim uppercase mb-2">Haste & TP</div>
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Magic Haste %</label>
+                                                    <input type="number" id="tp-custom-haste" class="input-field w-full text-sm" min="0" max="43.75" step="0.1" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Store TP</label>
+                                                    <input type="number" id="tp-custom-stp" class="input-field w-full text-sm" min="0" max="100" value="0" placeholder="0">
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="text-xs font-semibold text-ffxi-text-dim uppercase mt-3 mb-2">Multi-Attack & Crit</div>
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Double Attack %</label>
+                                                    <input type="number" id="tp-custom-da" class="input-field w-full text-sm" min="0" max="50" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Triple Attack %</label>
+                                                    <input type="number" id="tp-custom-ta" class="input-field w-full text-sm" min="0" max="30" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Crit Rate %</label>
+                                                    <input type="number" id="tp-custom-crit" class="input-field w-full text-sm" min="0" max="50" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">PDL %</label>
+                                                    <input type="number" id="tp-custom-pdl" class="input-field w-full text-sm" min="0" max="30" value="0" placeholder="0">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="flex justify-end mt-3">
+                                        <button id="tp-custom-buffs-clear" class="text-xs text-ffxi-red hover:text-red-400">
+                                            Clear All Custom Buffs
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
 
                             <button id="btn-optimize-tp" class="btn-primary">
                                 Optimize TP Set
@@ -765,6 +862,103 @@
                                     </div>
                                 </div>
                             </div>
+                            
+                            <!-- Custom Buffs Panel (shared with TP tab) -->
+                            <div class="space-y-4 mb-6">
+                                <div class="flex items-center justify-between">
+                                    <h3 class="text-xs uppercase tracking-wider text-ffxi-accent font-semibold">Custom Buffs (Advanced)</h3>
+                                    <button id="ws-custom-buffs-toggle" class="text-xs text-ffxi-text-dim hover:text-ffxi-text">
+                                        <span id="ws-custom-buffs-toggle-text">Show</span> ▼
+                                    </button>
+                                </div>
+                                <div id="ws-custom-buffs-panel" class="hidden bg-ffxi-dark rounded-lg p-4 space-y-4">
+                                    <p class="text-xs text-ffxi-text-dim mb-3">
+                                        Enter custom buff values. <span class="text-ffxi-accent">Changes here sync with the TP tab.</span>
+                                    </p>
+                                    
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <!-- Left Column: Stats & Attack -->
+                                        <div class="space-y-3">
+                                            <div class="text-xs font-semibold text-ffxi-text-dim uppercase mb-2">Primary Stats</div>
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">STR</label>
+                                                    <input type="number" id="ws-custom-str" class="input-field w-full text-sm custom-buff-sync" data-stat="STR" min="0" max="150" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">DEX</label>
+                                                    <input type="number" id="ws-custom-dex" class="input-field w-full text-sm custom-buff-sync" data-stat="DEX" min="0" max="150" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">VIT</label>
+                                                    <input type="number" id="ws-custom-vit" class="input-field w-full text-sm custom-buff-sync" data-stat="VIT" min="0" max="150" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">AGI</label>
+                                                    <input type="number" id="ws-custom-agi" class="input-field w-full text-sm custom-buff-sync" data-stat="AGI" min="0" max="150" value="0" placeholder="0">
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="text-xs font-semibold text-ffxi-text-dim uppercase mt-3 mb-2">Attack</div>
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Attack (flat)</label>
+                                                    <input type="number" id="ws-custom-attack" class="input-field w-full text-sm custom-buff-sync" data-stat="attack" min="0" max="500" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Attack %</label>
+                                                    <input type="number" id="ws-custom-attack-pct" class="input-field w-full text-sm custom-buff-sync" data-stat="attack_pct" min="0" max="100" step="0.1" value="0" placeholder="0">
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs text-ffxi-text-dim mb-1">Accuracy</label>
+                                                <input type="number" id="ws-custom-accuracy" class="input-field w-full text-sm custom-buff-sync" data-stat="accuracy" min="0" max="200" value="0" placeholder="0">
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Right Column: Haste, Multi-attack, etc. -->
+                                        <div class="space-y-3">
+                                            <div class="text-xs font-semibold text-ffxi-text-dim uppercase mb-2">Haste & TP</div>
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Magic Haste %</label>
+                                                    <input type="number" id="ws-custom-haste" class="input-field w-full text-sm custom-buff-sync" data-stat="magic_haste" min="0" max="43.75" step="0.1" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Store TP</label>
+                                                    <input type="number" id="ws-custom-stp" class="input-field w-full text-sm custom-buff-sync" data-stat="store_tp" min="0" max="100" value="0" placeholder="0">
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="text-xs font-semibold text-ffxi-text-dim uppercase mt-3 mb-2">Multi-Attack & Crit</div>
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Double Attack %</label>
+                                                    <input type="number" id="ws-custom-da" class="input-field w-full text-sm custom-buff-sync" data-stat="double_attack" min="0" max="50" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Triple Attack %</label>
+                                                    <input type="number" id="ws-custom-ta" class="input-field w-full text-sm custom-buff-sync" data-stat="triple_attack" min="0" max="30" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Crit Rate %</label>
+                                                    <input type="number" id="ws-custom-crit" class="input-field w-full text-sm custom-buff-sync" data-stat="crit_rate" min="0" max="50" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">PDL %</label>
+                                                    <input type="number" id="ws-custom-pdl" class="input-field w-full text-sm custom-buff-sync" data-stat="pdl" min="0" max="30" value="0" placeholder="0">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="flex justify-end mt-3">
+                                        <button id="ws-custom-buffs-clear" class="text-xs text-ffxi-red hover:text-red-400">
+                                            Clear All Custom Buffs
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
 
                             <button id="btn-optimize-ws" class="btn-primary">
                                 Optimize WS Set
@@ -822,6 +1016,12 @@
                                         </label>
                                         <select id="magic-buff-add" class="input-field w-full text-sm">
                                             <option value="">Add magic buff...</option>
+                                            <optgroup label="BRD">
+                                                <option value="brd:Sage Etude">Sage Etude (+15 INT)</option>
+                                                <option value="brd:Logical Etude">Logical Etude (+15 MND)</option>
+                                                <option value="brd:Learned Etude">Learned Etude (+10 INT)</option>
+                                                <option value="brd:Spirited Etude">Spirited Etude (+10 MND)</option>
+                                            </optgroup>
                                             <optgroup label="GEO (Self)">
                                                 <option value="geo:Geo-Acumen">Geo-Acumen (+35% MAB)</option>
                                                 <option value="geo:Indi-Acumen">Indi-Acumen (+20% MAB)</option>
@@ -867,6 +1067,50 @@
                                             </optgroup>
                                         </select>
                                         <div id="magic-debuffs-list" class="space-y-1 mt-2"></div>
+                                    </div>
+                                    
+                                    <!-- Custom Magic Buffs Panel -->
+                                    <div class="mt-4">
+                                        <div class="flex items-center justify-between mb-2">
+                                            <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">Custom Magic Buffs</label>
+                                            <button id="magic-custom-buffs-toggle" class="text-xs text-ffxi-text-dim hover:text-ffxi-text">
+                                                <span id="magic-custom-buffs-toggle-text">Show</span> ▼
+                                            </button>
+                                        </div>
+                                        <div id="magic-custom-buffs-panel" class="hidden bg-ffxi-dark rounded-lg p-3 space-y-3">
+                                            <p class="text-xs text-ffxi-text-dim">
+                                                Enter custom values for non-standard potencies (e.g., Idris GEO, lucky rolls).
+                                            </p>
+                                            
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">INT</label>
+                                                    <input type="number" id="magic-custom-int" class="input-field w-full text-sm" min="0" max="150" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">MND</label>
+                                                    <input type="number" id="magic-custom-mnd" class="input-field w-full text-sm" min="0" max="150" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Magic Attack</label>
+                                                    <input type="number" id="magic-custom-mab" class="input-field w-full text-sm" min="0" max="100" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Magic Accuracy</label>
+                                                    <input type="number" id="magic-custom-macc" class="input-field w-full text-sm" min="0" max="150" value="0" placeholder="0">
+                                                </div>
+                                                <div class="col-span-2">
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Magic Damage</label>
+                                                    <input type="number" id="magic-custom-mdmg" class="input-field w-full text-sm" min="0" max="50" value="0" placeholder="0">
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="flex justify-end">
+                                                <button id="magic-custom-buffs-clear" class="text-xs text-ffxi-red hover:text-red-400">
+                                                    Clear Custom Buffs
+                                                </button>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                                 
