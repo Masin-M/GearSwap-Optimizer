@@ -68,6 +68,23 @@ const AppState = {
         useSimulation: true,
     },
     
+    // Shared custom physical buffs (used by both TP and WS tabs)
+    customPhysicalBuffs: {
+        STR: 0,
+        DEX: 0,
+        VIT: 0,
+        AGI: 0,
+        attack: 0,
+        attack_pct: 0,
+        accuracy: 0,
+        magic_haste: 0,
+        store_tp: 0,
+        double_attack: 0,
+        triple_attack: 0,
+        crit_rate: 0,
+        pdl: 0,
+    },
+    
     // Magic state (already separate)
     magic: {
         selectedCategory: null,
@@ -80,12 +97,20 @@ const AppState = {
         target: 'apex_mob',
         beamWidth: 10000,
         buffs: {
+            brd: [],
             geo: [],
             cor: [],
             sch: [],
             food: null,
         },
         debuffs: [],
+        customBuffs: {
+            INT: 0,
+            MND: 0,
+            magic_attack: 0,
+            magic_accuracy: 0,
+            magic_damage: 0,
+        },
     },
     
     // Magic caches
@@ -831,6 +856,9 @@ function setupEventListeners() {
     setupTabBuffSelectors('tp');
     setupTabBuffSelectors('ws');
     
+    // Setup custom buff panels
+    setupCustomBuffPanels();
+    
     // WS Simulation toggle
     const wsSimToggle = document.getElementById('ws-use-simulation');
     if (wsSimToggle) {
@@ -1054,6 +1082,212 @@ function removeTabDebuffFromList(tabPrefix, debuffName) {
     const escapedName = CSS.escape(debuffName);
     const item = list?.querySelector(`[data-debuff-name="${escapedName}"]`);
     if (item) item.remove();
+}
+
+// =============================================================================
+// CUSTOM BUFF PANELS
+// =============================================================================
+
+function setupCustomBuffPanels() {
+    // Setup toggle buttons for TP and WS tabs
+    ['tp', 'ws'].forEach(tabPrefix => {
+        const toggleBtn = document.getElementById(`${tabPrefix}-custom-buffs-toggle`);
+        const panel = document.getElementById(`${tabPrefix}-custom-buffs-panel`);
+        const toggleText = document.getElementById(`${tabPrefix}-custom-buffs-toggle-text`);
+        
+        if (toggleBtn && panel && toggleText) {
+            toggleBtn.addEventListener('click', () => {
+                panel.classList.toggle('hidden');
+                toggleText.textContent = panel.classList.contains('hidden') ? 'Show' : 'Hide';
+            });
+        }
+        
+        // Setup clear button
+        const clearBtn = document.getElementById(`${tabPrefix}-custom-buffs-clear`);
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => {
+                clearPhysicalCustomBuffs();
+                syncPhysicalCustomBuffInputs();
+            });
+        }
+        
+        // Setup input handlers - these sync between TP and WS tabs
+        setupPhysicalCustomBuffInputs(tabPrefix);
+    });
+    
+    // Setup magic custom buffs panel
+    const magicToggleBtn = document.getElementById('magic-custom-buffs-toggle');
+    const magicPanel = document.getElementById('magic-custom-buffs-panel');
+    const magicToggleText = document.getElementById('magic-custom-buffs-toggle-text');
+    
+    if (magicToggleBtn && magicPanel && magicToggleText) {
+        magicToggleBtn.addEventListener('click', () => {
+            magicPanel.classList.toggle('hidden');
+            magicToggleText.textContent = magicPanel.classList.contains('hidden') ? 'Show' : 'Hide';
+        });
+    }
+    
+    // Magic custom buffs clear button
+    const magicClearBtn = document.getElementById('magic-custom-buffs-clear');
+    if (magicClearBtn) {
+        magicClearBtn.addEventListener('click', () => {
+            clearMagicCustomBuffs();
+            syncMagicCustomBuffInputs();
+        });
+    }
+    
+    // Magic custom buff inputs
+    setupMagicCustomBuffInputs();
+}
+
+function setupPhysicalCustomBuffInputs(tabPrefix) {
+    const inputMappings = [
+        { id: `${tabPrefix}-custom-str`, stat: 'STR' },
+        { id: `${tabPrefix}-custom-dex`, stat: 'DEX' },
+        { id: `${tabPrefix}-custom-vit`, stat: 'VIT' },
+        { id: `${tabPrefix}-custom-agi`, stat: 'AGI' },
+        { id: `${tabPrefix}-custom-attack`, stat: 'attack' },
+        { id: `${tabPrefix}-custom-attack-pct`, stat: 'attack_pct' },
+        { id: `${tabPrefix}-custom-accuracy`, stat: 'accuracy' },
+        { id: `${tabPrefix}-custom-haste`, stat: 'magic_haste' },
+        { id: `${tabPrefix}-custom-stp`, stat: 'store_tp' },
+        { id: `${tabPrefix}-custom-da`, stat: 'double_attack' },
+        { id: `${tabPrefix}-custom-ta`, stat: 'triple_attack' },
+        { id: `${tabPrefix}-custom-crit`, stat: 'crit_rate' },
+        { id: `${tabPrefix}-custom-pdl`, stat: 'pdl' },
+    ];
+    
+    inputMappings.forEach(({ id, stat }) => {
+        const input = document.getElementById(id);
+        if (input) {
+            input.addEventListener('change', (e) => {
+                const value = parseFloat(e.target.value) || 0;
+                // Clamp to max value from input's max attribute
+                const max = parseFloat(input.max) || 999;
+                const clampedValue = Math.min(Math.max(0, value), max);
+                e.target.value = clampedValue;
+                
+                // Update shared state
+                AppState.customPhysicalBuffs[stat] = clampedValue;
+                
+                // Sync to other tab
+                const otherTab = tabPrefix === 'tp' ? 'ws' : 'tp';
+                const otherInput = document.getElementById(`${otherTab}-custom-${id.split('-custom-')[1]}`);
+                if (otherInput) {
+                    otherInput.value = clampedValue;
+                }
+            });
+        }
+    });
+}
+
+function setupMagicCustomBuffInputs() {
+    const inputMappings = [
+        { id: 'magic-custom-int', stat: 'INT' },
+        { id: 'magic-custom-mnd', stat: 'MND' },
+        { id: 'magic-custom-mab', stat: 'magic_attack' },
+        { id: 'magic-custom-macc', stat: 'magic_accuracy' },
+        { id: 'magic-custom-mdmg', stat: 'magic_damage' },
+    ];
+    
+    inputMappings.forEach(({ id, stat }) => {
+        const input = document.getElementById(id);
+        if (input) {
+            input.addEventListener('change', (e) => {
+                const value = parseFloat(e.target.value) || 0;
+                const max = parseFloat(input.max) || 999;
+                const clampedValue = Math.min(Math.max(0, value), max);
+                e.target.value = clampedValue;
+                
+                AppState.magic.customBuffs[stat] = clampedValue;
+            });
+        }
+    });
+}
+
+function clearPhysicalCustomBuffs() {
+    AppState.customPhysicalBuffs = {
+        STR: 0, DEX: 0, VIT: 0, AGI: 0,
+        attack: 0, attack_pct: 0, accuracy: 0,
+        magic_haste: 0, store_tp: 0,
+        double_attack: 0, triple_attack: 0,
+        crit_rate: 0, pdl: 0,
+    };
+}
+
+function clearMagicCustomBuffs() {
+    AppState.magic.customBuffs = {
+        INT: 0, MND: 0,
+        magic_attack: 0, magic_accuracy: 0,
+        magic_damage: 0,
+    };
+}
+
+function syncPhysicalCustomBuffInputs() {
+    // Sync state to all physical custom buff inputs (both TP and WS tabs)
+    ['tp', 'ws'].forEach(tabPrefix => {
+        const inputMappings = [
+            { id: `${tabPrefix}-custom-str`, stat: 'STR' },
+            { id: `${tabPrefix}-custom-dex`, stat: 'DEX' },
+            { id: `${tabPrefix}-custom-vit`, stat: 'VIT' },
+            { id: `${tabPrefix}-custom-agi`, stat: 'AGI' },
+            { id: `${tabPrefix}-custom-attack`, stat: 'attack' },
+            { id: `${tabPrefix}-custom-attack-pct`, stat: 'attack_pct' },
+            { id: `${tabPrefix}-custom-accuracy`, stat: 'accuracy' },
+            { id: `${tabPrefix}-custom-haste`, stat: 'magic_haste' },
+            { id: `${tabPrefix}-custom-stp`, stat: 'store_tp' },
+            { id: `${tabPrefix}-custom-da`, stat: 'double_attack' },
+            { id: `${tabPrefix}-custom-ta`, stat: 'triple_attack' },
+            { id: `${tabPrefix}-custom-crit`, stat: 'crit_rate' },
+            { id: `${tabPrefix}-custom-pdl`, stat: 'pdl' },
+        ];
+        
+        inputMappings.forEach(({ id, stat }) => {
+            const input = document.getElementById(id);
+            if (input) {
+                input.value = AppState.customPhysicalBuffs[stat] || 0;
+            }
+        });
+    });
+}
+
+function syncMagicCustomBuffInputs() {
+    const inputMappings = [
+        { id: 'magic-custom-int', stat: 'INT' },
+        { id: 'magic-custom-mnd', stat: 'MND' },
+        { id: 'magic-custom-mab', stat: 'magic_attack' },
+        { id: 'magic-custom-macc', stat: 'magic_accuracy' },
+        { id: 'magic-custom-mdmg', stat: 'magic_damage' },
+    ];
+    
+    inputMappings.forEach(({ id, stat }) => {
+        const input = document.getElementById(id);
+        if (input) {
+            input.value = AppState.magic.customBuffs[stat] || 0;
+        }
+    });
+}
+
+function getPhysicalCustomBuffsForPayload() {
+    // Only return non-zero values
+    const nonZero = {};
+    for (const [key, value] of Object.entries(AppState.customPhysicalBuffs)) {
+        if (value !== 0) {
+            nonZero[key] = value;
+        }
+    }
+    return Object.keys(nonZero).length > 0 ? nonZero : null;
+}
+
+function getMagicCustomBuffsForPayload() {
+    // Only return non-zero values
+    const nonZero = {};
+    for (const [key, value] of Object.entries(AppState.magic.customBuffs)) {
+        if (value !== 0) {
+            nonZero[key] = value;
+        }
+    }
+    return Object.keys(nonZero).length > 0 ? nonZero : null;
 }
 
 function toggleStatsPanel() {
@@ -1548,6 +1782,13 @@ async function runTPOptimization() {
     showToast('Running TP optimization...', 'info');
     showOptimizationProgress();
     
+    // Build buffs object with custom buffs if set
+    const buffs = { ...AppState.tp.buffs };
+    const customBuffs = getPhysicalCustomBuffsForPayload();
+    if (customBuffs) {
+        buffs.custom = customBuffs;
+    }
+    
     try {
         const result = await API.optimizeTP({
             job: AppState.selectedJob,
@@ -1559,7 +1800,7 @@ async function runTPOptimization() {
             use_simulation: true,
             beam_width: 10,
             master_level: AppState.masterLevel,
-            buffs: AppState.tp.buffs,
+            buffs: buffs,
             abilities: AppState.tp.abilities,
             food: AppState.tp.food,
             debuffs: AppState.tp.debuffs,
@@ -1592,6 +1833,13 @@ async function runWSOptimization() {
     // Get TP level from slider
     const tpLevel = parseInt(document.getElementById('ws-tp-level')?.value || 1000);
     
+    // Build buffs object with custom buffs if set
+    const buffs = { ...AppState.ws.buffs };
+    const customBuffs = getPhysicalCustomBuffsForPayload();
+    if (customBuffs) {
+        buffs.custom = customBuffs;
+    }
+    
     try {
         const result = await API.optimizeWS({
             job: AppState.selectedJob,
@@ -1604,7 +1852,7 @@ async function runWSOptimization() {
             beam_width: 10,
             master_level: AppState.masterLevel,
             min_tp: tpLevel,
-            buffs: AppState.ws.buffs,
+            buffs: buffs,
             abilities: AppState.ws.abilities,
             food: AppState.ws.food,
             debuffs: AppState.ws.debuffs,
@@ -2148,12 +2396,30 @@ async function calculateAndDisplayStats(result) {
     }
     
     try {
+        // Build buffs object, including custom buffs
+        let buffs = { ...tabState.buffs };
+        
+        // Add custom buffs based on current tab
+        if (AppState.currentTab === 'magic') {
+            // Magic tab uses magic custom buffs
+            const magicCustomBuffs = getMagicCustomBuffsForPayload();
+            if (magicCustomBuffs) {
+                buffs.custom = magicCustomBuffs;
+            }
+        } else {
+            // TP/WS tabs use physical custom buffs
+            const physicalCustomBuffs = getPhysicalCustomBuffsForPayload();
+            if (physicalCustomBuffs) {
+                buffs.custom = physicalCustomBuffs;
+            }
+        }
+        
         const requestPayload = {
             job: AppState.selectedJob,
             sub_job: AppState.selectedSubJob || 'war',
             master_level: AppState.masterLevel,
             gearset: gearset,
-            buffs: tabState.buffs,
+            buffs: buffs,
             abilities: tabState.abilities,
             food: tabState.food,
             target: tabState.target,
@@ -2790,6 +3056,7 @@ function addMagicBuffToUI(category, buffName) {
     item.dataset.buffName = buffName;
     
     const categoryLabel = {
+        'brd': 'BRD',
         'geo': 'GEO',
         'cor': 'COR',
         'sch': 'SCH',
@@ -2901,6 +3168,7 @@ async function runMagicOptimization() {
     
     // Build buffs object for API
     const buffs = {
+        brd: AppState.magic.buffs.brd || [],
         geo: AppState.magic.buffs.geo || [],
         cor: AppState.magic.buffs.cor || [],
         sch: AppState.magic.buffs.sch || [],
@@ -2908,6 +3176,12 @@ async function runMagicOptimization() {
     
     if (AppState.magic.buffs.food) {
         buffs.food = AppState.magic.buffs.food;
+    }
+    
+    // Add custom magic buffs if set
+    const customBuffs = getMagicCustomBuffsForPayload();
+    if (customBuffs) {
+        buffs.custom = customBuffs;
     }
     
     // Build request payload
@@ -3108,123 +3382,104 @@ function displayMagicStats(gearset, fullResult) {
     if (!gearset || !gearset.stats) return;
     
     const stats = gearset.stats;
+    const statsContent = document.getElementById('stats-content');
     
-    // Helper function to safely set text content
-    function setStatText(elementId, value) {
-        const el = document.getElementById(elementId);
-        if (el) {
-            el.textContent = value;
-        }
+    if (!statsContent) {
+        console.warn('stats-content element not found');
+        return;
     }
     
-    // Update header
+    // Build magic-specific stats panel
     const mlText = AppState.masterLevel > 0 ? ` ML${AppState.masterLevel}` : '';
-    setStatText('stats-job-info', `${AppState.selectedJob || 'BLM'}${mlText}/${AppState.selectedSubJob || 'RDM'}`);
+    const spellName = fullResult?.spell_name || 'Magic';
+    const isBurst = fullResult?.magic_burst;
     
-    // Hide JP status for magic (or show it if we have magic JP data)
-    const jpStatus = document.getElementById('stats-jp-status');
-    if (jpStatus) {
-        jpStatus.classList.add('hidden');
-    }
-    
-    // Primary stats - show INT and MND prominently for magic
-    setStatText('stat-str', '-');
-    setStatText('stat-dex', '-');
-    setStatText('stat-vit', '-');
-    setStatText('stat-agi', '-');
-    setStatText('stat-int', stats.INT || 0);
-    setStatText('stat-mnd', stats.MND || 0);
-    setStatText('stat-chr', '-');
-    setStatText('stat-stp', '-');
-    
-    // Hide melee speed stats for magic
-    setStatText('stat-gear-haste', '-');
-    setStatText('stat-dw', '-');
-    setStatText('stat-da', '-');
-    setStatText('stat-ta', '-');
-    setStatText('stat-qa', '-');
-    
-    // Hide melee offensive stats
-    setStatText('stat-acc', '-');
-    setStatText('stat-atk', '-');
-    setStatText('stat-crit-rate', '-');
-    setStatText('stat-crit-dmg', '-');
-    setStatText('stat-wsd', '-');
-    setStatText('stat-pdl', '-');
-    
-    // Show magic stats in the accuracy breakdown section (repurpose it)
-    const accBreakdownSection = document.getElementById('acc-breakdown-section');
-    if (accBreakdownSection) {
-        // Replace melee accuracy section with magic stats
-        accBreakdownSection.innerHTML = `
-            <h4 class="text-xs uppercase tracking-wider text-ffxi-accent mb-2">✨ Magic Stats - ${fullResult?.spell_name || 'Magic'}</h4>
-            
-            <div class="space-y-2">
-                <div class="text-xs">
-                    <div class="text-ffxi-text-dim mb-1">Magic Offense</div>
-                    <div class="space-y-0.5 pl-2">
-                        <div class="flex justify-between">
-                            <span class="text-ffxi-text-dim">Magic Attack Bonus</span>
-                            <span class="text-ffxi-text font-medium">${stats.magic_attack || 0}</span>
-                        </div>
-                        <div class="flex justify-between">
-                            <span class="text-ffxi-text-dim">Magic Damage</span>
-                            <span class="text-ffxi-text font-medium">${stats.magic_damage || 0}</span>
-                        </div>
-                        <div class="flex justify-between">
-                            <span class="text-ffxi-text-dim">Magic Accuracy</span>
-                            <span class="text-ffxi-text font-medium">${stats.magic_accuracy || 0}</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="text-xs">
-                    <div class="text-ffxi-text-dim mb-1">Magic Burst</div>
-                    <div class="space-y-0.5 pl-2">
-                        <div class="flex justify-between">
-                            <span class="text-ffxi-text-dim">MBB (gear, caps at 40%)</span>
-                            <span class="text-ffxi-text font-medium">${stats.magic_burst_bonus || 0}%</span>
-                        </div>
-                        <div class="flex justify-between">
-                            <span class="text-ffxi-text-dim">MBB II (uncapped)</span>
-                            <span class="text-ffxi-text font-medium">${stats.magic_burst_damage_ii || 0}%</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="text-xs">
-                    <div class="text-ffxi-text-dim mb-1">Magic Skills</div>
-                    <div class="space-y-0.5 pl-2">
-                        <div class="flex justify-between">
-                            <span class="text-ffxi-text-dim">Elemental Magic</span>
-                            <span class="text-ffxi-text font-medium">${stats.elemental_magic_skill || 0}</span>
-                        </div>
-                        <div class="flex justify-between">
-                            <span class="text-ffxi-text-dim">Dark Magic</span>
-                            <span class="text-ffxi-text font-medium">${stats.dark_magic_skill || 0}</span>
-                        </div>
-                        <div class="flex justify-between">
-                            <span class="text-ffxi-text-dim">Enfeebling Magic</span>
-                            <span class="text-ffxi-text font-medium">${stats.enfeebling_magic_skill || 0}</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="text-xs">
-                    <div class="flex justify-between">
-                        <span class="text-ffxi-text-dim">Fast Cast</span>
-                        <span class="text-ffxi-text font-medium">${stats.fast_cast || 0}%</span>
-                    </div>
-                </div>
-                
-                ${fullResult?.magic_burst ? `
-                <div class="text-center py-1 rounded text-xs font-medium bg-ffxi-purple/20 text-ffxi-purple mt-2">
-                    ✨ Magic Burst Set
-                </div>
-                ` : ''}
+    statsContent.innerHTML = `
+        <div class="text-xs space-y-3">
+            <!-- Header -->
+            <div class="flex justify-between items-center">
+                <span class="text-ffxi-accent font-medium">${AppState.selectedJob || 'BLM'}${mlText}/${AppState.selectedSubJob || 'RDM'}</span>
+                <span class="text-ffxi-purple text-xs">✨ Magic</span>
             </div>
-        `;
-    }
+            
+            <!-- Primary Stats (INT/MND focused) -->
+            <div class="border-t border-ffxi-border pt-2">
+                <div class="text-ffxi-text-dim mb-1 font-medium">Primary Stats</div>
+                <div class="grid grid-cols-4 gap-1">
+                    <div class="flex justify-between bg-ffxi-purple/10 px-1 rounded"><span class="text-ffxi-text-dim">INT</span><span class="text-ffxi-purple font-medium">${stats.INT || 0}</span></div>
+                    <div class="flex justify-between bg-ffxi-purple/10 px-1 rounded"><span class="text-ffxi-text-dim">MND</span><span class="text-ffxi-purple font-medium">${stats.MND || 0}</span></div>
+                    <div class="flex justify-between"><span class="text-ffxi-text-dim">STR</span><span class="text-ffxi-text">${stats.STR || 0}</span></div>
+                    <div class="flex justify-between"><span class="text-ffxi-text-dim">DEX</span><span class="text-ffxi-text">${stats.DEX || 0}</span></div>
+                    <div class="flex justify-between"><span class="text-ffxi-text-dim">VIT</span><span class="text-ffxi-text">${stats.VIT || 0}</span></div>
+                    <div class="flex justify-between"><span class="text-ffxi-text-dim">AGI</span><span class="text-ffxi-text">${stats.AGI || 0}</span></div>
+                    <div class="flex justify-between"><span class="text-ffxi-text-dim">CHR</span><span class="text-ffxi-text">${stats.CHR || 0}</span></div>
+                </div>
+            </div>
+            
+            <!-- Magic Offense -->
+            <div class="border-t border-ffxi-border pt-2">
+                <div class="text-ffxi-text-dim mb-1 font-medium">Magic Offense</div>
+                <div class="grid grid-cols-2 gap-1">
+                    <div class="flex justify-between"><span class="text-ffxi-text-dim">M.Atk Bonus</span><span class="text-ffxi-text">${stats.magic_attack || 0}</span></div>
+                    <div class="flex justify-between"><span class="text-ffxi-text-dim">M.Damage</span><span class="text-ffxi-text">${stats.magic_damage || 0}</span></div>
+                    <div class="flex justify-between"><span class="text-ffxi-text-dim">M.Accuracy</span><span class="text-ffxi-text">${stats.magic_accuracy || 0}</span></div>
+                    <div class="flex justify-between"><span class="text-ffxi-text-dim">Fast Cast</span><span class="text-ffxi-text">${stats.fast_cast || 0}%</span></div>
+                </div>
+            </div>
+            
+            <!-- Magic Burst -->
+            <div class="border-t border-ffxi-border pt-2">
+                <div class="text-ffxi-text-dim mb-1 font-medium">Magic Burst</div>
+                <div class="grid grid-cols-2 gap-1">
+                    <div class="flex justify-between"><span class="text-ffxi-text-dim">MBB (cap 40%)</span><span class="text-ffxi-text">${stats.magic_burst_bonus || 0}%</span></div>
+                    <div class="flex justify-between"><span class="text-ffxi-text-dim">MBB II</span><span class="text-ffxi-text">${stats.magic_burst_damage_ii || 0}%</span></div>
+                </div>
+            </div>
+            
+            <!-- Magic Skills -->
+            <div class="border-t border-ffxi-border pt-2">
+                <div class="text-ffxi-text-dim mb-1 font-medium">Magic Skills</div>
+                <div class="grid grid-cols-2 gap-1">
+                    <div class="flex justify-between"><span class="text-ffxi-text-dim">Elemental</span><span class="text-ffxi-text">${stats.elemental_magic_skill || 0}</span></div>
+                    <div class="flex justify-between"><span class="text-ffxi-text-dim">Dark</span><span class="text-ffxi-text">${stats.dark_magic_skill || 0}</span></div>
+                    <div class="flex justify-between"><span class="text-ffxi-text-dim">Enfeebling</span><span class="text-ffxi-text">${stats.enfeebling_magic_skill || 0}</span></div>
+                    <div class="flex justify-between"><span class="text-ffxi-text-dim">Enhancing</span><span class="text-ffxi-text">${stats.enhancing_magic_skill || 0}</span></div>
+                    <div class="flex justify-between"><span class="text-ffxi-text-dim">Healing</span><span class="text-ffxi-text">${stats.healing_magic_skill || 0}</span></div>
+                    <div class="flex justify-between"><span class="text-ffxi-text-dim">Divine</span><span class="text-ffxi-text">${stats.divine_magic_skill || 0}</span></div>
+                </div>
+            </div>
+            
+            <!-- Spell Info -->
+            <div class="border-t border-ffxi-border pt-2">
+                <div class="text-ffxi-text-dim mb-1 font-medium">✨ ${spellName}</div>
+                <div class="space-y-1">
+                    ${isBurst ? `
+                    <div class="text-center py-1 rounded text-xs font-medium bg-ffxi-purple/20 text-ffxi-purple">
+                        ✨ Magic Burst Set
+                    </div>
+                    ` : `
+                    <div class="text-center py-1 rounded text-xs font-medium bg-ffxi-blue/20 text-ffxi-blue">
+                        Free Nuke Set
+                    </div>
+                    `}
+                    ${gearset.damage ? `
+                    <div class="flex justify-between mt-2">
+                        <span class="text-ffxi-text-dim">Expected Damage</span>
+                        <span class="text-ffxi-accent font-bold">${Math.round(gearset.damage).toLocaleString()}</span>
+                    </div>
+                    ` : ''}
+                    ${gearset.hit_rate !== undefined ? `
+                    <div class="flex justify-between">
+                        <span class="text-ffxi-text-dim">Unresisted Rate</span>
+                        <span class="text-ffxi-text">${(gearset.hit_rate * 100).toFixed(1)}%</span>
+                    </div>
+                    ` : ''}
+                </div>
+            </div>
+        </div>
+    `;
+    
+    console.log('displayMagicStats completed successfully');
 }
 
 
