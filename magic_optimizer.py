@@ -968,6 +968,7 @@ def evaluate_magic_damage(
         caster.mnd_stat += buff_bonuses.get("MND", 0)
         caster.mab += buff_bonuses.get("magic_attack", 0)
         caster.magic_accuracy += buff_bonuses.get("magic_accuracy", 0)
+        caster.magic_damage += buff_bonuses.get("magic_damage", 0)
     
     # Run simulation
     sim = MagicSimulator(seed=42)
@@ -1127,6 +1128,7 @@ def evaluate_magic_potency(
         caster.mnd_stat += buff_bonuses.get("MND", 0)
         caster.mab += buff_bonuses.get("magic_attack", 0)
         caster.magic_accuracy += buff_bonuses.get("magic_accuracy", 0)
+        caster.magic_damage += buff_bonuses.get("magic_damage", 0)
     
     # Create simulator
     sim = MagicSimulator(seed=42)

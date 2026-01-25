@@ -522,6 +522,7 @@ def run_dt_optimization(
     master_level: int = 0,
     sub_job: str = "war",
     job_gifts: Optional[Any] = None,
+    custom_buffs: Optional[Dict[str, Any]] = None,
 ) -> List[Tuple[Any, Dict]]:
     """
     Run DT set optimization.
@@ -540,6 +541,7 @@ def run_dt_optimization(
         master_level: Master level (0-50)
         sub_job: Sub job for TP calculation
         job_gifts: Optional job gifts
+        custom_buffs: Optional custom buff stats to apply to player
         
     Returns:
         List of (candidate, metrics) tuples sorted appropriately
@@ -694,6 +696,7 @@ def run_dt_optimization(
                         abilities=abilities,
                         job_gifts=job_gifts,
                         master_level=master_level,
+                        custom_buffs=custom_buffs,
                     )
                     
                     # print(f"TP simulation result: time_to_ws={tp_metrics.get('time_to_ws')}, tp_per_round={tp_metrics.get('tp_per_round')}")
@@ -997,23 +1000,25 @@ def convert_ui_buffs_to_wsdist(
     abilities: List[str],
     food: str,
     debuffs: List[str],
-) -> Tuple[Dict[str, Dict], Dict[str, bool], Dict]:
+) -> Tuple[Dict[str, Dict], Dict[str, bool], Dict, Dict[str, Any]]:
     """
     Convert UI-format buffs to wsdist format.
     
     Args:
-        ui_buffs: {"brd": ["Minuet V", "Honor March"], "cor": [...], ...}
+        ui_buffs: {"brd": ["Minuet V", "Honor March"], "cor": [...], "custom": {...}, ...}
         abilities: ["Berserk", "Hasso", ...]
         food: "Grape Daifuku"
         debuffs: ["Dia III", "Geo-Frailty", ...]
     
     Returns:
-        (buffs_dict, abilities_dict, debuffs_info) where:
+        (buffs_dict, abilities_dict, debuffs_info, custom_buffs) where:
         - buffs_dict: wsdist format {"BRD": {"Attack": 280, ...}, ...}
         - abilities_dict: {"Berserk": True, ...}
         - debuffs_info: {"defense_down_pct": 0.35, "evasion_down": 50, ...}
+        - custom_buffs: Custom buff stats to apply directly to player
     """
     buffs_dict = {}
+    custom_buffs = {}
     
     # Process food
     if food and food in BUFF_DEFINITIONS.get("food", {}):
@@ -1107,6 +1112,50 @@ def convert_ui_buffs_to_wsdist(
                     whm_stats[stat] += w.get(stat, 0)
         buffs_dict["WHM"] = whm_stats
     
+    # Extract custom physical buffs (user-entered values)
+    # These are returned separately to be applied after player creation
+    if "custom" in ui_buffs:
+        raw_custom = ui_buffs["custom"]
+        print(f"[DEBUG] Raw custom buffs received: {raw_custom} (type: {type(raw_custom).__name__})")
+        
+        if isinstance(raw_custom, dict):
+            custom = raw_custom
+            # Only include non-zero values
+            if custom.get("STR", 0):
+                custom_buffs["STR"] = custom["STR"]
+            if custom.get("DEX", 0):
+                custom_buffs["DEX"] = custom["DEX"]
+            if custom.get("VIT", 0):
+                custom_buffs["VIT"] = custom["VIT"]
+            if custom.get("AGI", 0):
+                custom_buffs["AGI"] = custom["AGI"]
+            if custom.get("attack", 0):
+                custom_buffs["attack"] = custom["attack"]
+            if custom.get("ranged_attack", 0):
+                custom_buffs["ranged_attack"] = custom["ranged_attack"]
+            if custom.get("accuracy", 0):
+                custom_buffs["accuracy"] = custom["accuracy"]
+            if custom.get("ranged_accuracy", 0):
+                custom_buffs["ranged_accuracy"] = custom["ranged_accuracy"]
+            if custom.get("attack_pct", 0):
+                custom_buffs["attack_pct"] = custom["attack_pct"]
+            if custom.get("magic_haste", 0):
+                custom_buffs["magic_haste"] = custom["magic_haste"]
+            if custom.get("store_tp", 0):
+                custom_buffs["store_tp"] = custom["store_tp"]
+            if custom.get("double_attack", 0):
+                custom_buffs["double_attack"] = custom["double_attack"]
+            if custom.get("triple_attack", 0):
+                custom_buffs["triple_attack"] = custom["triple_attack"]
+            if custom.get("crit_rate", 0):
+                custom_buffs["crit_rate"] = custom["crit_rate"]
+            if custom.get("pdl", 0):
+                custom_buffs["pdl"] = custom["pdl"]
+            
+            print(f"[DEBUG] Parsed custom_buffs: {custom_buffs}")
+        else:
+            print(f"[DEBUG] WARNING: custom buffs is not a dict, ignoring. Value: {raw_custom}")
+    
     # Build abilities dict
     abilities_dict = {}
     for ability in abilities:
@@ -1131,7 +1180,7 @@ def convert_ui_buffs_to_wsdist(
     # Cap defense down at 50%
     debuffs_info["defense_down_pct"] = min(debuffs_info["defense_down_pct"], 0.5)
     
-    return buffs_dict, abilities_dict, debuffs_info
+    return buffs_dict, abilities_dict, debuffs_info, custom_buffs
 
 
 # =============================================================================
@@ -1970,7 +2019,7 @@ async def optimize_ws(request: OptimizeRequest):
         
         # Get job gifts and prepare buffs/target
         job_gifts = get_job_gifts_for_job(request.job)
-        buffs_dict, abilities_dict, debuffs_info = convert_ui_buffs_to_wsdist(
+        buffs_dict, abilities_dict, debuffs_info, custom_buffs = convert_ui_buffs_to_wsdist(
             ui_buffs=request.buffs,
             abilities=request.abilities,
             food=request.food,
@@ -1993,6 +2042,7 @@ async def optimize_ws(request: OptimizeRequest):
             tp=request.min_tp,
             master_level=request.master_level,
             sub_job=request.sub_job,
+            custom_buffs=custom_buffs if custom_buffs else None,
         )
         
         # Format results
@@ -2049,7 +2099,7 @@ async def optimize_tp(request: OptimizeRequest):
         
         # Get job gifts and prepare buffs/target
         job_gifts = get_job_gifts_for_job(request.job)
-        buffs_dict, abilities_dict, debuffs_info = convert_ui_buffs_to_wsdist(
+        buffs_dict, abilities_dict, debuffs_info, custom_buffs = convert_ui_buffs_to_wsdist(
             ui_buffs=request.buffs,
             abilities=request.abilities,
             food=request.food,
@@ -2071,6 +2121,7 @@ async def optimize_tp(request: OptimizeRequest):
             target_data=target_data,
             master_level=request.master_level,
             sub_job=request.sub_job,
+            custom_buffs=custom_buffs if custom_buffs else None,
         )
         
         # Format results
@@ -2214,9 +2265,10 @@ async def optimize_dt(request: DTOptimizeRequest):
         buffs_dict = {}
         abilities_dict = {}
         debuffs_info = {"defense_down_pct": 0, "evasion_down": 0}
+        custom_buffs = {}
         
         if request.buffs or request.abilities or request.food or request.debuffs:
-            buffs_dict, abilities_dict, debuffs_info = convert_ui_buffs_to_wsdist(
+            buffs_dict, abilities_dict, debuffs_info, custom_buffs = convert_ui_buffs_to_wsdist(
                 ui_buffs=request.buffs,
                 abilities=request.abilities,
                 food=request.food,
@@ -2244,6 +2296,7 @@ async def optimize_dt(request: DTOptimizeRequest):
             master_level=request.master_level,
             sub_job=request.sub_job,
             job_gifts=job_gifts,
+            custom_buffs=custom_buffs if custom_buffs else None,
         )
         
         # Format results
@@ -2285,6 +2338,44 @@ async def optimize_dt(request: DTOptimizeRequest):
             results=[],
             error=f"{str(e)}\n{traceback.format_exc()}"
         )
+
+
+# =============================================================================
+# Custom Buff Caps (for user-entered values)
+# =============================================================================
+# These are the maximum values users can enter for custom buffs.
+# All values are entered as whole numbers or percentages (NOT decimals).
+# Example: attack_pct of 31.25 means 31.25% attack bonus.
+# The conversion to wsdist's decimal format (0.3125) happens in apply_custom_buffs_to_player.
+
+CUSTOM_BUFF_CAPS = {
+    # Physical custom buffs
+    "physical": {
+        "STR": 150,
+        "DEX": 150,
+        "VIT": 150,
+        "AGI": 150,
+        "attack": 500,               # Flat attack bonus
+        "attack_pct": 100,           # Attack% as percentage (31.25 = 31.25% bonus, like Chaos Roll XI)
+        "accuracy": 200,
+        "ranged_attack": 500,
+        "ranged_accuracy": 200,
+        "magic_haste": 43.75,        # Magic haste cap, entered as percentage (30 = 30% haste)
+        "double_attack": 50,         # DA percentage (15 = 15% DA)
+        "triple_attack": 30,         # TA percentage
+        "store_tp": 100,             # Store TP flat bonus
+        "crit_rate": 50,             # Crit rate percentage
+        "pdl": 30,                   # Physical Damage Limit percentage
+    },
+    # Magic custom buffs
+    "magic": {
+        "INT": 150,
+        "MND": 150,
+        "magic_attack": 100,         # MAB percentage
+        "magic_accuracy": 150,
+        "magic_damage": 50,          # Flat magic damage
+    },
+}
 
 
 # =============================================================================
@@ -2415,6 +2506,13 @@ DEBUFF_DEFINITIONS = {
 # =============================================================================
 
 MAGIC_BUFF_ADDITIONS = {
+    # BRD magic songs (etudes for mages)
+    "brd_magic": {
+        "Sage Etude": {"INT": 15},
+        "Logical Etude": {"MND": 15},
+        "Learned Etude": {"INT": 10},
+        "Spirited Etude": {"MND": 10},
+    },
     # COR magic rolls
     "cor_magic": {
         "Wizard's Roll XI": {"magic_attack": 50},
@@ -2475,12 +2573,18 @@ async def get_full_buffs():
     }
 
 
+@app.get("/api/buffs/custom-caps")
+async def get_custom_buff_caps():
+    """Get the caps for custom buff inputs."""
+    return CUSTOM_BUFF_CAPS
+
+
 class StatsRequest(BaseModel):
     job: str
     sub_job: str = "war"
     master_level: int = 0
     gearset: Dict[str, Dict[str, Any]]
-    buffs: Dict[str, List[str]] = {}  # {"brd": ["Minuet V", "Honor March"], ...}
+    buffs: Dict[str, Any] = {}  # {"brd": ["Minuet V"], "custom": {"STR": 25, "attack_pct": 31.25}}
     abilities: List[str] = []
     food: str = ""
     target: str = "apex_toad"
@@ -2618,12 +2722,15 @@ async def calculate_stats(request: StatsRequest):
             wsdist_gearset[slot] = strip_gear_metadata(wsdist_gearset[slot])
         
         # Build buffs dict for wsdist using the convert function
-        buffs_dict, abilities_dict, _ = convert_ui_buffs_to_wsdist(
+        buffs_dict, abilities_dict, _, custom_buffs = convert_ui_buffs_to_wsdist(
             ui_buffs=request.buffs,
             abilities=request.abilities,
             food=request.food,
             debuffs=request.debuffs,
         )
+
+        if custom_buffs:
+            print(custom_buffs)
         
         # Create player
         player = create_player(
@@ -2649,6 +2756,23 @@ async def calculate_stats(request: StatsRequest):
             jg = state.job_gifts.gifts[request.job.upper()]
             jp_spent = jg.jp_spent
             apply_job_gifts_to_player(player, jg)
+        
+
+        player_keys = player.stats.keys()
+        init_values = list(player.stats.values())
+
+        print(f"Player stats before adding custom buffs:")
+        print(f"  Attack%: {player.stats.get('Attack%', 'N/A')}")
+        print(f"  Attack1: {player.stats.get('Attack1', 'N/A')}")
+        # Apply custom buffs after job gifts
+        if custom_buffs:
+            from optimizer_ui import apply_custom_buffs_to_player
+            apply_custom_buffs_to_player(player, custom_buffs)
+            print(f"Player stats after adding custom buffs:")
+            print(f"  Attack%: {player.stats.get('Attack%', 'N/A')}")
+            print(f"  Attack1: {player.stats.get('Attack1', 'N/A')}")
+            print(f"  Custom buffs applied: {custom_buffs}")
+
         
         # Get target for accuracy calculation
         target_data = TARGET_PRESETS.get(request.target, TARGET_PRESETS["apex_toad"]).copy()
@@ -2757,6 +2881,8 @@ async def calculate_stats(request: StatsRequest):
                 "accuracy2": int(player.stats.get("Accuracy2", 0)),
                 "attack": int(player.stats.get("Attack1", 0)),
                 "attack2": int(player.stats.get("Attack2", 0)),
+                # Attack% is a decimal multiplier (0.3125 = 31.25%), convert to basis points
+                "attack_pct": int(player.stats.get("Attack%", 0) * 10000),
                 # Crit Rate is an integer percent, multiply by 100 for basis points
                 "crit_rate": int(player.stats.get("Crit Rate", 0) * 100),
                 # Crit Damage is an integer percent
@@ -3546,6 +3672,7 @@ async def optimize_magic(request: MagicOptimizeRequest):
                 caster.mnd_stat += buff_bonuses.get("MND", 0)
                 caster.mab += buff_bonuses.get("magic_attack", 0)
                 caster.magic_accuracy += buff_bonuses.get("magic_accuracy", 0)
+                caster.magic_damage += buff_bonuses.get("magic_damage", 0)
             
             # Build stats summary with TOTAL values (job preset + gear + gifts)
             stats_summary = {
@@ -3769,6 +3896,7 @@ async def simulate_magic(request: MagicSimulateRequest):
         total_mnd += buff_bonuses.get("MND", 0)
         total_mab += buff_bonuses.get("magic_attack", 0)
         total_macc += buff_bonuses.get("magic_accuracy", 0)
+        total_mdmg += buff_bonuses.get("magic_damage", 0)
         
         # Apply percentage MAB if any (like Geo-Acumen)
         if buff_bonuses.get("magic_attack_pct", 0) > 0:
@@ -3966,6 +4094,7 @@ async def calculate_magic_stats(request: MagicStatsRequest):
         total_mnd += buff_bonuses.get("MND", 0)
         total_mab += buff_bonuses.get("magic_attack", 0)
         total_macc += buff_bonuses.get("magic_accuracy", 0)
+        total_mdmg += buff_bonuses.get("magic_damage", 0)
         
         # Get spell info if provided
         spell_info = None
@@ -4030,7 +4159,7 @@ def convert_magic_buffs_to_caster_stats(
     Convert UI-format magic buffs to stat bonuses.
     
     Args:
-        ui_buffs: {"geo": ["Geo-Acumen"], "cor": ["Wizard's Roll XI"], ...}
+        ui_buffs: {"geo": ["Geo-Acumen"], "cor": ["Wizard's Roll XI"], "brd": ["Sage Etude"], "custom": {...}}
         food: Food name
     
     Returns:
@@ -4041,7 +4170,16 @@ def convert_magic_buffs_to_caster_stats(
         "MND": 0,
         "magic_attack": 0,
         "magic_accuracy": 0,
+        "magic_damage": 0,
     }
+    
+    # Process BRD magic songs (etudes)
+    if "brd" in ui_buffs:
+        for buff in ui_buffs["brd"]:
+            if buff in MAGIC_BUFF_ADDITIONS.get("brd_magic", {}):
+                b = MAGIC_BUFF_ADDITIONS["brd_magic"][buff]
+                bonuses["INT"] += b.get("INT", 0)
+                bonuses["MND"] += b.get("MND", 0)
     
     # Process GEO magic buffs
     if "geo" in ui_buffs:
@@ -4068,6 +4206,15 @@ def convert_magic_buffs_to_caster_stats(
         bonuses["MND"] += f.get("MND", 0)
         bonuses["magic_attack"] += f.get("magic_attack", 0)
         bonuses["magic_accuracy"] += f.get("magic_accuracy", 0)
+    
+    # Process custom magic buffs (user-entered values)
+    if "custom" in ui_buffs and isinstance(ui_buffs["custom"], dict):
+        custom = ui_buffs["custom"]
+        bonuses["INT"] += custom.get("INT", 0)
+        bonuses["MND"] += custom.get("MND", 0)
+        bonuses["magic_attack"] += custom.get("magic_attack", 0)
+        bonuses["magic_accuracy"] += custom.get("magic_accuracy", 0)
+        bonuses["magic_damage"] += custom.get("magic_damage", 0)
     
     return bonuses
 

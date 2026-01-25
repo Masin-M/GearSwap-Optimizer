@@ -113,6 +113,106 @@ def strip_gear_metadata(gear_dict: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in gear_dict.items() if not k.startswith('_')}
 
 
+def apply_custom_buffs_to_player(player: Any, custom_buffs: Optional[Dict[str, Any]]) -> None:
+    """
+    Apply custom buff stats directly to a player object.
+    
+    This is similar to apply_job_gifts_to_player but for user-entered custom buffs.
+    Since wsdist's create_player doesn't understand a "Custom" buff source,
+    we apply these stats after player creation.
+    
+    Args:
+        player: Player object from create_player()
+        custom_buffs: Dict with stats like:
+            - STR, DEX, VIT, AGI (primary stats)
+            - attack, ranged_attack (flat attack bonuses)
+            - attack_pct (attack multiplier, e.g., 31.25 for 31.25%)
+            - accuracy, ranged_accuracy
+            - magic_haste (percentage, e.g., 30 for 30%)
+            - store_tp
+            - double_attack, triple_attack
+            - crit_rate
+            - pdl (physical damage limit)
+    """
+    if not custom_buffs:
+        return
+    
+    # Primary stats
+    if custom_buffs.get("STR", 0):
+        player.stats["STR"] = player.stats.get("STR", 0) + custom_buffs["STR"]
+    if custom_buffs.get("DEX", 0):
+        player.stats["DEX"] = player.stats.get("DEX", 0) + custom_buffs["DEX"]
+    if custom_buffs.get("VIT", 0):
+        player.stats["VIT"] = player.stats.get("VIT", 0) + custom_buffs["VIT"]
+    if custom_buffs.get("AGI", 0):
+        player.stats["AGI"] = player.stats.get("AGI", 0) + custom_buffs["AGI"]
+    
+    # Attack stats
+    if custom_buffs.get("attack", 0):
+        player.stats["Attack"] = player.stats.get("Attack", 0) + custom_buffs["attack"]
+        # Also add to base attack for proper calculation
+        player.stats["Attack1"] = player.stats.get("Attack1", 0) + custom_buffs["attack"]
+    if custom_buffs.get("ranged_attack", 0):
+        player.stats["Ranged Attack"] = player.stats.get("Ranged Attack", 0) + custom_buffs["ranged_attack"]
+    
+    # Attack% multiplier - must apply directly to Attack1/Attack2 since 
+    # create_player.finalize_stats() has already run and applied any existing Attack%
+    # Setting Attack% after player creation has no effect on damage calculations.
+    if custom_buffs.get("attack_pct", 0):
+        raw_value = custom_buffs["attack_pct"]
+        # Convert from percentage (23) to decimal (0.23)
+        attack_pct_decimal = raw_value / 100.0
+        
+        # Apply attack% bonus to Attack1 (main hand)
+        base_attack1 = player.stats.get("Attack1", 0)
+        if base_attack1:
+            attack_bonus1 = int(base_attack1 * attack_pct_decimal)
+            player.stats["Attack1"] = base_attack1 + attack_bonus1
+            print(f"[DEBUG] attack_pct: raw={raw_value}%, Attack1: {base_attack1} + {attack_bonus1} = {player.stats['Attack1']}")
+        
+        # Apply attack% bonus to Attack2 (off-hand) if dual wielding
+        base_attack2 = player.stats.get("Attack2", 0)
+        if base_attack2:
+            attack_bonus2 = int(base_attack2 * attack_pct_decimal)
+            player.stats["Attack2"] = base_attack2 + attack_bonus2
+            print(f"[DEBUG] attack_pct: Attack2: {base_attack2} + {attack_bonus2} = {player.stats['Attack2']}")
+        
+        # Also update Attack% for display/reference purposes
+        current_attack_pct = player.stats.get("Attack%", 0) or 0
+        player.stats["Attack%"] = current_attack_pct + attack_pct_decimal 
+    
+    # Accuracy stats
+    if custom_buffs.get("accuracy", 0):
+        player.stats["Accuracy"] = player.stats.get("Accuracy", 0) + custom_buffs["accuracy"]
+        player.stats["Accuracy1"] = player.stats.get("Accuracy1", 0) + custom_buffs["accuracy"]
+    if custom_buffs.get("ranged_accuracy", 0):
+        player.stats["Ranged Accuracy"] = player.stats.get("Ranged Accuracy", 0) + custom_buffs["ranged_accuracy"]
+    
+    # Magic Haste - wsdist uses fractional representation
+    if custom_buffs.get("magic_haste", 0):
+        # Convert from percentage (30) to fraction (0.30)
+        haste_fraction = custom_buffs["magic_haste"] / 100.0
+        player.stats["Magic Haste"] = player.stats.get("Magic Haste", 0) + haste_fraction
+    
+    # TP stats
+    if custom_buffs.get("store_tp", 0):
+        player.stats["Store TP"] = player.stats.get("Store TP", 0) + custom_buffs["store_tp"]
+    
+    # Multi-attack
+    if custom_buffs.get("double_attack", 0):
+        player.stats["DA"] = player.stats.get("DA", 0) + custom_buffs["double_attack"]
+    if custom_buffs.get("triple_attack", 0):
+        player.stats["TA"] = player.stats.get("TA", 0) + custom_buffs["triple_attack"]
+    
+    # Critical stats
+    if custom_buffs.get("crit_rate", 0):
+        player.stats["Crit Rate"] = player.stats.get("Crit Rate", 0) + custom_buffs["crit_rate"]
+    
+    # Physical Damage Limit
+    if custom_buffs.get("pdl", 0):
+        player.stats["PDL"] = player.stats.get("PDL", 0) + custom_buffs["pdl"]
+
+
 def build_stripped_gear_cache(
     item_pool: Dict[str, List[Dict[str, Any]]]
 ) -> Dict[Tuple[str, str], Dict[str, Any]]:
@@ -623,6 +723,7 @@ def simulate_ws(
     sub_job: str = "sam",
     job_gifts: Optional[JobGifts] = None,
     master_level: int = 50,
+    custom_buffs: Optional[Dict[str, Any]] = None,
 ) -> Tuple[float, Dict]:
     """Simulate a weaponskill and return damage + stats."""
     if buffs is None:
@@ -642,6 +743,10 @@ def simulate_ws(
     # Apply job gifts if provided
     if job_gifts:
         apply_job_gifts_to_player(player, job_gifts)
+    
+    # Apply custom buffs after job gifts
+    if custom_buffs:
+        apply_custom_buffs_to_player(player, custom_buffs)
     
     # Determine WS type for wsdist
     if ws_data.ws_type == WSType.MAGICAL:
@@ -675,6 +780,7 @@ def simulate_tp_set(
     abilities: Dict = None,
     job_gifts: Optional[JobGifts] = None,
     master_level: int = 50,
+    custom_buffs: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, float]:
     """
     Simulate a TP set and return key metrics.
@@ -690,6 +796,7 @@ def simulate_tp_set(
         abilities: Abilities dict
         job_gifts: Optional job gifts to apply
         master_level: Master level (0-50)
+        custom_buffs: Optional custom buff stats to apply
     
     Returns:
         dict with:
@@ -717,6 +824,10 @@ def simulate_tp_set(
     # Apply job gifts if provided
     if job_gifts:
         apply_job_gifts_to_player(player, job_gifts)
+    
+    # Apply custom buffs after job gifts
+    if custom_buffs:
+        apply_custom_buffs_to_player(player, custom_buffs)
     
     # Get TP set metrics using "Time to WS" metric
     result = average_attack_round(
@@ -753,7 +864,7 @@ def simulate_tp_set(
 def _ws_simulation_worker(args: Tuple) -> Tuple[int, float, Any]:
     """Worker function for parallel WS simulation."""
     (idx, gearset, enemy_data, ws_name, ws_type_str, 
-     tp, buffs, abilities, main_job, sub_job, job_gifts_dict, master_level) = args
+     tp, buffs, abilities, main_job, sub_job, job_gifts_dict, master_level, custom_buffs) = args
     
     try:
         enemy = create_enemy(enemy_data)
@@ -770,6 +881,10 @@ def _ws_simulation_worker(args: Tuple) -> Tuple[int, float, Any]:
         if job_gifts_dict:
             job_gifts = JobGifts(**job_gifts_dict)
             apply_job_gifts_to_player(player, job_gifts)
+        
+        # Apply custom buffs after job gifts
+        if custom_buffs:
+            apply_custom_buffs_to_player(player, custom_buffs)
         
         damage, _ = average_ws(
             player=player,
@@ -790,7 +905,7 @@ def _ws_simulation_worker(args: Tuple) -> Tuple[int, float, Any]:
 def _tp_simulation_worker(args: Tuple) -> Tuple[int, Dict[str, float], Any]:
     """Worker function for parallel TP simulation."""
     (idx, gearset, enemy_data, main_job, sub_job, 
-     ws_threshold, buffs, abilities, job_gifts_dict, master_level) = args
+     ws_threshold, buffs, abilities, job_gifts_dict, master_level, custom_buffs) = args
     
     try:
         enemy = create_enemy(enemy_data)
@@ -807,6 +922,10 @@ def _tp_simulation_worker(args: Tuple) -> Tuple[int, Dict[str, float], Any]:
         if job_gifts_dict:
             job_gifts = JobGifts(**job_gifts_dict)
             apply_job_gifts_to_player(player, job_gifts)
+        
+        # Apply custom buffs after job gifts
+        if custom_buffs:
+            apply_custom_buffs_to_player(player, custom_buffs)
         
         result = average_attack_round(
             player=player,
@@ -858,6 +977,7 @@ def run_ws_optimization(
     sub_job: str = "war",
     parallel: bool = True,
     max_workers: int = None,
+    custom_buffs: Optional[Dict[str, Any]] = None,
 ) -> List[Tuple[Any, float]]:
     """
     Run the full WS optimization workflow.
@@ -877,6 +997,7 @@ def run_ws_optimization(
         master_level: Master level (0-50)
         parallel: Enable parallel simulation (default True)
         max_workers: Max parallel workers (default: CPU count - 1)
+        custom_buffs: Optional custom buff stats to apply to player
     
     Returns:
         List of (candidate, damage) tuples sorted by damage.
@@ -895,6 +1016,10 @@ def run_ws_optimization(
     
     if buffs:
         print(f"  Buffs: {list(buffs.keys())}")
+    if custom_buffs:
+        non_zero = {k: v for k, v in custom_buffs.items() if v}
+        if non_zero:
+            print(f"  Custom Buffs: {non_zero}")
     if abilities:
         active = [k for k, v in abilities.items() if v]
         if active:
@@ -942,16 +1067,12 @@ def run_ws_optimization(
         }).copy()
         enemy_data["Base Defense"] = enemy_data.get("Defense", 1550)
     
-    # Use provided buffs or default
+    # Use provided buffs or empty dict (no default buffs to get accurate baseline)
     if buffs is None:
-        buffs = {
-            "Food": {"STR": 7, "Attack": 150, "Ranged Attack": 150},
-            "BRD": {"Attack": 280, "Ranged Attack": 280, "Magic Haste": 0.25,
-                    "Accuracy": 50, "Ranged Accuracy": 50},
-        }
+        buffs = {}
     
     if abilities is None:
-        abilities = {"Berserk": True, "Warcry": True}
+        abilities = {}
     
     # =========================================================================
     # OPTIMIZED SIMULATION SECTION
@@ -1003,7 +1124,7 @@ def run_ws_optimization(
         work_items = [
             (idx, gearsets[idx], enemy_data, ws_data.name, ws_type_str,
              tp, buffs, abilities, job.name.lower(), sub_job.lower(), 
-             job_gifts_dict, master_level)
+             job_gifts_dict, master_level, custom_buffs)
             for idx in range(len(contenders))
         ]
         
@@ -1049,6 +1170,7 @@ def run_ws_optimization(
                     sub_job=sub_job.lower(),
                     job_gifts=job_gifts,
                     master_level=master_level,
+                    custom_buffs=custom_buffs,
                 )
                 results.append((candidate, damage))
             except Exception as e:
@@ -1100,6 +1222,7 @@ def run_tp_optimization(
     sub_job: str = "war",
     parallel: bool = True,
     max_workers: int = None,
+    custom_buffs: Optional[Dict[str, Any]] = None,
 ) -> List[Tuple[Any, Dict]]:
     """
     Run the full TP optimization workflow.
@@ -1118,6 +1241,7 @@ def run_tp_optimization(
         master_level: Master level (0-50)
         parallel: Enable parallel simulation (default True)
         max_workers: Max parallel workers (default: CPU count - 1)
+        custom_buffs: Optional custom buff stats to apply to player
     
     Returns:
         List of (candidate, metrics_dict) tuples sorted by time_to_ws.
@@ -1141,6 +1265,10 @@ def run_tp_optimization(
     
     if buffs:
         print(f"  Buffs: {list(buffs.keys())}")
+    if custom_buffs:
+        non_zero = {k: v for k, v in custom_buffs.items() if v}
+        if non_zero:
+            print(f"  Custom Buffs: {non_zero}")
     if abilities:
         active = [k for k, v in abilities.items() if v]
         if active:
@@ -1189,17 +1317,12 @@ def run_tp_optimization(
         }).copy()
         enemy_data["Base Defense"] = enemy_data.get("Defense", 1550)
     
-    # Use provided buffs or default
+    # Use provided buffs or empty dict (no default buffs to get accurate baseline)
     if buffs is None:
-        buffs = {
-            "Food": {"STR": 7, "Attack": 150, "Ranged Attack": 150, "Accuracy": 50},
-            "BRD": {"Attack": 280, "Ranged Attack": 280, "Magic Haste": 0.25,
-                    "Accuracy": 50, "Ranged Accuracy": 50},
-            "GEO": {"Attack": 300, "Accuracy": 40},
-        }
+        buffs = {}
     
     if abilities is None:
-        abilities = {"Berserk": True, "Aggressor": True}
+        abilities = {}
     
     # =========================================================================
     # OPTIMIZED SIMULATION SECTION
@@ -1242,7 +1365,7 @@ def run_tp_optimization(
         
         work_items = [
             (idx, gearsets[idx], enemy_data, job.name.lower(), sub_job.lower(),
-             1000, buffs, abilities, job_gifts_dict, master_level)
+             1000, buffs, abilities, job_gifts_dict, master_level, custom_buffs)
             for idx in range(len(contenders))
         ]
         
@@ -1288,6 +1411,7 @@ def run_tp_optimization(
                     abilities=abilities,
                     job_gifts=job_gifts,
                     master_level=master_level,
+                    custom_buffs=custom_buffs,
                 )
                 metrics['score'] = candidate.score
                 results.append((candidate, metrics))
