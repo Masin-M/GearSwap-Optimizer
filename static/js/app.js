@@ -14,6 +14,10 @@ const AppState = {
     jobGiftsLoaded: false,
     wsdistAvailable: false,
     
+    // Buff data caches
+    physicalBuffData: null,  // Cache for physical buffs from API
+    magicBuffData: null,     // Cache for magic buffs from API
+    
     // Selections
     selectedJob: null,
     selectedSubJob: 'war',
@@ -101,6 +105,7 @@ const AppState = {
             geo: [],
             cor: [],
             sch: [],
+            whm: [],
             food: null,
         },
         debuffs: [],
@@ -306,7 +311,11 @@ const API = {
     },
     
     async getBuffs() {
-        return this.fetch('/api/buffs');
+        return this.fetch('/api/buffs/full');
+    },
+    
+    async getPhysicalBuffs() {
+        return this.fetch('/api/buffs/physical');
     },
     
     async getTargets() {
@@ -381,7 +390,7 @@ const API = {
     },
     
     async getMagicBuffs() {
-        return this.fetch('/api/magic/buffs');
+        return this.fetch('/api/buffs/magic');
     },
     
     async optimizeMagic(params) {
@@ -405,6 +414,905 @@ const API = {
         });
     },
 };
+
+// =============================================================================
+// DYNAMIC BUFF POPULATION FUNCTIONS
+// =============================================================================
+
+/**
+ * Populate all physical buff selectors (TP and WS tabs) from API data.
+ * Call this during initialization after fetching buff data.
+ */
+async function populatePhysicalBuffSelectors() {
+    try {
+        // Fetch physical buff data from API
+        const data = await API.getPhysicalBuffs();
+        if (!data || !data.buffs) {
+            console.error('Failed to load physical buff data');
+            return;
+        }
+        
+        // Cache the data
+        AppState.physicalBuffData = data;
+        
+        // Populate selectors for both TP and WS tabs
+        ['tp', 'ws'].forEach(tabPrefix => {
+            populateFoodSelector(tabPrefix, data.buffs.food);
+            populateBrdSelector(tabPrefix, data.buffs.brd);
+            populateCorSelector(tabPrefix, data.buffs.cor);
+            populateGeoSelector(tabPrefix, data.buffs.geo);
+            populateWhmSelector(tabPrefix, data.buffs.whm);
+            populateDebuffSelector(tabPrefix, data.debuffs);
+            populateTargetSelector(tabPrefix, data.targets);
+            populateAbilitiesSelector(tabPrefix);
+        });
+        
+        console.log('Physical buff selectors populated');
+        
+    } catch (error) {
+        console.error('Error populating physical buff selectors:', error);
+    }
+}
+
+/**
+ * Populate food selector
+ */
+function populateFoodSelector(tabPrefix, foods) {
+    const select = document.getElementById(`${tabPrefix}-food-select`);
+    if (!select || !foods) return;
+    
+    select.innerHTML = '<option value="">No Food</option>';
+    
+    for (const [name, stats] of Object.entries(foods)) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = formatFoodLabel(name, stats);
+        select.appendChild(option);
+    }
+}
+
+/**
+ * Format food option label with stats
+ */
+function formatFoodLabel(name, stats) {
+    const parts = [];
+    if (stats.STR) parts.push(`STR+${stats.STR}`);
+    if (stats.DEX) parts.push(`DEX+${stats.DEX}`);
+    if (stats.VIT) parts.push(`VIT+${stats.VIT}`);
+    if (stats.AGI) parts.push(`AGI+${stats.AGI}`);
+    if (stats.attack) parts.push(`Atk+${stats.attack}`);
+    if (stats.accuracy) parts.push(`Acc+${stats.accuracy}`);
+    
+    if (parts.length > 0) {
+        return `${name} (${parts.join(' ')})`;
+    }
+    return name;
+}
+
+/**
+ * Populate BRD song selector with optgroups
+ */
+function populateBrdSelector(tabPrefix, brdSongs) {
+    const select = document.getElementById(`${tabPrefix}-brd-song-add`);
+    if (!select || !brdSongs) return;
+    
+    select.innerHTML = '<option value="">Add song...</option>';
+    
+    // Group songs by type
+    const groups = {
+        'Marches': [],
+        'Minuets': [],
+        'Madrigals': [],
+        'Etudes': [],
+        'Other': []
+    };
+    
+    for (const [name, stats] of Object.entries(brdSongs)) {
+        const entry = { name, stats };
+        
+        if (name.includes('March')) {
+            groups['Marches'].push(entry);
+        } else if (name.includes('Minuet')) {
+            groups['Minuets'].push(entry);
+        } else if (name.includes('Madrigal')) {
+            groups['Madrigals'].push(entry);
+        } else if (name.includes('Etude')) {
+            groups['Etudes'].push(entry);
+        } else {
+            groups['Other'].push(entry);
+        }
+    }
+    
+    // Create optgroups
+    for (const [groupName, songs] of Object.entries(groups)) {
+        if (songs.length === 0) continue;
+        
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = groupName;
+        
+        for (const song of songs) {
+            const option = document.createElement('option');
+            option.value = song.name;
+            option.textContent = formatBrdLabel(song.name, song.stats);
+            optgroup.appendChild(option);
+        }
+        
+        select.appendChild(optgroup);
+    }
+}
+
+/**
+ * Format BRD song label
+ */
+function formatBrdLabel(name, stats) {
+    const parts = [];
+    if (stats.magic_haste) {
+        const hastePct = Math.round(stats.magic_haste * 100);
+        parts.push(`Haste+${hastePct}%`);
+    }
+    if (stats.attack) parts.push(`Atk+${stats.attack}`);
+    if (stats.accuracy) parts.push(`Acc+${stats.accuracy}`);
+    if (stats.STR) parts.push(`STR+${stats.STR}`);
+    if (stats.DEX) parts.push(`DEX+${stats.DEX}`);
+    if (stats.VIT) parts.push(`VIT+${stats.VIT}`);
+    if (stats.AGI) parts.push(`AGI+${stats.AGI}`);
+    if (stats.pdl) parts.push(`PDL+${stats.pdl}`);
+    
+    if (parts.length > 0) {
+        return `${name} (${parts.join(' ')})`;
+    }
+    return name;
+}
+
+/**
+ * Populate COR roll selector
+ */
+function populateCorSelector(tabPrefix, corRolls) {
+    const select = document.getElementById(`${tabPrefix}-cor-roll-add`);
+    if (!select || !corRolls) return;
+    
+    select.innerHTML = '<option value="">Add roll...</option>';
+    
+    for (const [name, stats] of Object.entries(corRolls)) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = formatCorLabel(name, stats);
+        select.appendChild(option);
+    }
+}
+
+/**
+ * Format COR roll label
+ */
+function formatCorLabel(name, stats) {
+    const parts = [];
+    if (stats.attack_pct) {
+        const atkPct = Math.round(stats.attack_pct * 100);
+        parts.push(`Atk+${atkPct}%`);
+    }
+    if (stats.store_tp) parts.push(`STP+${stats.store_tp}`);
+    if (stats.double_attack) parts.push(`DA+${stats.double_attack}%`);
+    if (stats.crit_rate) parts.push(`Crit+${stats.crit_rate}%`);
+    if (stats.accuracy) parts.push(`Acc+${stats.accuracy}`);
+    if (stats.magic_attack) parts.push(`MAB+${stats.magic_attack}`);
+    if (stats.regain) parts.push(`Regain+${stats.regain}`);
+    
+    if (parts.length > 0) {
+        return `${name} (${parts.join(' ')})`;
+    }
+    return name;
+}
+
+/**
+ * Populate GEO bubble selector with optgroups
+ */
+function populateGeoSelector(tabPrefix, geoBubbles) {
+    const select = document.getElementById(`${tabPrefix}-geo-bubble-add`);
+    if (!select || !geoBubbles) return;
+    
+    select.innerHTML = '<option value="">Add bubble...</option>';
+    
+    // Group bubbles by type
+    const groups = {
+        'Geo (Full)': [],
+        'Indi': [],
+        'Entrust': []
+    };
+    
+    for (const [name, stats] of Object.entries(geoBubbles)) {
+        const entry = { name, stats };
+        
+        if (name.startsWith('Geo-')) {
+            groups['Geo (Full)'].push(entry);
+        } else if (name.startsWith('Entrust')) {
+            groups['Entrust'].push(entry);
+        } else if (name.startsWith('Indi-')) {
+            groups['Indi'].push(entry);
+        }
+    }
+    
+    // Create optgroups
+    for (const [groupName, bubbles] of Object.entries(groups)) {
+        if (bubbles.length === 0) continue;
+        
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = groupName;
+        
+        for (const bubble of bubbles) {
+            const option = document.createElement('option');
+            option.value = bubble.name;
+            option.textContent = formatGeoLabel(bubble.name, bubble.stats);
+            optgroup.appendChild(option);
+        }
+        
+        select.appendChild(optgroup);
+    }
+}
+
+/**
+ * Format GEO bubble label
+ */
+function formatGeoLabel(name, stats) {
+    const parts = [];
+    if (stats.attack_pct) {
+        const atkPct = Math.round(stats.attack_pct * 100);
+        parts.push(`Atk+${atkPct}%`);
+    }
+    if (stats.magic_haste) {
+        const hastePct = Math.round(stats.magic_haste * 100);
+        parts.push(`Haste+${hastePct}%`);
+    }
+    if (stats.accuracy) parts.push(`Acc+${stats.accuracy}`);
+    if (stats.STR) parts.push(`STR+${stats.STR}`);
+    if (stats.DEX) parts.push(`DEX+${stats.DEX}`);
+    if (stats.VIT) parts.push(`VIT+${stats.VIT}`);
+    if (stats.AGI) parts.push(`AGI+${stats.AGI}`);
+    if (stats.magic_attack) parts.push(`MAB+${stats.magic_attack}`);
+    
+    if (parts.length > 0) {
+        return `${name} (${parts.join(' ')})`;
+    }
+    return name;
+}
+
+/**
+ * Populate WHM spell selector
+ */
+function populateWhmSelector(tabPrefix, whmSpells) {
+    const select = document.getElementById(`${tabPrefix}-whm-spell-add`);
+    if (!select || !whmSpells) return;
+    
+    select.innerHTML = '<option value="">Add spell...</option>';
+    
+    // Group spells by type
+    const groups = {
+        'Haste': [],
+        'Boost': [],
+        'Gain': [],
+        'Storms': [],
+        'Other': []
+    };
+    
+    for (const [name, stats] of Object.entries(whmSpells)) {
+        const entry = { name, stats };
+        
+        if (name.includes('Haste')) {
+            groups['Haste'].push(entry);
+        } else if (name.startsWith('Boost-')) {
+            groups['Boost'].push(entry);
+        } else if (name.startsWith('Gain-')) {
+            groups['Gain'].push(entry);
+        } else if (name.includes('storm')) {
+            groups['Storms'].push(entry);
+        } else {
+            groups['Other'].push(entry);
+        }
+    }
+    
+    // Create optgroups
+    for (const [groupName, spells] of Object.entries(groups)) {
+        if (spells.length === 0) continue;
+        
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = groupName;
+        
+        for (const spell of spells) {
+            const option = document.createElement('option');
+            option.value = spell.name;
+            option.textContent = formatWhmLabel(spell.name, spell.stats);
+            optgroup.appendChild(option);
+        }
+        
+        select.appendChild(optgroup);
+    }
+}
+
+/**
+ * Format WHM spell label
+ */
+function formatWhmLabel(name, stats) {
+    const parts = [];
+    if (stats.magic_haste) {
+        const hastePct = Math.round(stats.magic_haste * 100);
+        parts.push(`Haste+${hastePct}%`);
+    }
+    if (stats.STR) parts.push(`STR+${stats.STR}`);
+    if (stats.DEX) parts.push(`DEX+${stats.DEX}`);
+    if (stats.VIT) parts.push(`VIT+${stats.VIT}`);
+    if (stats.AGI) parts.push(`AGI+${stats.AGI}`);
+    if (stats.mdt) parts.push(`MDT${stats.mdt}%`);
+    
+    if (parts.length > 0) {
+        return `${name} (${parts.join(' ')})`;
+    }
+    return name;
+}
+
+/**
+ * Populate Job Abilities selector based on main/sub job
+ * This is called when job selection changes
+ */
+function populateAbilitiesSelector(tabPrefix) {
+    const select = document.getElementById(`${tabPrefix}-ability-add`);
+    if (!select) return;
+    
+    const abilities = AppState.physicalBuffData?.abilities;
+    if (!abilities) {
+        select.innerHTML = '<option value="">No abilities data</option>';
+        return;
+    }
+    
+    const mainJob = AppState.selectedJob?.toLowerCase() || '';
+    const subJob = AppState.selectedSubJob?.toLowerCase() || '';
+    
+    select.innerHTML = '<option value="">Add ability...</option>';
+    
+    if (!mainJob) {
+        select.innerHTML = '<option value="">Select a job first...</option>';
+        return;
+    }
+    
+    // Group abilities by job
+    const mainJobAbilities = [];
+    const subJobAbilities = [];
+    
+    for (const [name, info] of Object.entries(abilities)) {
+        const abilityJob = info.job?.toLowerCase();
+        
+        // Skip 2HR abilities
+        if (info.is_2hr) continue;
+        
+        // Check if available for main job
+        if (abilityJob === mainJob) {
+            mainJobAbilities.push({ name, info });
+            continue;
+        }
+        
+        // Check if available for sub job (not main_only)
+        if (abilityJob === subJob && !info.main_only) {
+            subJobAbilities.push({ name, info, fromSub: true });
+        }
+    }
+    
+    // Add main job abilities group
+    if (mainJobAbilities.length > 0) {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = `${mainJob.toUpperCase()} Abilities`;
+        
+        for (const ability of mainJobAbilities) {
+            const option = document.createElement('option');
+            option.value = ability.name;
+            option.textContent = ability.name;
+            if (ability.info.description) {
+                option.title = ability.info.description;
+            }
+            optgroup.appendChild(option);
+        }
+        
+        select.appendChild(optgroup);
+    }
+    
+    // Add sub job abilities group
+    if (subJobAbilities.length > 0) {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = `${subJob.toUpperCase()} (Sub) Abilities`;
+        
+        for (const ability of subJobAbilities) {
+            const option = document.createElement('option');
+            option.value = ability.name;
+            option.textContent = `${ability.name}`;
+            if (ability.info.description) {
+                option.title = ability.info.description;
+            }
+            optgroup.appendChild(option);
+        }
+        
+        select.appendChild(optgroup);
+    }
+    
+    // If no abilities available
+    if (mainJobAbilities.length === 0 && subJobAbilities.length === 0) {
+        select.innerHTML = '<option value="">No abilities for this job combo</option>';
+    }
+}
+
+/**
+ * Add an ability to the list for a tab
+ */
+function addTabAbilityToList(tabPrefix, abilityName) {
+    if (AppState[tabPrefix].abilities.includes(abilityName)) {
+        showToast(`${abilityName} is already added`, 'warning');
+        return;
+    }
+    
+    AppState[tabPrefix].abilities.push(abilityName);
+    
+    const list = document.getElementById(`${tabPrefix}-abilities-list`);
+    if (list) {
+        const abilities = AppState.physicalBuffData?.abilities || {};
+        const abilityInfo = abilities[abilityName] || {};
+        
+        const item = document.createElement('div');
+        item.className = 'ability-item flex items-center justify-between bg-ffxi-dark rounded px-2 py-1';
+        item.dataset.abilityName = abilityName;
+        item.dataset.tabPrefix = tabPrefix;
+        
+        const textContainer = document.createElement('div');
+        textContainer.className = 'flex flex-col';
+        
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'text-xs text-ffxi-text';
+        nameSpan.textContent = abilityName;
+        
+        textContainer.appendChild(nameSpan);
+        
+        // Add description as subtitle if available
+        if (abilityInfo.description) {
+            const descSpan = document.createElement('span');
+            descSpan.className = 'text-xs text-ffxi-text-dim truncate max-w-[200px]';
+            descSpan.textContent = abilityInfo.description;
+            descSpan.title = abilityInfo.description;
+            textContainer.appendChild(descSpan);
+        }
+        
+        const btn = document.createElement('button');
+        btn.className = 'text-ffxi-red hover:text-red-400 text-sm ml-2 flex-shrink-0';
+        btn.textContent = '×';
+        btn.addEventListener('click', () => removeTabAbilityFromList(tabPrefix, abilityName));
+        
+        item.appendChild(textContainer);
+        item.appendChild(btn);
+        list.appendChild(item);
+    }
+}
+
+/**
+ * Remove an ability from the list for a tab
+ */
+function removeTabAbilityFromList(tabPrefix, abilityName) {
+    AppState[tabPrefix].abilities = AppState[tabPrefix].abilities.filter(a => a !== abilityName);
+    
+    const list = document.getElementById(`${tabPrefix}-abilities-list`);
+    const escapedName = CSS.escape(abilityName);
+    const item = list?.querySelector(`[data-ability-name="${escapedName}"]`);
+    if (item) item.remove();
+}
+
+/**
+ * Clear all abilities for a tab (used when job changes)
+ */
+function clearTabAbilities(tabPrefix) {
+    AppState[tabPrefix].abilities = [];
+    const list = document.getElementById(`${tabPrefix}-abilities-list`);
+    if (list) {
+        list.innerHTML = '';
+    }
+}
+
+/**
+ * Refresh abilities selectors for all tabs (call when job changes)
+ */
+function refreshAbilitiesSelectors() {
+    ['tp', 'ws'].forEach(tabPrefix => {
+        // Clear existing abilities since job changed
+        clearTabAbilities(tabPrefix);
+        // Repopulate the dropdown
+        populateAbilitiesSelector(tabPrefix);
+    });
+}
+
+/**
+ * Populate debuff selector
+ */
+function populateDebuffSelector(tabPrefix, debuffs) {
+    const select = document.getElementById(`${tabPrefix}-debuff-add`);
+    if (!select || !debuffs) return;
+    
+    select.innerHTML = '<option value="">Add debuff...</option>';
+    
+    // Process each debuff category
+    for (const [category, categoryDebuffs] of Object.entries(debuffs)) {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = category.toUpperCase();
+        
+        for (const [name, stats] of Object.entries(categoryDebuffs)) {
+            const option = document.createElement('option');
+            option.value = name;
+            option.textContent = formatDebuffLabel(name, stats);
+            optgroup.appendChild(option);
+        }
+        
+        select.appendChild(optgroup);
+    }
+}
+
+/**
+ * Format debuff label
+ */
+function formatDebuffLabel(name, stats) {
+    const parts = [];
+    if (stats.defense_down_pct) {
+        const defPct = Math.round(stats.defense_down_pct * 100);
+        parts.push(`Def-${defPct}%`);
+    }
+    if (stats.evasion_down) parts.push(`Eva-${stats.evasion_down}`);
+    if (stats.magic_defense_down) parts.push(`MDef-${stats.magic_defense_down}`);
+    
+    if (parts.length > 0) {
+        return `${name} (${parts.join(' ')})`;
+    }
+    return name;
+}
+
+/**
+ * Populate target selector
+ */
+function populateTargetSelector(tabPrefix, targets) {
+    const select = document.getElementById(`${tabPrefix}-target-preset`);
+    if (!select || !targets) return;
+    
+    select.innerHTML = '';
+    
+    for (const [id, target] of Object.entries(targets)) {
+        const option = document.createElement('option');
+        option.value = id;
+        option.textContent = `${target.name} (Lv${target.level})`;
+        select.appendChild(option);
+    }
+    
+    // Set default
+    if (targets['apex_toad']) {
+        select.value = 'apex_toad';
+    }
+}
+
+/**
+ * Populate all magic buff selectors from API data.
+ * Call this during magic tab initialization.
+ */
+async function populateMagicBuffSelectors() {
+    try {
+        // Fetch magic buff data from API
+        const data = await API.getMagicBuffs();
+        if (!data || !data.buffs) {
+            console.error('Failed to load magic buff data');
+            return;
+        }
+        
+        // Cache the data
+        AppState.magicBuffData = data;
+        
+        // Populate magic-specific selectors (matching new HTML IDs)
+        populateMagicFoodSelector(data.buffs.food);
+        populateMagicBrdSelector(data.buffs.brd);
+        populateMagicCorSelector(data.buffs.cor);
+        populateMagicGeoSelector(data.buffs.geo);
+        populateMagicSchSelector(data.buffs.sch);
+        populateMagicWhmSelector(data.buffs.whm);
+        populateMagicDebuffSelector(data.debuffs);
+        populateMagicTargetSelector(data.targets);
+        
+        console.log('Magic buff selectors populated');
+        
+    } catch (error) {
+        console.error('Error populating magic buff selectors:', error);
+    }
+}
+
+/**
+ * Populate magic food selector
+ */
+function populateMagicFoodSelector(foods) {
+    const select = document.getElementById('magic-food-select');
+    if (!select || !foods) return;
+    
+    select.innerHTML = '<option value="">No Food</option>';
+    
+    for (const [name, stats] of Object.entries(foods)) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = formatMagicFoodLabel(name, stats);
+        select.appendChild(option);
+    }
+}
+
+/**
+ * Format magic food label
+ */
+function formatMagicFoodLabel(name, stats) {
+    const parts = [];
+    if (stats.INT) parts.push(`INT+${stats.INT}`);
+    if (stats.MND) parts.push(`MND+${stats.MND}`);
+    if (stats.magic_attack) parts.push(`MAB+${stats.magic_attack}`);
+    if (stats.magic_accuracy) parts.push(`M.Acc+${stats.magic_accuracy}`);
+    
+    if (parts.length > 0) {
+        return `${name} (${parts.join(' ')})`;
+    }
+    return name;
+}
+
+/**
+ * Populate magic BRD selector
+ */
+function populateMagicBrdSelector(songs) {
+    const select = document.getElementById('magic-brd-song-add');
+    if (!select || !songs) return;
+    
+    select.innerHTML = '<option value="">Add song...</option>';
+    
+    for (const [name, stats] of Object.entries(songs)) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = formatMagicBrdLabel(name, stats);
+        select.appendChild(option);
+    }
+}
+
+function formatMagicBrdLabel(name, stats) {
+    const parts = [];
+    if (stats.INT) parts.push(`INT+${stats.INT}`);
+    if (stats.MND) parts.push(`MND+${stats.MND}`);
+    
+    if (parts.length > 0) {
+        return `${name} (${parts.join(' ')})`;
+    }
+    return name;
+}
+
+/**
+ * Populate magic COR selector
+ */
+function populateMagicCorSelector(rolls) {
+    const select = document.getElementById('magic-cor-roll-add');
+    if (!select || !rolls) return;
+    
+    select.innerHTML = '<option value="">Add roll...</option>';
+    
+    for (const [name, stats] of Object.entries(rolls)) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = formatMagicCorLabel(name, stats);
+        select.appendChild(option);
+    }
+}
+
+function formatMagicCorLabel(name, stats) {
+    const parts = [];
+    if (stats.magic_attack) parts.push(`MAB+${stats.magic_attack}`);
+    if (stats.magic_accuracy) parts.push(`M.Acc+${stats.magic_accuracy}`);
+    if (stats.refresh) parts.push(`Refresh+${stats.refresh}`);
+    
+    if (parts.length > 0) {
+        return `${name} (${parts.join(' ')})`;
+    }
+    return name;
+}
+
+/**
+ * Populate magic GEO selector
+ */
+function populateMagicGeoSelector(bubbles) {
+    const select = document.getElementById('magic-geo-bubble-add');
+    if (!select || !bubbles) return;
+    
+    select.innerHTML = '<option value="">Add bubble...</option>';
+    
+    // Group by type
+    const groups = {
+        'Geo (Full)': [],
+        'Indi': [],
+        'Entrust': []
+    };
+    
+    for (const [name, stats] of Object.entries(bubbles)) {
+        const entry = { name, stats };
+        
+        if (name.startsWith('Geo-')) {
+            groups['Geo (Full)'].push(entry);
+        } else if (name.startsWith('Entrust')) {
+            groups['Entrust'].push(entry);
+        } else if (name.startsWith('Indi-')) {
+            groups['Indi'].push(entry);
+        }
+    }
+    
+    for (const [groupName, items] of Object.entries(groups)) {
+        if (items.length === 0) continue;
+        
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = groupName;
+        
+        for (const item of items) {
+            const option = document.createElement('option');
+            option.value = item.name;
+            option.textContent = formatMagicGeoLabel(item.name, item.stats);
+            optgroup.appendChild(option);
+        }
+        
+        select.appendChild(optgroup);
+    }
+}
+
+function formatMagicGeoLabel(name, stats) {
+    const parts = [];
+    if (stats.magic_attack_pct) parts.push(`MAB+${stats.magic_attack_pct}%`);
+    if (stats.magic_accuracy) parts.push(`M.Acc+${stats.magic_accuracy}`);
+    if (stats.INT) parts.push(`INT+${stats.INT}`);
+    if (stats.MND) parts.push(`MND+${stats.MND}`);
+    if (stats.refresh) parts.push(`Refresh+${stats.refresh}`);
+    
+    if (parts.length > 0) {
+        return `${name} (${parts.join(' ')})`;
+    }
+    return name;
+}
+
+/**
+ * Populate SCH abilities selector
+ */
+function populateMagicSchSelector(abilities) {
+    const select = document.getElementById('magic-sch-ability-add');
+    if (!select || !abilities) return;
+    
+    select.innerHTML = '<option value="">Add ability...</option>';
+    
+    for (const [name, stats] of Object.entries(abilities)) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = formatSchLabel(name, stats);
+        select.appendChild(option);
+    }
+}
+
+function formatSchLabel(name, stats) {
+    if (stats.description) {
+        return `${name} (${stats.description})`;
+    }
+    
+    const parts = [];
+    if (stats.magic_damage_mult) parts.push(`+${stats.magic_damage_mult}% dmg`);
+    if (stats.magic_attack) parts.push(`MAB+${stats.magic_attack}`);
+    
+    if (parts.length > 0) {
+        return `${name} (${parts.join(' ')})`;
+    }
+    return name;
+}
+
+/**
+ * Populate WHM spells selector for magic tab
+ */
+function populateMagicWhmSelector(spells) {
+    const select = document.getElementById('magic-whm-spell-add');
+    if (!select) return;
+    
+    select.innerHTML = '<option value="">Add spell...</option>';
+    
+    if (!spells) return;
+    
+    for (const [name, stats] of Object.entries(spells)) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = formatMagicWhmLabel(name, stats);
+        select.appendChild(option);
+    }
+}
+
+function formatMagicWhmLabel(name, stats) {
+    if (stats.description) {
+        return `${name} (${stats.description})`;
+    }
+    
+    const parts = [];
+    if (stats.INT) parts.push(`INT+${stats.INT}`);
+    if (stats.MND) parts.push(`MND+${stats.MND}`);
+    if (stats.magic_attack) parts.push(`MAB+${stats.magic_attack}`);
+    
+    if (parts.length > 0) {
+        return `${name} (${parts.join(' ')})`;
+    }
+    return name;
+}
+
+/**
+ * Populate magic debuff selector
+ */
+function populateMagicDebuffSelector(debuffs) {
+    const select = document.getElementById('magic-debuff-add');
+    if (!select || !debuffs) return;
+    
+    select.innerHTML = '<option value="">Add debuff...</option>';
+    
+    for (const [category, categoryDebuffs] of Object.entries(debuffs)) {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = category.toUpperCase();
+        
+        for (const [name, stats] of Object.entries(categoryDebuffs)) {
+            const option = document.createElement('option');
+            option.value = name;
+            option.textContent = formatMagicDebuffLabel(name, stats);
+            optgroup.appendChild(option);
+        }
+        
+        select.appendChild(optgroup);
+    }
+}
+
+function formatMagicDebuffLabel(name, stats) {
+    const parts = [];
+    if (stats.magic_evasion_down) parts.push(`M.Eva-${stats.magic_evasion_down}`);
+    if (stats.magic_defense_down) parts.push(`M.Def-${stats.magic_defense_down}`);
+    
+    if (parts.length > 0) {
+        return `${name} (${parts.join(' ')})`;
+    }
+    return name;
+}
+
+/**
+ * Populate magic target selector
+ */
+function populateMagicTargetSelector(targets) {
+    const select = document.getElementById('magic-target-select');
+    if (!select || !targets) return;
+    
+    select.innerHTML = '';
+    
+    for (const [id, target] of Object.entries(targets)) {
+        const option = document.createElement('option');
+        option.value = id;
+        option.textContent = `${target.name} (M.Eva ${target.magic_evasion})`;
+        select.appendChild(option);
+    }
+    
+    // Set default
+    if (targets['apex_mob']) {
+        select.value = 'apex_mob';
+    }
+}
+
+/**
+ * Look up a physical buff's stats by name.
+ * @param {string} category - 'brd', 'cor', 'geo', 'whm', 'food', 'abilities'
+ * @param {string} name - Buff name
+ * @returns {object|null} Buff stats or null if not found
+ */
+function getPhysicalBuffStats(category, name) {
+    if (!AppState.physicalBuffData?.buffs?.[category]) return null;
+    return AppState.physicalBuffData.buffs[category][name] || null;
+}
+
+/**
+ * Look up a magic buff's stats by name.
+ * @param {string} category - 'brd', 'cor', 'geo', 'sch', 'whm', 'food'
+ * @param {string} name - Buff name
+ * @returns {object|null} Buff stats or null if not found
+ */
+function getMagicBuffStats(category, name) {
+    if (!AppState.magicBuffData?.buffs?.[category]) return null;
+    return AppState.magicBuffData.buffs[category][name] || null;
+}
 
 // =============================================================================
 // UI HELPERS
@@ -594,6 +1502,9 @@ async function initializeApp() {
         showToast('Failed to connect to server', 'error');
     }
     
+    // Load buff data and populate selectors
+    await populatePhysicalBuffSelectors();
+    
     // Setup event listeners
     setupEventListeners();
     
@@ -602,6 +1513,9 @@ async function initializeApp() {
     
     // Initialize Lua optimizer
     LuaOptimizer.init();
+    
+    // Initialize Set Builder
+    SetBuilder.init();
     
     // Restore job/weapon selections after event listeners are set up
     await restoreSelections();
@@ -940,19 +1854,16 @@ function setupTabBuffSelectors(tabPrefix) {
         });
     }
     
-    // Job Abilities
-    document.querySelectorAll(`.${tabPrefix}-ability-checkbox`).forEach(checkbox => {
-        checkbox.addEventListener('change', (e) => {
-            const ability = e.target.dataset.ability;
-            if (e.target.checked) {
-                if (!AppState[tabPrefix].abilities.includes(ability)) {
-                    AppState[tabPrefix].abilities.push(ability);
-                }
-            } else {
-                AppState[tabPrefix].abilities = AppState[tabPrefix].abilities.filter(a => a !== ability);
+    // Job Abilities (dropdown-based, not checkboxes)
+    const abilitySelect = document.getElementById(`${tabPrefix}-ability-add`);
+    if (abilitySelect) {
+        abilitySelect.addEventListener('change', (e) => {
+            if (e.target.value) {
+                addTabAbilityToList(tabPrefix, e.target.value);
+                e.target.value = '';
             }
         });
-    });
+    }
     
     // Target selector
     const targetSelect = document.getElementById(`${tabPrefix}-target-preset`);
@@ -1497,6 +2408,9 @@ async function handleJobChange(e) {
     // Clear weapon containers
     clearWeaponSelections();
     
+    // Refresh abilities selectors based on new job
+    refreshAbilitiesSelectors();
+    
     if (!job) {
         hideMasterLevelSection();
         return;
@@ -1530,6 +2444,9 @@ function handleSubJobChange(e) {
     
     // Update DW hint based on sub job
     updateDWHint();
+    
+    // Refresh abilities selectors based on new sub job
+    refreshAbilitiesSelectors();
 }
 
 async function loadWeapons(job) {
@@ -2748,6 +3665,9 @@ function updateMasterLevelBonuses(level) {
 // =============================================================================
 
 async function setupMagicTab() {
+    // Load and populate magic buff selectors from API
+    await populateMagicBuffSelectors();
+    
     // Load spell categories
     const categorySelect = document.getElementById('magic-category-select');
     if (!categorySelect) return;
@@ -2857,10 +3777,76 @@ async function setupMagicTab() {
         });
     }
     
-    // Magic buff selector
-    const buffSelect = document.getElementById('magic-buff-add');
-    if (buffSelect) {
-        buffSelect.addEventListener('change', handleMagicBuffAdd);
+    // Magic food selector
+    const foodSelect = document.getElementById('magic-food-select');
+    if (foodSelect) {
+        foodSelect.addEventListener('change', (e) => {
+            AppState.magic.buffs.food = e.target.value || null;
+        });
+    }
+    
+    // Magic BRD song selector
+    const brdSelect = document.getElementById('magic-brd-song-add');
+    if (brdSelect) {
+        brdSelect.addEventListener('change', (e) => {
+            if (e.target.value && AppState.magic.buffs.brd.length < 4) {
+                addMagicBuffToList('brd', e.target.value);
+                e.target.value = '';
+            } else if (AppState.magic.buffs.brd.length >= 4) {
+                showToast('Maximum 4 songs allowed', 'warning');
+                e.target.value = '';
+            }
+        });
+    }
+    
+    // Magic COR roll selector
+    const corSelect = document.getElementById('magic-cor-roll-add');
+    if (corSelect) {
+        corSelect.addEventListener('change', (e) => {
+            if (e.target.value && AppState.magic.buffs.cor.length < 2) {
+                addMagicBuffToList('cor', e.target.value);
+                e.target.value = '';
+            } else if (AppState.magic.buffs.cor.length >= 2) {
+                showToast('Maximum 2 rolls allowed', 'warning');
+                e.target.value = '';
+            }
+        });
+    }
+    
+    // Magic GEO bubble selector
+    const geoSelect = document.getElementById('magic-geo-bubble-add');
+    if (geoSelect) {
+        geoSelect.addEventListener('change', (e) => {
+            if (e.target.value && AppState.magic.buffs.geo.length < 3) {
+                addMagicBuffToList('geo', e.target.value);
+                e.target.value = '';
+            } else if (AppState.magic.buffs.geo.length >= 3) {
+                showToast('Maximum 3 bubbles allowed', 'warning');
+                e.target.value = '';
+            }
+        });
+    }
+    
+    // Magic SCH ability selector
+    const schSelect = document.getElementById('magic-sch-ability-add');
+    if (schSelect) {
+        schSelect.addEventListener('change', (e) => {
+            if (e.target.value) {
+                addMagicBuffToList('sch', e.target.value);
+                e.target.value = '';
+            }
+        });
+    }
+    
+    // Magic WHM spell selector
+    const whmSelect = document.getElementById('magic-whm-spell-add');
+    if (whmSelect) {
+        whmSelect.addEventListener('change', (e) => {
+            if (e.target.value) {
+                addMagicBuffToList('whm', e.target.value);
+                e.target.value = '';
+            }
+        });
     }
     
     // Magic debuff selector
@@ -3018,83 +4004,133 @@ function handleMagicOptTypeChange(e) {
     descEl.textContent = descriptions[e.target.value] || '';
 }
 
-function handleMagicBuffAdd(e) {
-    const value = e.target.value;
-    if (!value) return;
-    
-    // Value format: "category:buffName"
-    const [category, buffName] = value.split(':');
-    
-    if (category === 'food') {
-        // Food is singular
-        AppState.magic.buffs.food = buffName;
-        addMagicBuffToUI('food', buffName);
-    } else {
-        // Other buffs can stack
-        if (!AppState.magic.buffs[category]) {
-            AppState.magic.buffs[category] = [];
-        }
-        
-        if (!AppState.magic.buffs[category].includes(buffName)) {
-            AppState.magic.buffs[category].push(buffName);
-            addMagicBuffToUI(category, buffName);
-        } else {
-            showToast(`${buffName} is already added`, 'warning');
-        }
+/**
+ * Add a magic buff to the list (similar to physical tabs pattern)
+ */
+function addMagicBuffToList(category, buffName) {
+    if (AppState.magic.buffs[category].includes(buffName)) {
+        showToast(`${buffName} is already added`, 'warning');
+        return;
     }
     
-    e.target.value = '';
-}
-
-function addMagicBuffToUI(category, buffName) {
-    const list = document.getElementById('magic-buffs-list');
+    AppState.magic.buffs[category].push(buffName);
+    
+    // Find the appropriate list element
+    const listIdMap = {
+        'brd': 'magic-brd-songs-list',
+        'cor': 'magic-cor-rolls-list',
+        'geo': 'magic-geo-bubbles-list',
+        'sch': 'magic-sch-abilities-list',
+        'whm': 'magic-whm-spells-list',
+    };
+    
+    const list = document.getElementById(listIdMap[category]);
     if (!list) return;
     
+    // Create buff item element
     const item = document.createElement('div');
-    item.className = 'buff-item flex items-center justify-between bg-ffxi-dark rounded px-2 py-1';
+    item.className = 'flex items-center justify-between bg-ffxi-dark rounded px-2 py-1 text-sm';
     item.dataset.category = category;
     item.dataset.buffName = buffName;
     
-    const categoryLabel = {
-        'brd': 'BRD',
-        'geo': 'GEO',
-        'cor': 'COR',
-        'sch': 'SCH',
-        'food': 'Food',
-    }[category] || category.toUpperCase();
+    // Get buff stats for display (if available)
+    const stats = getMagicBuffStats(category, buffName);
+    const statsText = formatMagicBuffStatsCompact(stats);
     
     const span = document.createElement('span');
-    span.className = 'text-xs';
-    span.innerHTML = `<span class="text-ffxi-text-dim">[${categoryLabel}]</span> `;
-    span.appendChild(document.createTextNode(buffName));
+    span.className = 'text-ffxi-text';
+    span.textContent = buffName;
+    if (statsText) {
+        span.innerHTML = `${buffName} <span class="text-ffxi-text-dim text-xs">(${statsText})</span>`;
+    }
     
     const btn = document.createElement('button');
     btn.className = 'text-ffxi-red hover:text-red-400 text-sm ml-2';
     btn.textContent = '×';
-    btn.addEventListener('click', () => removeMagicBuff(category, buffName));
+    btn.addEventListener('click', () => removeMagicBuffFromList(category, buffName));
     
     item.appendChild(span);
     item.appendChild(btn);
     list.appendChild(item);
+    
+    // Update counter if applicable
+    updateMagicBuffCounter(category);
 }
 
-function removeMagicBuff(category, buffName) {
-    if (category === 'food') {
-        AppState.magic.buffs.food = null;
-    } else {
-        AppState.magic.buffs[category] = AppState.magic.buffs[category].filter(b => b !== buffName);
-    }
+/**
+ * Remove a magic buff from the list
+ */
+function removeMagicBuffFromList(category, buffName) {
+    AppState.magic.buffs[category] = AppState.magic.buffs[category].filter(b => b !== buffName);
     
-    // Remove from UI
-    const list = document.getElementById('magic-buffs-list');
+    // Find and remove from UI
+    const listIdMap = {
+        'brd': 'magic-brd-songs-list',
+        'cor': 'magic-cor-rolls-list',
+        'geo': 'magic-geo-bubbles-list',
+        'sch': 'magic-sch-abilities-list',
+        'whm': 'magic-whm-spells-list',
+    };
+    
+    const list = document.getElementById(listIdMap[category]);
     if (list) {
-        const items = list.querySelectorAll('.buff-item');
+        const items = list.querySelectorAll('div');
         items.forEach(item => {
             if (item.dataset.category === category && item.dataset.buffName === buffName) {
                 item.remove();
             }
         });
     }
+    
+    // Update counter if applicable
+    updateMagicBuffCounter(category);
+}
+
+/**
+ * Update buff counter display for magic tab
+ */
+function updateMagicBuffCounter(category) {
+    const maxCounts = {
+        'brd': 4,
+        'cor': 2,
+        'geo': 3,
+    };
+    
+    const counterIdMap = {
+        'brd': 'magic-brd-song-count',
+        'cor': 'magic-cor-roll-count',
+        'geo': 'magic-geo-bubble-count',
+    };
+    
+    if (!maxCounts[category]) return;
+    
+    const countEl = document.getElementById(counterIdMap[category]);
+    if (countEl) {
+        countEl.textContent = `${AppState.magic.buffs[category].length}/${maxCounts[category]}`;
+    }
+}
+
+/**
+ * Format magic buff stats for compact display
+ */
+function formatMagicBuffStatsCompact(stats) {
+    if (!stats) return '';
+    
+    const parts = [];
+    if (stats.INT) parts.push(`INT+${stats.INT}`);
+    if (stats.MND) parts.push(`MND+${stats.MND}`);
+    if (stats.magic_attack) parts.push(`MAB+${stats.magic_attack}`);
+    if (stats.magic_attack_pct) parts.push(`MAB+${stats.magic_attack_pct}%`);
+    if (stats.magic_accuracy) parts.push(`M.Acc+${stats.magic_accuracy}`);
+    if (stats.magic_damage_mult) parts.push(`+${stats.magic_damage_mult}%dmg`);
+    if (stats.refresh) parts.push(`Refresh+${stats.refresh}`);
+    
+    return parts.join(' ');
+}
+
+// Legacy function kept for compatibility - redirects to new function
+function removeMagicBuff(category, buffName) {
+    removeMagicBuffFromList(category, buffName);
 }
 
 function handleMagicDebuffAdd(e) {
@@ -3172,6 +4208,7 @@ async function runMagicOptimization() {
         geo: AppState.magic.buffs.geo || [],
         cor: AppState.magic.buffs.cor || [],
         sch: AppState.magic.buffs.sch || [],
+        whm: AppState.magic.buffs.whm || [],
     };
     
     if (AppState.magic.buffs.food) {
@@ -4111,6 +5148,1188 @@ function debounce(func, wait) {
         timeout = setTimeout(later, wait);
     };
 }
+
+
+// =============================================================================
+// SET BUILDER
+// =============================================================================
+
+const EQUIPMENT_SLOTS = [
+    'main', 'sub', 'range', 'ammo',
+    'head', 'neck', 'ear1', 'ear2',
+    'body', 'hands', 'ring1', 'ring2',
+    'back', 'waist', 'legs', 'feet'
+];
+
+const SLOT_TO_API_FILTER = {
+    main: 'Main',
+    sub: 'Sub',
+    range: 'Range',
+    ammo: 'Ammo',
+    head: 'Head',
+    neck: 'Neck',
+    ear1: 'Ear',
+    ear2: 'Ear',
+    body: 'Body',
+    hands: 'Hands',
+    ring1: 'Ring',
+    ring2: 'Ring',
+    back: 'Back',
+    waist: 'Waist',
+    legs: 'Legs',
+    feet: 'Feet'
+};
+
+const SLOT_DISPLAY_NAMES = {
+    main: 'Main Hand',
+    sub: 'Off Hand',
+    range: 'Range',
+    ammo: 'Ammo',
+    head: 'Head',
+    neck: 'Neck',
+    ear1: 'Ear 1',
+    ear2: 'Ear 2',
+    body: 'Body',
+    hands: 'Hands',
+    ring1: 'Ring 1',
+    ring2: 'Ring 2',
+    back: 'Back',
+    waist: 'Waist',
+    legs: 'Legs',
+    feet: 'Feet'
+};
+
+// GearSwap slot name mapping
+const SLOT_TO_LUA = {
+    main: 'main',
+    sub: 'sub',
+    range: 'range',
+    ammo: 'ammo',
+    head: 'head',
+    neck: 'neck',
+    ear1: 'left_ear',
+    ear2: 'right_ear',
+    body: 'body',
+    hands: 'hands',
+    ring1: 'left_ring',
+    ring2: 'right_ring',
+    back: 'back',
+    waist: 'waist',
+    legs: 'legs',
+    feet: 'feet'
+};
+
+const SetBuilder = {
+    // === Dual Set State (Phase 3) ===
+    sets: {
+        A: {
+            items: {
+                main: null, sub: null, range: null, ammo: null,
+                head: null, neck: null, ear1: null, ear2: null,
+                body: null, hands: null, ring1: null, ring2: null,
+                back: null, waist: null, legs: null, feet: null
+            },
+            pathConfig: {},
+            stats: {},
+            mode: 'inventory'
+        },
+        B: {
+            items: {
+                main: null, sub: null, range: null, ammo: null,
+                head: null, neck: null, ear1: null, ear2: null,
+                body: null, hands: null, ring1: null, ring2: null,
+                back: null, waist: null, legs: null, feet: null
+            },
+            pathConfig: {},
+            stats: {},
+            mode: 'inventory'
+        }
+    },
+    activeSet: 'A',  // Which set is currently being edited
+    
+    // Convenience getters for backward compatibility
+    get currentSet() { return this.sets[this.activeSet].items; },
+    get currentPathConfig() { return this.sets[this.activeSet].pathConfig; },
+    get currentMode() { return this.sets[this.activeSet].mode; },
+    get currentStats() { return this.sets[this.activeSet].stats; },
+    
+    // Convenience setter for mode
+    set currentModeValue(val) { this.sets[this.activeSet].mode = val; },
+    
+    activeSlot: null,           // Slot currently being edited
+    pickerItems: [],            // Items available for current slot
+    filteredPickerItems: [],    // Filtered items for display
+    
+    // === Path Configuration (Dream Mode - Phase 2) ===
+    pathDatabase: null,         // Cached augment_tables.json
+    pathDatabaseLoading: false,
+    
+    // === Path Database Methods ===
+    async ensurePathDatabase() {
+        if (this.pathDatabase) return this.pathDatabase;
+        if (this.pathDatabaseLoading) {
+            // Wait for existing load to complete
+            while (this.pathDatabaseLoading) {
+                await new Promise(r => setTimeout(r, 100));
+            }
+            return this.pathDatabase;
+        }
+        
+        this.pathDatabaseLoading = true;
+        try {
+            const response = await fetch('/static/data/augment_tables.json');
+            if (!response.ok) throw new Error('Failed to fetch');
+            this.pathDatabase = await response.json();
+            console.log('Path database loaded:', Object.keys(this.pathDatabase.items).length, 'items');
+        } catch (error) {
+            console.error('Failed to load path database:', error);
+            showToast('Path augment data not available', 'warning');
+            this.pathDatabase = { items: {} };
+        }
+        this.pathDatabaseLoading = false;
+        return this.pathDatabase;
+    },
+    
+    hasPathAugment(itemId) {
+        if (!this.pathDatabase) return false;
+        return String(itemId) in this.pathDatabase.items;
+    },
+    
+    getItemPathInfo(itemId) {
+        if (!this.pathDatabase || !this.pathDatabase.items[String(itemId)]) {
+            return null;
+        }
+        const item = this.pathDatabase.items[String(itemId)];
+        return {
+            name: item.name,
+            paths: Object.keys(item.paths).sort(),
+            maxRank: item.max_rank || 15
+        };
+    },
+    
+    getPathStats(itemId, path, rank) {
+        if (!this.pathDatabase) return null;
+        const item = this.pathDatabase.items[String(itemId)];
+        if (!item || !item.paths[path]) return null;
+        
+        // Find the tier at or below the requested rank
+        const tiers = item.paths[path].tiers;
+        let bestTier = null;
+        let bestRank = 0;
+        
+        for (const tierRank of Object.keys(tiers)) {
+            const r = parseInt(tierRank);
+            if (r <= rank && r > bestRank) {
+                bestRank = r;
+                bestTier = tiers[tierRank];
+            }
+        }
+        
+        return bestTier ? bestTier.stats : null;
+    },
+    
+    getPathEligibleItems() {
+        const eligible = [];
+        for (const slot of EQUIPMENT_SLOTS) {
+            const item = this.currentSet[slot];
+            if (item && this.hasPathAugment(item.id)) {
+                eligible.push({ slot, item });
+            }
+        }
+        return eligible;
+    },
+    
+    // === Initialization ===
+    init() {
+        // Update job display when job changes
+        this.updateJobDisplay();
+        
+        // Listen for job changes
+        const jobSelect = document.getElementById('job-select');
+        if (jobSelect) {
+            jobSelect.addEventListener('change', () => {
+                this.updateJobDisplay();
+                // Invalidate inventory cache when job changes
+                this.inventoryCache = null;
+                this.inventoryCacheJob = null;
+                // Re-validate current set if in inventory mode
+                if (this.currentMode === 'inventory') {
+                    this.validateCurrentSet();
+                }
+            });
+        }
+        
+        // Initialize set tabs
+        this.updateSetTabs();
+        
+        // Initialize slot cards
+        this.renderAllSlots();
+        
+        // Initialize comparison stats
+        this.renderComparisonStats();
+        
+        // Setup search debounce for picker
+        const pickerSearch = document.getElementById('picker-search');
+        if (pickerSearch) {
+            pickerSearch.addEventListener('input', debounce(() => this.filterPickerItems(), 200));
+        }
+        
+        // Setup export set name change handler
+        const exportSetName = document.getElementById('export-set-name');
+        if (exportSetName) {
+            exportSetName.addEventListener('input', () => this.updateLuaPreview());
+        }
+    },
+    
+    // === Set Switching (Phase 3) ===
+    async switchSet(setId) {
+        if (setId !== 'A' && setId !== 'B') return;
+        
+        this.activeSet = setId;
+        
+        // Update tab UI
+        this.updateSetTabs();
+        
+        // Update mode dropdown to match this set's mode
+        const modeSelect = document.getElementById('set-builder-mode');
+        if (modeSelect) {
+            modeSelect.value = this.sets[setId].mode;
+        }
+        
+        // Validate inventory items if in inventory mode
+        if (this.sets[setId].mode === 'inventory') {
+            await this.validateSetItems(setId);
+        }
+        
+        // Re-render everything for the new active set
+        this.renderAllSlots();
+        this.renderPathConfigPanel();
+        this.renderComparisonStats();
+    },
+    
+    updateSetTabs() {
+        const tabA = document.getElementById('tab-set-a');
+        const tabB = document.getElementById('tab-set-b');
+        
+        if (tabA) {
+            tabA.classList.toggle('active', this.activeSet === 'A');
+        }
+        if (tabB) {
+            tabB.classList.toggle('active', this.activeSet === 'B');
+        }
+        
+        // Update header to show which set is active
+        const header = document.getElementById('set-builder-header');
+        if (header) {
+            header.textContent = `Set Builder - Set ${this.activeSet}`;
+        }
+    },
+    
+    // === Copy Between Sets (Phase 3) ===
+    copySetAToB() {
+        // Deep copy items only (not pathConfig - let user configure paths fresh)
+        this.sets.B.items = JSON.parse(JSON.stringify(this.sets.A.items));
+        // Don't copy pathConfig - each set manages its own path augments
+        // Don't change mode - keep destination set's mode
+        
+        // Recalculate Set B stats
+        this.calculateStatsForSet('B');
+        
+        // Validate if Set B is in inventory mode
+        if (this.sets.B.mode === 'inventory') {
+            this.validateSetItems('B');
+        }
+        
+        // Update UI - if we're viewing Set B, re-render slots
+        if (this.activeSet === 'B') {
+            this.renderAllSlots();
+        }
+        this.renderComparisonStats();
+        showToast('Set A copied to Set B', 'success');
+    },
+    
+    copySetBToA() {
+        // Deep copy items only (not pathConfig - let user configure paths fresh)
+        this.sets.A.items = JSON.parse(JSON.stringify(this.sets.B.items));
+        // Don't copy pathConfig - each set manages its own path augments
+        // Don't change mode - keep destination set's mode
+        
+        // Recalculate Set A stats
+        this.calculateStatsForSet('A');
+        
+        // Validate if Set A is in inventory mode
+        if (this.sets.A.mode === 'inventory') {
+            this.validateSetItems('A');
+        }
+        
+        // If currently viewing Set A, re-render slots
+        if (this.activeSet === 'A') {
+            this.renderAllSlots();
+        }
+        
+        // Update UI
+        this.renderComparisonStats();
+        showToast('Set B copied to Set A', 'success');
+    },
+    
+    // === Inventory Validation ===
+    inventoryCache: null,  // Cache of inventory item IDs
+    inventoryCacheJob: null,  // Job the cache was built for
+    missingItems: { A: new Set(), B: new Set() },  // Track missing items per set
+    
+    async loadInventoryCache(forceRefresh = false) {
+        const currentJob = AppState.selectedJob || '';
+        
+        // Return cached if same job and not forcing refresh
+        if (!forceRefresh && this.inventoryCache && this.inventoryCacheJob === currentJob) {
+            return this.inventoryCache;
+        }
+        
+        try {
+            // Fetch all inventory items (no slot filter to get everything)
+            let url = '/api/inventory';
+            if (currentJob) url += `?job=${currentJob}`;
+            
+            const response = await API.fetch(url);
+            
+            if (response.error) {
+                console.error('Failed to load inventory cache:', response.error);
+                return new Set();
+            }
+            
+            // Build a Set of item IDs for fast lookup
+            this.inventoryCache = new Set();
+            for (const item of (response.items || [])) {
+                this.inventoryCache.add(item.id);
+                // Also add by name for fuzzy matching
+                if (item.name) this.inventoryCache.add(item.name.toLowerCase());
+                if (item.name2) this.inventoryCache.add(item.name2.toLowerCase());
+            }
+            this.inventoryCacheJob = currentJob;
+            
+            return this.inventoryCache;
+        } catch (error) {
+            console.error('Error loading inventory cache:', error);
+            return new Set();
+        }
+    },
+    
+    async validateSetItems(setId) {
+        const set = this.sets[setId];
+        
+        // Only validate if in inventory mode
+        if (set.mode !== 'inventory') {
+            this.missingItems[setId] = new Set();
+            return;
+        }
+        
+        // Load inventory cache
+        await this.loadInventoryCache();
+        
+        if (!this.inventoryCache) {
+            this.missingItems[setId] = new Set();
+            return;
+        }
+        
+        // Check each equipped item
+        const missing = new Set();
+        for (const slot of EQUIPMENT_SLOTS) {
+            const item = set.items[slot];
+            if (!item) continue;
+            
+            // Check if item exists in inventory by ID or name
+            const hasItem = this.inventoryCache.has(item.id) ||
+                           (item.name && this.inventoryCache.has(item.name.toLowerCase())) ||
+                           (item.name2 && this.inventoryCache.has(item.name2.toLowerCase()));
+            
+            if (!hasItem) {
+                missing.add(slot);
+            }
+        }
+        
+        this.missingItems[setId] = missing;
+        
+        // Re-render slots if this is the active set
+        if (this.activeSet === setId) {
+            this.renderAllSlots();
+        }
+    },
+    
+    async validateCurrentSet() {
+        await this.validateSetItems(this.activeSet);
+    },
+    
+    // === Mode Management ===
+    async setMode(mode) {
+        this.sets[this.activeSet].mode = mode;
+        const modeSelect = document.getElementById('set-builder-mode');
+        if (modeSelect) {
+            modeSelect.value = mode;
+        }
+        
+        // Clear path config when switching to inventory mode
+        if (mode === 'inventory') {
+            this.sets[this.activeSet].pathConfig = {};
+            // Validate items exist in inventory
+            await this.validateSetItems(this.activeSet);
+        } else if (mode === 'dream') {
+            // Clear missing items tracking for dream mode
+            this.missingItems[this.activeSet] = new Set();
+            // Pre-load path database when entering dream mode
+            await this.ensurePathDatabase();
+        }
+        
+        // Update displays
+        this.renderAllSlots();
+        this.renderPathConfigPanel();
+        this.calculateStatsForSet(this.activeSet);
+        this.renderComparisonStats();
+        
+        showToast(`Set ${this.activeSet} switched to ${mode === 'dream' ? 'Dream Set' : 'Inventory'} mode`, 'info');
+    },
+    
+    async copyToDreamSet() {
+        // Switch to dream mode and keep current items
+        await this.setMode('dream');
+        // Pre-load path database for smoother experience
+        await this.ensurePathDatabase();
+        // Re-render path panel now that database is loaded
+        this.renderPathConfigPanel();
+        showToast('Set copied to Dream mode. You can now add any item from the database.', 'success');
+    },
+    
+    // === Job Display ===
+    updateJobDisplay() {
+        const jobSpan = document.getElementById('set-builder-job');
+        if (jobSpan) {
+            const job = AppState.selectedJob || 'Select a job';
+            jobSpan.textContent = job;
+        }
+    },
+    
+    // === Slot Management ===
+    async openSlotPicker(slot) {
+        this.activeSlot = slot;
+        
+        // Update modal title
+        const titleEl = document.getElementById('picker-modal-title');
+        if (titleEl) {
+            titleEl.textContent = `Select ${SLOT_DISPLAY_NAMES[slot] || slot}`;
+        }
+        
+        // Clear search
+        const searchInput = document.getElementById('picker-search');
+        if (searchInput) {
+            searchInput.value = '';
+        }
+        
+        // Show modal
+        const modal = document.getElementById('set-builder-picker-modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+        }
+        
+        // Load items for this slot
+        await this.loadSlotItems(slot);
+    },
+    
+    async loadSlotItems(slot) {
+        const grid = document.getElementById('picker-items-grid');
+        if (grid) {
+            grid.innerHTML = '<p class="text-ffxi-text-dim col-span-full text-center py-8">Loading items...</p>';
+        }
+        
+        try {
+            const apiSlot = SLOT_TO_API_FILTER[slot];
+            const job = AppState.selectedJob || '';
+            const showAll = this.currentMode === 'dream';
+            
+            let url = `/api/inventory?slot=${apiSlot}`;
+            if (job) url += `&job=${job}`;
+            if (showAll) url += '&show_all=true';
+            
+            const response = await API.fetch(url);
+            
+            if (response.error) {
+                showToast(response.error, 'error');
+                this.pickerItems = [];
+            } else {
+                this.pickerItems = response.items || [];
+            }
+            
+            this.filteredPickerItems = [...this.pickerItems];
+            this.renderPickerItems();
+            
+        } catch (error) {
+            console.error('Failed to load slot items:', error);
+            showToast('Failed to load items', 'error');
+            this.pickerItems = [];
+            this.filteredPickerItems = [];
+            this.renderPickerItems();
+        }
+    },
+    
+    filterPickerItems() {
+        const searchInput = document.getElementById('picker-search');
+        const search = (searchInput?.value || '').toLowerCase().trim();
+        
+        if (!search) {
+            this.filteredPickerItems = [...this.pickerItems];
+        } else {
+            this.filteredPickerItems = this.pickerItems.filter(item => {
+                const name = (item.name || '').toLowerCase();
+                const name2 = (item.name2 || '').toLowerCase();
+                return name.includes(search) || name2.includes(search);
+            });
+        }
+        
+        this.renderPickerItems();
+    },
+    
+    renderPickerItems() {
+        const grid = document.getElementById('picker-items-grid');
+        const countEl = document.getElementById('picker-item-count');
+        
+        if (countEl) {
+            countEl.textContent = this.filteredPickerItems.length;
+        }
+        
+        if (!grid) return;
+        
+        if (this.filteredPickerItems.length === 0) {
+            grid.innerHTML = `<p class="text-ffxi-text-dim col-span-full text-center py-8">
+                No items found. ${this.currentMode === 'inventory' ? 'Try enabling Dream Set mode for all items.' : ''}
+            </p>`;
+            return;
+        }
+        
+        // Render items (limit to first 100 for performance)
+        const itemsToShow = this.filteredPickerItems.slice(0, 100);
+        
+        grid.innerHTML = itemsToShow.map((item, index) => {
+            const iconUrl = `/static/icons/${item.id}.png`;
+            const displayName = item.name2 || item.name;
+            const ilvl = item.item_level || item.stats?.['Item Level'] || 0;
+            
+            // Get a few key stats for preview
+            const stats = item.stats || {};
+            const statPreview = [];
+            if (stats['DMG']) statPreview.push(`DMG:${stats['DMG']}`);
+            if (stats['Delay']) statPreview.push(`Dly:${stats['Delay']}`);
+            if (stats['STR']) statPreview.push(`STR+${stats['STR']}`);
+            if (stats['DEX']) statPreview.push(`DEX+${stats['DEX']}`);
+            if (stats['Attack']) statPreview.push(`Atk+${stats['Attack']}`);
+            if (stats['Accuracy']) statPreview.push(`Acc+${stats['Accuracy']}`);
+            
+            return `
+                <div class="picker-item-card" onclick="SetBuilder.selectItem(${index})">
+                    <div class="flex items-start gap-2">
+                        <div class="w-10 h-10 bg-ffxi-darker rounded flex items-center justify-center flex-shrink-0">
+                            <img src="${iconUrl}" alt="" class="w-8 h-8 object-contain" 
+                                 onerror="this.parentElement.innerHTML='<span class=\\'text-ffxi-text-dim text-xs\\'>?</span>'">
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="text-sm text-ffxi-text truncate font-medium">${displayName}</div>
+                            <div class="text-xs text-ffxi-text-dim">iLvl ${ilvl} • ${item.type || 'Unknown'}</div>
+                            <div class="text-xs text-ffxi-text-dim mt-0.5 truncate">${statPreview.slice(0, 4).join(' ') || 'No stats'}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        if (this.filteredPickerItems.length > 100) {
+            grid.innerHTML += `<p class="text-ffxi-text-dim col-span-full text-center py-2 text-xs">
+                Showing first 100 items. Use search to find more.
+            </p>`;
+        }
+    },
+    
+    async selectItem(index) {
+        const item = this.filteredPickerItems[index];
+        if (!item || !this.activeSlot) return;
+        
+        // Set the item in the current slot
+        this.currentSet[this.activeSlot] = item;
+        
+        // Handle 2H weapons - clear sub slot
+        if (this.activeSlot === 'main' && this.isTwoHandedWeapon(item)) {
+            this.currentSet.sub = null;
+            // Also clear sub's path config if it exists
+            delete this.currentPathConfig['sub'];
+        }
+        
+        // Store slot before closing modal (closePickerModal sets activeSlot to null)
+        const slotToRender = this.activeSlot;
+        const isMainSlot = this.activeSlot === 'main';
+        
+        // Initialize path config for dream mode items with path augments
+        if (this.currentMode === 'dream') {
+            await this.ensurePathDatabase();
+            if (this.hasPathAugment(item.id)) {
+                const pathInfo = this.getItemPathInfo(item.id);
+                if (pathInfo) {
+                    this.currentPathConfig[slotToRender] = {
+                        itemId: item.id,
+                        path: pathInfo.paths[0],
+                        rank: pathInfo.maxRank
+                    };
+                }
+            } else {
+                // Clear any previous path config for this slot if item doesn't have paths
+                delete this.currentPathConfig[slotToRender];
+            }
+        } else {
+            // Clear path config in inventory mode
+            delete this.currentPathConfig[slotToRender];
+        }
+        
+        // Close modal
+        this.closePickerModal();
+        
+        // Update display
+        this.renderSlotCard(slotToRender);
+        if (isMainSlot) {
+            this.renderSlotCard('sub');  // Update sub slot if main changed
+        }
+        
+        // Recalculate stats and update displays
+        this.calculateStatsForSet(this.activeSet);
+        this.renderComparisonStats();
+        this.renderPathConfigPanel();
+    },
+    
+    isTwoHandedWeapon(item) {
+        if (!item) return false;
+        const type = (item.type || '').toLowerCase();
+        const twoHandedTypes = ['great sword', 'great axe', 'scythe', 'polearm', 'staff', 'great katana'];
+        return twoHandedTypes.some(t => type.includes(t));
+    },
+    
+    clearCurrentSlot() {
+        if (!this.activeSlot) return;
+        this.clearSlot(this.activeSlot);
+        this.closePickerModal();
+    },
+    
+    clearSlot(slot) {
+        this.currentSet[slot] = null;
+        // Clear path config for this slot
+        delete this.currentPathConfig[slot];
+        // Clear from missing items
+        this.missingItems[this.activeSet]?.delete(slot);
+        
+        this.renderSlotCard(slot);
+        this.calculateStatsForSet(this.activeSet);
+        this.renderComparisonStats();
+        this.renderPathConfigPanel();
+    },
+    
+    clearAllSlots() {
+        for (const slot of EQUIPMENT_SLOTS) {
+            this.currentSet[slot] = null;
+        }
+        // Clear all path config for active set
+        this.sets[this.activeSet].pathConfig = {};
+        // Clear missing items for active set
+        this.missingItems[this.activeSet] = new Set();
+        
+        this.renderAllSlots();
+        this.calculateStatsForSet(this.activeSet);
+        this.renderComparisonStats();
+        this.renderPathConfigPanel();
+        showToast(`Set ${this.activeSet} cleared`, 'info');
+    },
+    
+    clearBothSets() {
+        // Clear Set A
+        for (const slot of EQUIPMENT_SLOTS) {
+            this.sets.A.items[slot] = null;
+        }
+        this.sets.A.pathConfig = {};
+        this.sets.A.stats = {};
+        this.missingItems.A = new Set();
+        
+        // Clear Set B
+        for (const slot of EQUIPMENT_SLOTS) {
+            this.sets.B.items[slot] = null;
+        }
+        this.sets.B.pathConfig = {};
+        this.sets.B.stats = {};
+        this.missingItems.B = new Set();
+        
+        // Update UI
+        this.renderAllSlots();
+        this.renderComparisonStats();
+        this.renderPathConfigPanel();
+        showToast('Both sets cleared', 'info');
+    },
+    
+    closePickerModal() {
+        const modal = document.getElementById('set-builder-picker-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
+        this.activeSlot = null;
+    },
+    
+    // === Rendering ===
+    renderAllSlots() {
+        for (const slot of EQUIPMENT_SLOTS) {
+            this.renderSlotCard(slot);
+        }
+    },
+    
+    renderSlotCard(slot) {
+        const card = document.querySelector(`.slot-card[data-slot="${slot}"]`);
+        if (!card) return;
+        
+        const item = this.currentSet[slot];
+        const iconDiv = card.querySelector('.slot-icon');
+        const nameDiv = card.querySelector('.slot-name');
+        
+        if (!iconDiv || !nameDiv) return;
+        
+        // Check if this item is missing from inventory (only in inventory mode)
+        const isMissing = this.currentMode === 'inventory' && 
+                         this.missingItems[this.activeSet]?.has(slot);
+        
+        if (item) {
+            // Filled slot
+            card.classList.add('filled');
+            card.classList.remove('empty');
+            card.classList.toggle('missing-item', isMissing);
+            
+            const iconUrl = `/static/icons/${item.id}.png`;
+            iconDiv.innerHTML = `<img src="${iconUrl}" alt="" class="w-8 h-8 object-contain" 
+                onerror="this.parentElement.innerHTML='<span class=\\'text-ffxi-text-dim text-xs\\'>?</span>'">`;
+            
+            const displayName = item.name2 || item.name;
+            // Truncate long names
+            nameDiv.textContent = displayName.length > 18 ? displayName.substring(0, 16) + '...' : displayName;
+            nameDiv.classList.remove('empty');
+            nameDiv.classList.toggle('missing', isMissing);
+            nameDiv.title = isMissing ? `${displayName} (NOT IN INVENTORY)` : displayName;
+        } else {
+            // Empty slot
+            card.classList.remove('filled', 'missing-item');
+            card.classList.add('empty');
+            
+            iconDiv.innerHTML = '<span class="text-ffxi-text-dim">?</span>';
+            nameDiv.textContent = 'Empty';
+            nameDiv.classList.add('empty');
+            nameDiv.classList.remove('missing');
+            nameDiv.title = '';
+        }
+    },
+    
+    // === Stats Calculation ===
+    calculateStatsForSet(setId) {
+        const set = this.sets[setId];
+        set.stats = {};
+        
+        for (const slot of EQUIPMENT_SLOTS) {
+            const item = set.items[slot];
+            if (!item || !item.stats) continue;
+            
+            // Add base item stats
+            for (const [stat, value] of Object.entries(item.stats)) {
+                if (stat.startsWith('_')) continue;  // Skip internal fields
+                
+                if (typeof value === 'number') {
+                    set.stats[stat] = (set.stats[stat] || 0) + value;
+                } else if (typeof value === 'string' && !set.stats[stat]) {
+                    // For non-numeric stats, just keep first occurrence
+                    set.stats[stat] = value;
+                }
+            }
+            
+            // Add path stats in Dream mode
+            if (set.mode === 'dream' && set.pathConfig[slot]) {
+                const config = set.pathConfig[slot];
+                // Only apply if config matches current item
+                if (config.itemId === item.id) {
+                    const pathStats = this.getPathStats(config.itemId, config.path, config.rank);
+                    if (pathStats) {
+                        for (const [stat, value] of Object.entries(pathStats)) {
+                            if (typeof value === 'number') {
+                                set.stats[stat] = (set.stats[stat] || 0) + value;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    
+    // Calculate stats for both sets
+    calculateAllStats() {
+        this.calculateStatsForSet('A');
+        this.calculateStatsForSet('B');
+    },
+    
+    // === Stats Comparison Rendering (Phase 3) ===
+    renderComparisonStats() {
+        const container = document.getElementById('set-builder-stats');
+        if (!container) return;
+        
+        const statsA = this.sets.A.stats || {};
+        const statsB = this.sets.B.stats || {};
+        
+        // Get all unique stat keys from both sets
+        const allKeys = new Set([...Object.keys(statsA), ...Object.keys(statsB)]);
+        
+        // Categorize stats
+        const primaryStats = ['HP', 'MP', 'STR', 'DEX', 'VIT', 'AGI', 'INT', 'MND', 'CHR'];
+        const combatStats = ['DMG', 'Delay', 'Attack', 'Accuracy', 'Ranged Attack', 'Ranged Accuracy',
+            'DA', 'TA', 'QA', 'Crit Rate', 'Crit Damage', 'Store TP', 'Weapon Skill Damage', 'PDL',
+            'Skillchain Bonus', 'TP Bonus', 'DT', 'PDT', 'MDT', 'Gear Haste', 'Dual Wield'];
+        const magicStats = ['Magic Attack', 'Magic Accuracy', 'Magic Damage', 'Magic Burst Bonus', 
+            'Magic Burst Bonus II', 'Fast Cast', 'Quick Magic', 'Cure Potency', 'Enmity'];
+        
+        const used = new Set();
+        const categories = {
+            Primary: [],
+            Combat: [],
+            Magic: [],
+            Other: []
+        };
+        
+        // Sort into primary
+        for (const key of primaryStats) {
+            if (allKeys.has(key)) {
+                categories.Primary.push(key);
+                used.add(key);
+            }
+        }
+        
+        // Sort into combat
+        for (const key of allKeys) {
+            if (used.has(key)) continue;
+            if (combatStats.includes(key) || key.endsWith(' Skill')) {
+                categories.Combat.push(key);
+                used.add(key);
+            }
+        }
+        
+        // Sort into magic
+        for (const key of allKeys) {
+            if (used.has(key)) continue;
+            if (magicStats.includes(key) || key.includes('Magic') || key.includes('Ninjutsu') || 
+                key.includes('Singing') || key.includes('Instrument') || key.includes('Geomancy') ||
+                key.includes('Handbell') || key.includes('Summoning') || key.includes('Blue Magic')) {
+                categories.Magic.push(key);
+                used.add(key);
+            }
+        }
+        
+        // Everything else goes to other
+        for (const key of allKeys) {
+            if (!used.has(key)) {
+                categories.Other.push(key);
+            }
+        }
+        
+        // Build HTML
+        let html = `
+            <div class="comparison-header grid grid-cols-4 gap-2 text-xs text-ffxi-text-dim mb-3 px-2">
+                <span>Stat</span>
+                <span class="text-right">Set A</span>
+                <span class="text-right">Set B</span>
+                <span class="text-right">Diff</span>
+            </div>
+        `;
+        
+        for (const [category, keys] of Object.entries(categories)) {
+            if (keys.length === 0) continue;
+            
+            html += `
+                <div class="mb-4">
+                    <h4 class="text-xs uppercase tracking-wider text-ffxi-accent mb-2">${category}</h4>
+                    <div class="space-y-1">
+                        ${keys.map(key => this.renderComparisonRow(key, statsA[key], statsB[key])).join('')}
+                    </div>
+                </div>
+            `;
+        }
+        
+        if (allKeys.size === 0) {
+            html = '<p class="text-ffxi-text-dim text-center py-4">No stats to compare. Select items in Set A or Set B.</p>';
+        }
+        
+        container.innerHTML = html;
+    },
+    
+    renderComparisonRow(statName, valueA, valueB) {
+        const a = typeof valueA === 'number' ? valueA : 0;
+        const b = typeof valueB === 'number' ? valueB : 0;
+        const diff = b - a;
+        
+        // Determine if this stat is "better" when higher or lower
+        const lowerIsBetter = ['Delay', 'DT', 'PDT', 'MDT'].includes(statName);
+        
+        let diffClass = 'text-ffxi-text-dim';
+        let diffText = '-';
+        
+        if (diff !== 0) {
+            const isBetter = lowerIsBetter ? diff < 0 : diff > 0;
+            diffClass = isBetter ? 'text-green-400' : 'text-red-400';
+            diffText = diff > 0 ? `+${diff}` : `${diff}`;
+        }
+        
+        // Format display values
+        const displayA = typeof valueA === 'number' ? (valueA > 0 ? `+${valueA}` : valueA) : (valueA || '-');
+        const displayB = typeof valueB === 'number' ? (valueB > 0 ? `+${valueB}` : valueB) : (valueB || '-');
+        
+        return `
+            <div class="grid grid-cols-4 gap-2 text-xs bg-ffxi-dark px-2 py-1 rounded">
+                <span class="text-ffxi-text-dim truncate" title="${statName}">${statName}</span>
+                <span class="text-ffxi-text text-right">${displayA}</span>
+                <span class="text-ffxi-text text-right">${displayB}</span>
+                <span class="${diffClass} text-right font-medium">${diffText}</span>
+            </div>
+        `;
+    },
+    
+    // === Path Configuration (Phase 2) ===
+    async renderPathConfigPanel() {
+        const btn = document.getElementById('set-builder-path-config-btn');
+        const countBadge = document.getElementById('path-config-count');
+        
+        if (!btn) return;
+        
+        // Only show in dream mode
+        if (this.currentMode !== 'dream') {
+            btn.classList.add('hidden');
+            return;
+        }
+        
+        // Ensure path database is loaded
+        await this.ensurePathDatabase();
+        
+        // Get items that have path augments
+        const pathItems = this.getPathEligibleItems();
+        
+        if (pathItems.length === 0) {
+            btn.classList.add('hidden');
+            return;
+        }
+        
+        // Show button with count
+        btn.classList.remove('hidden');
+        if (countBadge) {
+            countBadge.textContent = pathItems.length;
+        }
+        
+        // Also update modal content if it's open
+        this.renderPathConfigModalContent();
+    },
+    
+    renderPathConfigModalContent() {
+        const container = document.getElementById('path-config-items');
+        if (!container) return;
+        
+        const pathItems = this.getPathEligibleItems();
+        
+        if (pathItems.length === 0) {
+            container.innerHTML = '<p class="text-ffxi-text-dim text-center py-4">No path-augmented items in your set.</p>';
+            return;
+        }
+        
+        let html = '';
+        
+        for (const { slot, item } of pathItems) {
+            const pathInfo = this.getItemPathInfo(item.id);
+            if (!pathInfo) continue;
+            
+            // Get or initialize config for this slot
+            if (!this.currentPathConfig[slot] || this.currentPathConfig[slot].itemId !== item.id) {
+                this.currentPathConfig[slot] = {
+                    itemId: item.id,
+                    path: pathInfo.paths[0],
+                    rank: pathInfo.maxRank
+                };
+            }
+            const config = this.currentPathConfig[slot];
+            const currentStats = this.getPathStats(item.id, config.path, config.rank);
+            
+            // Format slot name for display
+            const slotDisplayName = SLOT_DISPLAY_NAMES[slot] || slot;
+            
+            html += `
+                <div class="bg-ffxi-dark rounded-lg p-4 border border-ffxi-border">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 bg-ffxi-darker rounded flex items-center justify-center flex-shrink-0">
+                                <img src="/static/icons/${item.id}.png" alt="" class="w-8 h-8 object-contain" 
+                                     onerror="this.parentElement.innerHTML='<span class=\\'text-ffxi-text-dim text-xs\\'>?</span>'">
+                            </div>
+                            <div>
+                                <div class="text-ffxi-text font-medium">${item.name2 || item.name}</div>
+                                <div class="text-xs text-ffxi-text-dim">${slotDisplayName}</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center gap-6 mb-3">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-ffxi-text-dim">Path:</span>
+                            <div class="flex gap-1">
+                                ${pathInfo.paths.map(p => `
+                                    <button class="px-3 py-1 text-sm rounded transition-colors ${config.path === p 
+                                        ? 'bg-ffxi-accent text-ffxi-dark font-medium' 
+                                        : 'bg-ffxi-panel text-ffxi-text-dim hover:text-ffxi-text hover:bg-ffxi-border'}"
+                                            onclick="SetBuilder.setPathConfig('${slot}', '${p}', ${config.rank})">
+                                        ${p}
+                                    </button>
+                                `).join('')}
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3 flex-1">
+                            <span class="text-xs text-ffxi-text-dim">Rank:</span>
+                            <input type="range" min="1" max="${pathInfo.maxRank}" value="${config.rank}"
+                                   class="flex-1 accent-ffxi-accent h-2 cursor-pointer"
+                                   oninput="this.nextElementSibling.textContent = this.value"
+                                   onchange="SetBuilder.setPathConfig('${slot}', '${config.path}', parseInt(this.value))">
+                            <span class="text-sm text-ffxi-accent font-medium w-8 text-center">${config.rank}</span>
+                            <span class="text-xs text-ffxi-text-dim">/ ${pathInfo.maxRank}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-ffxi-panel rounded p-2">
+                        <div class="text-xs text-ffxi-text-dim mb-1">Path ${config.path} R${config.rank} Stats:</div>
+                        <div class="flex flex-wrap gap-x-3 gap-y-1 text-sm">
+                            ${currentStats 
+                                ? Object.entries(currentStats).map(([k,v]) => 
+                                    `<span class="text-ffxi-green">${k}: ${v > 0 ? '+' : ''}${v}</span>`
+                                  ).join('') 
+                                : '<span class="text-ffxi-text-dim">No stats at this rank</span>'}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        container.innerHTML = html;
+    },
+    
+    openPathConfigModal() {
+        const modal = document.getElementById('set-builder-path-modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            // Update the set label
+            const setLabel = document.getElementById('path-config-set-label');
+            if (setLabel) {
+                setLabel.textContent = this.activeSet;
+            }
+            this.renderPathConfigModalContent();
+        }
+    },
+    
+    closePathConfigModal() {
+        const modal = document.getElementById('set-builder-path-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
+    },
+    
+    setPathConfig(slot, path, rank) {
+        const item = this.currentSet[slot];
+        if (!item) return;
+        
+        this.currentPathConfig[slot] = { itemId: item.id, path, rank };
+        this.calculateStatsForSet(this.activeSet);
+        this.renderComparisonStats();
+        this.renderPathConfigModalContent();  // Update modal content
+    },
+    
+    // === Export ===
+    showExportModal() {
+        const filledSlots = EQUIPMENT_SLOTS.filter(slot => this.currentSet[slot] !== null);
+        
+        if (filledSlots.length === 0) {
+            showToast(`No items in Set ${this.activeSet} to export`, 'error');
+            return;
+        }
+        
+        const modal = document.getElementById('set-builder-export-modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+        }
+        
+        // Update export modal title to show which set
+        const modalTitle = document.getElementById('export-modal-title');
+        if (modalTitle) {
+            modalTitle.textContent = `Export Set ${this.activeSet} as GearSwap Lua`;
+        }
+        
+        this.updateLuaPreview();
+    },
+    
+    closeExportModal() {
+        const modal = document.getElementById('set-builder-export-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
+    },
+    
+    generateLuaCode() {
+        const setNameInput = document.getElementById('export-set-name');
+        const setName = setNameInput?.value || 'my_set';
+        
+        const lines = [`sets.${setName} = {`];
+        
+        for (const slot of EQUIPMENT_SLOTS) {
+            const item = this.currentSet[slot];
+            if (item) {
+                const luaSlot = SLOT_TO_LUA[slot];
+                const itemName = item.name2 || item.name;
+                // Escape quotes in item names
+                const escapedName = itemName.replace(/"/g, '\\"');
+                lines.push(`    ${luaSlot}="${escapedName}",`);
+            }
+        }
+        
+        lines.push('}');
+        return lines.join('\n');
+    },
+    
+    updateLuaPreview() {
+        const codeEl = document.getElementById('export-lua-code');
+        if (codeEl) {
+            codeEl.textContent = this.generateLuaCode();
+        }
+    },
+    
+    copyLuaToClipboard() {
+        const code = this.generateLuaCode();
+        navigator.clipboard.writeText(code).then(() => {
+            showToast('Lua code copied to clipboard!', 'success');
+        }).catch(err => {
+            console.error('Failed to copy:', err);
+            showToast('Failed to copy to clipboard', 'error');
+        });
+    },
+    
+    downloadLuaFile() {
+        const setNameInput = document.getElementById('export-set-name');
+        const setName = setNameInput?.value || 'my_set';
+        const code = this.generateLuaCode();
+        
+        const blob = new Blob([code], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${setName}.lua`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        showToast('Lua file downloaded!', 'success');
+    }
+};
 
 
 // =============================================================================
@@ -6173,3 +8392,4 @@ window.removeMagicBuff = removeMagicBuff;
 window.removeMagicDebuff = removeMagicDebuff;
 window.InventoryBrowser = InventoryBrowser;
 window.LuaOptimizer = LuaOptimizer;
+window.SetBuilder = SetBuilder;

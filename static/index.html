@@ -14,6 +14,153 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Quattrocento+Sans:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/app.css">
+    <style>
+        /* Set Builder Slot Cards */
+        .slot-card {
+            background: #12171f;
+            border: 1px solid #1e2630;
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100px;
+        }
+        .slot-card:hover {
+            border-color: #c9a227;
+            background: #1a1f28;
+        }
+        .slot-card.filled {
+            border-color: #c9a227;
+            border-style: solid;
+        }
+        .slot-card.empty {
+            border-style: dashed;
+        }
+        .slot-card.missing-item {
+            border-color: #d9534f;
+            border-width: 2px;
+            background: rgba(217, 83, 79, 0.1);
+        }
+        .slot-card.missing-item:hover {
+            border-color: #d9534f;
+            background: rgba(217, 83, 79, 0.2);
+        }
+        .slot-name.missing {
+            color: #d9534f;
+        }
+        .slot-label {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #8b9298;
+            margin-bottom: 0.5rem;
+        }
+        .slot-icon {
+            width: 40px;
+            height: 40px;
+            background: #0a0e14;
+            border-radius: 0.25rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 0.5rem;
+        }
+        .slot-icon img {
+            width: 32px;
+            height: 32px;
+            object-fit: contain;
+        }
+        .slot-name {
+            font-size: 0.7rem;
+            color: #e8e6e3;
+            text-align: center;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 100%;
+        }
+        .slot-name.empty {
+            color: #8b9298;
+        }
+        
+        /* Picker Item Card */
+        .picker-item-card {
+            background: #12171f;
+            border: 1px solid #1e2630;
+            border-radius: 0.375rem;
+            padding: 0.75rem;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .picker-item-card:hover {
+            border-color: #c9a227;
+            background: #1a1f28;
+        }
+        
+        /* Set Tabs (Phase 3 - Comparison Mode) */
+        .set-tab {
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            background: #12171f;
+            color: #8b9298;
+            border: 1px solid #1e2630;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 500;
+        }
+        .set-tab:hover:not(.active) {
+            background: #1a1f28;
+            color: #e8e6e3;
+            border-color: #8b9298;
+        }
+        .set-tab.active {
+            background: #c9a227;
+            color: #0a0e14;
+            border-color: #c9a227;
+            font-weight: 600;
+        }
+        
+        /* Copy dropdown */
+        .copy-dropdown {
+            position: relative;
+            display: inline-block;
+        }
+        .copy-dropdown-content {
+            display: none;
+            position: absolute;
+            right: 0;
+            top: 100%;
+            background: #12171f;
+            border: 1px solid #1e2630;
+            border-radius: 0.375rem;
+            min-width: 140px;
+            z-index: 10;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        .copy-dropdown:hover .copy-dropdown-content,
+        .copy-dropdown-content:hover {
+            display: block;
+        }
+        .copy-dropdown-item {
+            padding: 0.5rem 0.75rem;
+            cursor: pointer;
+            font-size: 0.75rem;
+            color: #e8e6e3;
+            transition: background 0.15s;
+        }
+        .copy-dropdown-item:hover {
+            background: #1a1f28;
+        }
+        .copy-dropdown-item:first-child {
+            border-radius: 0.375rem 0.375rem 0 0;
+        }
+        .copy-dropdown-item:last-child {
+            border-radius: 0 0 0.375rem 0.375rem;
+        }
+    </style>
     <script>
         tailwind.config = {
             theme: {
@@ -212,7 +359,7 @@
                         <button class="tab-btn" data-tab="dt">DT Set</button>
                         <button class="tab-btn" data-tab="lua">Lua Template</button>
                         <button class="tab-btn" data-tab="inventory">Inventory</button>
-                        <button class="tab-btn" data-tab="compare">Compare</button>
+                        <button class="tab-btn" data-tab="compare">Set Builder</button>
                     </div>
                 </nav>
 
@@ -269,24 +416,7 @@
                                     <div>
                                         <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">Target</label>
                                         <select id="tp-target-preset" class="input-field w-full">
-                                            <optgroup label="Training">
-                                                <option value="training_dummy">Training Dummy</option>
-                                            </optgroup>
-                                            <optgroup label="Lower Tier Apex (Lv129)">
-                                                <option value="apex_leech">Apex Leech</option>
-                                                <option value="apex_crawler">Apex Crawler</option>
-                                                <option value="apex_lizard">Apex Lizard</option>
-                                            </optgroup>
-                                            <optgroup label="Standard Apex (Lv135)">
-                                                <option value="apex_toad" selected>Apex Toad</option>
-                                                <option value="apex_crab">Apex Crab</option>
-                                                <option value="apex_bat">Apex Bat</option>
-                                            </optgroup>
-                                            <optgroup label="Endgame">
-                                                <option value="odyssey_normal">Odyssey (Normal)</option>
-                                                <option value="odyssey_boss">Odyssey (Boss)</option>
-                                                <option value="dynamis_wave3">Dynamis Wave 3</option>
-                                            </optgroup>
+                                            <option value="">Loading targets...</option>
                                         </select>
                                     </div>
 
@@ -294,22 +424,7 @@
                                     <div>
                                         <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">Target Debuffs</label>
                                         <select id="tp-debuff-add" class="input-field w-full text-sm">
-                                            <option value="">Add debuff...</option>
-                                            <optgroup label="WHM">
-                                                <option value="Dia III">Dia III (Def-20%)</option>
-                                                <option value="Dia II">Dia II (Def-15%)</option>
-                                            </optgroup>
-                                            <optgroup label="GEO">
-                                                <option value="Geo-Frailty">Geo-Frailty (Def-15%)</option>
-                                                <option value="Geo-Torpor">Geo-Torpor (Eva-50)</option>
-                                                <option value="Geo-Malaise">Geo-Malaise (MDB-15)</option>
-                                            </optgroup>
-                                            <optgroup label="Misc">
-                                                <option value="Angon">Angon (Def-20%)</option>
-                                                <option value="Armor Break">Armor Break (Def-25%)</option>
-                                                <option value="Box Step">Box Step (Def-23%)</option>
-                                                <option value="Distract III">Distract III (Eva-280)</option>
-                                            </optgroup>
+                                            <option value="">Loading debuffs...</option>
                                         </select>
                                         <div id="tp-debuffs-list" class="space-y-1 mt-2"></div>
                                     </div>
@@ -329,11 +444,7 @@
                                         <div class="space-y-1">
                                             <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim">Food</label>
                                             <select id="tp-food-select" class="input-field w-full text-sm">
-                                                <option value="">No Food</option>
-                                                <option value="Grape Daifuku">Grape Daifuku (STR+7 Atk+150 Acc+60)</option>
-                                                <option value="Sublime Sushi +1">Sublime Sushi +1 (STR+8 Acc+90)</option>
-                                                <option value="Red Curry Bun +1">Red Curry Bun +1 (STR+9 Atk+180)</option>
-                                                <option value="Miso Ramen +1">Miso Ramen +1 (DEX+8 Acc+90)</option>
+                                                <option value="">Loading...</option>
                                             </select>
                                         </div>
                                         
@@ -344,29 +455,7 @@
                                                 <span id="tp-brd-song-count" class="text-xs text-ffxi-text-dim">0/4</span>
                                             </div>
                                             <select id="tp-brd-song-add" class="input-field w-full text-sm">
-                                                <option value="">Add song...</option>
-                                                <optgroup label="Marches">
-                                                    <option value="Honor March">Honor March (Haste+12%)</option>
-                                                    <option value="Victory March">Victory March (Haste+16%)</option>
-                                                    <option value="Advancing March">Advancing March (Haste+11%)</option>
-                                                </optgroup>
-                                                <optgroup label="Minuets">
-                                                    <option value="Minuet V">Minuet V (Atk+149)</option>
-                                                    <option value="Minuet IV">Minuet IV (Atk+137)</option>
-                                                    <option value="Minuet III">Minuet III (Atk+121)</option>
-                                                </optgroup>
-                                                <optgroup label="Madrigals">
-                                                    <option value="Blade Madrigal">Blade Madrigal (Acc+60)</option>
-                                                    <option value="Sword Madrigal">Sword Madrigal (Acc+45)</option>
-                                                </optgroup>
-                                                <optgroup label="Etudes">
-                                                    <option value="Herculean Etude">Herculean Etude (STR+15)</option>
-                                                    <option value="Uncanny Etude">Uncanny Etude (DEX+15)</option>
-                                                    <option value="Vital Etude">Vital Etude (VIT+15)</option>
-                                                </optgroup>
-                                                <optgroup label="Other">
-                                                    <option value="Aria of Passion">Aria of Passion (PDL+12)</option>
-                                                </optgroup>
+                                                <option value="">Loading songs...</option>
                                             </select>
                                             <div id="tp-brd-songs-list" class="space-y-1"></div>
                                         </div>
@@ -378,17 +467,7 @@
                                                 <span id="tp-cor-roll-count" class="text-xs text-ffxi-text-dim">0/2</span>
                                             </div>
                                             <select id="tp-cor-roll-add" class="input-field w-full text-sm">
-                                                <option value="">Add roll...</option>
-                                                <option value="Chaos Roll XI">Chaos Roll XI (Atk+31%)</option>
-                                                <option value="Chaos Roll X">Chaos Roll X (Atk+19%)</option>
-                                                <option value="Samurai Roll XI">Samurai Roll XI (STP+40)</option>
-                                                <option value="Samurai Roll X">Samurai Roll X (STP+24)</option>
-                                                <option value="Fighter's Roll XI">Fighter's Roll XI (DA+15%)</option>
-                                                <option value="Fighter's Roll X">Fighter's Roll X (DA+7%)</option>
-                                                <option value="Rogue's Roll XI">Rogue's Roll XI (Crit+14%)</option>
-                                                <option value="Hunter's Roll XI">Hunter's Roll XI (Acc+50)</option>
-                                                <option value="Wizard's Roll XI">Wizard's Roll XI (MAB+30)</option>
-                                                <option value="Tactician's Roll XI">Tactician's Roll XI (Regain+40)</option>
+                                                <option value="">Loading rolls...</option>
                                             </select>
                                             <div id="tp-cor-rolls-list" class="space-y-1"></div>
                                         </div>
@@ -403,24 +482,7 @@
                                                 <span id="tp-geo-bubble-count" class="text-xs text-ffxi-text-dim">0/3</span>
                                             </div>
                                             <select id="tp-geo-bubble-add" class="input-field w-full text-sm">
-                                                <option value="">Add bubble...</option>
-                                                <optgroup label="Geo (Full)">
-                                                    <option value="Geo-Fury">Geo-Fury (Atk+35%)</option>
-                                                    <option value="Geo-Precision">Geo-Precision (Acc+50)</option>
-                                                    <option value="Geo-Haste">Geo-Haste (Haste+29%)</option>
-                                                    <option value="Geo-STR">Geo-STR (STR+25)</option>
-                                                    <option value="Geo-DEX">Geo-DEX (DEX+25)</option>
-                                                    <option value="Geo-Acumen">Geo-Acumen (MAB+15)</option>
-                                                </optgroup>
-                                                <optgroup label="Indi">
-                                                    <option value="Indi-Fury">Indi-Fury (Atk+20%)</option>
-                                                    <option value="Indi-Precision">Indi-Precision (Acc+30)</option>
-                                                    <option value="Indi-Haste">Indi-Haste (Haste+20%)</option>
-                                                </optgroup>
-                                                <optgroup label="Entrust">
-                                                    <option value="Entrust Indi-Fury">Entrust Indi-Fury (Atk+20%)</option>
-                                                    <option value="Entrust Indi-Haste">Entrust Indi-Haste (Haste+20%)</option>
-                                                </optgroup>
+                                                <option value="">Loading bubbles...</option>
                                             </select>
                                             <div id="tp-geo-bubbles-list" class="space-y-1"></div>
                                         </div>
@@ -429,24 +491,7 @@
                                         <div class="space-y-1">
                                             <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">WHM Spells</label>
                                             <select id="tp-whm-spell-add" class="input-field w-full text-sm">
-                                                <option value="">Add spell...</option>
-                                                <optgroup label="Haste">
-                                                    <option value="Haste">Haste (15%)</option>
-                                                    <option value="Haste II">Haste II (30%)</option>
-                                                </optgroup>
-                                                <optgroup label="Boost">
-                                                    <option value="Boost-STR">Boost-STR (+25)</option>
-                                                    <option value="Boost-DEX">Boost-DEX (+25)</option>
-                                                    <option value="Boost-VIT">Boost-VIT (+25)</option>
-                                                </optgroup>
-                                                <optgroup label="Gain">
-                                                    <option value="Gain-STR">Gain-STR (+55)</option>
-                                                    <option value="Gain-DEX">Gain-DEX (+55)</option>
-                                                </optgroup>
-                                                <optgroup label="Storms">
-                                                    <option value="Firestorm II">Firestorm II (STR+7)</option>
-                                                    <option value="Thunderstorm II">Thunderstorm II (DEX+7)</option>
-                                                </optgroup>
+                                                <option value="">Loading spells...</option>
                                             </select>
                                             <div id="tp-whm-spells-list" class="space-y-1"></div>
                                         </div>
@@ -454,32 +499,10 @@
                                         <!-- Job Abilities -->
                                         <div class="space-y-1">
                                             <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">Job Abilities</label>
-                                            <div id="tp-job-abilities-container" class="grid grid-cols-2 gap-1 text-sm">
-                                                <label class="flex items-center gap-1 cursor-pointer">
-                                                    <input type="checkbox" class="checkbox tp-ability-checkbox" data-ability="Berserk">
-                                                    <span>Berserk</span>
-                                                </label>
-                                                <label class="flex items-center gap-1 cursor-pointer">
-                                                    <input type="checkbox" class="checkbox tp-ability-checkbox" data-ability="Aggressor">
-                                                    <span>Aggressor</span>
-                                                </label>
-                                                <label class="flex items-center gap-1 cursor-pointer">
-                                                    <input type="checkbox" class="checkbox tp-ability-checkbox" data-ability="Warcry">
-                                                    <span>Warcry</span>
-                                                </label>
-                                                <label class="flex items-center gap-1 cursor-pointer">
-                                                    <input type="checkbox" class="checkbox tp-ability-checkbox" data-ability="Hasso">
-                                                    <span>Hasso</span>
-                                                </label>
-                                                <label class="flex items-center gap-1 cursor-pointer">
-                                                    <input type="checkbox" class="checkbox tp-ability-checkbox" data-ability="Last Resort">
-                                                    <span>Last Resort</span>
-                                                </label>
-                                                <label class="flex items-center gap-1 cursor-pointer">
-                                                    <input type="checkbox" class="checkbox tp-ability-checkbox" data-ability="Innin">
-                                                    <span>Innin</span>
-                                                </label>
-                                            </div>
+                                            <select id="tp-ability-add" class="input-field w-full text-sm">
+                                                <option value="">Select a job first...</option>
+                                            </select>
+                                            <div id="tp-abilities-list" class="space-y-1 mt-1"></div>
                                         </div>
                                     </div>
                                 </div>
@@ -647,24 +670,7 @@
                                     <div>
                                         <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">Target</label>
                                         <select id="ws-target-preset" class="input-field w-full">
-                                            <optgroup label="Training">
-                                                <option value="training_dummy">Training Dummy</option>
-                                            </optgroup>
-                                            <optgroup label="Lower Tier Apex (Lv129)">
-                                                <option value="apex_leech">Apex Leech</option>
-                                                <option value="apex_crawler">Apex Crawler</option>
-                                                <option value="apex_lizard">Apex Lizard</option>
-                                            </optgroup>
-                                            <optgroup label="Standard Apex (Lv135)">
-                                                <option value="apex_toad" selected>Apex Toad</option>
-                                                <option value="apex_crab">Apex Crab</option>
-                                                <option value="apex_bat">Apex Bat</option>
-                                            </optgroup>
-                                            <optgroup label="Endgame">
-                                                <option value="odyssey_normal">Odyssey (Normal)</option>
-                                                <option value="odyssey_boss">Odyssey (Boss)</option>
-                                                <option value="dynamis_wave3">Dynamis Wave 3</option>
-                                            </optgroup>
+                                            <option value="">Loading targets...</option>
                                         </select>
                                     </div>
 
@@ -672,22 +678,7 @@
                                     <div>
                                         <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">Target Debuffs</label>
                                         <select id="ws-debuff-add" class="input-field w-full text-sm">
-                                            <option value="">Add debuff...</option>
-                                            <optgroup label="WHM">
-                                                <option value="Dia III">Dia III (Def-20%)</option>
-                                                <option value="Dia II">Dia II (Def-15%)</option>
-                                            </optgroup>
-                                            <optgroup label="GEO">
-                                                <option value="Geo-Frailty">Geo-Frailty (Def-15%)</option>
-                                                <option value="Geo-Torpor">Geo-Torpor (Eva-50)</option>
-                                                <option value="Geo-Malaise">Geo-Malaise (MDB-15)</option>
-                                            </optgroup>
-                                            <optgroup label="Misc">
-                                                <option value="Angon">Angon (Def-20%)</option>
-                                                <option value="Armor Break">Armor Break (Def-25%)</option>
-                                                <option value="Box Step">Box Step (Def-23%)</option>
-                                                <option value="Distract III">Distract III (Eva-280)</option>
-                                            </optgroup>
+                                            <option value="">Loading debuffs...</option>
                                         </select>
                                         <div id="ws-debuffs-list" class="space-y-1 mt-2"></div>
                                     </div>
@@ -707,11 +698,7 @@
                                         <div class="space-y-1">
                                             <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim">Food</label>
                                             <select id="ws-food-select" class="input-field w-full text-sm">
-                                                <option value="">No Food</option>
-                                                <option value="Grape Daifuku">Grape Daifuku (STR+7 Atk+150 Acc+60)</option>
-                                                <option value="Sublime Sushi +1">Sublime Sushi +1 (STR+8 Acc+90)</option>
-                                                <option value="Red Curry Bun +1">Red Curry Bun +1 (STR+9 Atk+180)</option>
-                                                <option value="Miso Ramen +1">Miso Ramen +1 (DEX+8 Acc+90)</option>
+                                                <option value="">Loading...</option>
                                             </select>
                                         </div>
                                         
@@ -722,29 +709,7 @@
                                                 <span id="ws-brd-song-count" class="text-xs text-ffxi-text-dim">0/4</span>
                                             </div>
                                             <select id="ws-brd-song-add" class="input-field w-full text-sm">
-                                                <option value="">Add song...</option>
-                                                <optgroup label="Marches">
-                                                    <option value="Honor March">Honor March (Haste+12%)</option>
-                                                    <option value="Victory March">Victory March (Haste+16%)</option>
-                                                    <option value="Advancing March">Advancing March (Haste+11%)</option>
-                                                </optgroup>
-                                                <optgroup label="Minuets">
-                                                    <option value="Minuet V">Minuet V (Atk+149)</option>
-                                                    <option value="Minuet IV">Minuet IV (Atk+137)</option>
-                                                    <option value="Minuet III">Minuet III (Atk+121)</option>
-                                                </optgroup>
-                                                <optgroup label="Madrigals">
-                                                    <option value="Blade Madrigal">Blade Madrigal (Acc+60)</option>
-                                                    <option value="Sword Madrigal">Sword Madrigal (Acc+45)</option>
-                                                </optgroup>
-                                                <optgroup label="Etudes">
-                                                    <option value="Herculean Etude">Herculean Etude (STR+15)</option>
-                                                    <option value="Uncanny Etude">Uncanny Etude (DEX+15)</option>
-                                                    <option value="Vital Etude">Vital Etude (VIT+15)</option>
-                                                </optgroup>
-                                                <optgroup label="Other">
-                                                    <option value="Aria of Passion">Aria of Passion (PDL+12)</option>
-                                                </optgroup>
+                                                <option value="">Loading songs...</option>
                                             </select>
                                             <div id="ws-brd-songs-list" class="space-y-1"></div>
                                         </div>
@@ -756,17 +721,7 @@
                                                 <span id="ws-cor-roll-count" class="text-xs text-ffxi-text-dim">0/2</span>
                                             </div>
                                             <select id="ws-cor-roll-add" class="input-field w-full text-sm">
-                                                <option value="">Add roll...</option>
-                                                <option value="Chaos Roll XI">Chaos Roll XI (Atk+31%)</option>
-                                                <option value="Chaos Roll X">Chaos Roll X (Atk+19%)</option>
-                                                <option value="Samurai Roll XI">Samurai Roll XI (STP+40)</option>
-                                                <option value="Samurai Roll X">Samurai Roll X (STP+24)</option>
-                                                <option value="Fighter's Roll XI">Fighter's Roll XI (DA+15%)</option>
-                                                <option value="Fighter's Roll X">Fighter's Roll X (DA+7%)</option>
-                                                <option value="Rogue's Roll XI">Rogue's Roll XI (Crit+14%)</option>
-                                                <option value="Hunter's Roll XI">Hunter's Roll XI (Acc+50)</option>
-                                                <option value="Wizard's Roll XI">Wizard's Roll XI (MAB+30)</option>
-                                                <option value="Tactician's Roll XI">Tactician's Roll XI (Regain+40)</option>
+                                                <option value="">Loading rolls...</option>
                                             </select>
                                             <div id="ws-cor-rolls-list" class="space-y-1"></div>
                                         </div>
@@ -781,24 +736,7 @@
                                                 <span id="ws-geo-bubble-count" class="text-xs text-ffxi-text-dim">0/3</span>
                                             </div>
                                             <select id="ws-geo-bubble-add" class="input-field w-full text-sm">
-                                                <option value="">Add bubble...</option>
-                                                <optgroup label="Geo (Full)">
-                                                    <option value="Geo-Fury">Geo-Fury (Atk+35%)</option>
-                                                    <option value="Geo-Precision">Geo-Precision (Acc+50)</option>
-                                                    <option value="Geo-Haste">Geo-Haste (Haste+29%)</option>
-                                                    <option value="Geo-STR">Geo-STR (STR+25)</option>
-                                                    <option value="Geo-DEX">Geo-DEX (DEX+25)</option>
-                                                    <option value="Geo-Acumen">Geo-Acumen (MAB+15)</option>
-                                                </optgroup>
-                                                <optgroup label="Indi">
-                                                    <option value="Indi-Fury">Indi-Fury (Atk+20%)</option>
-                                                    <option value="Indi-Precision">Indi-Precision (Acc+30)</option>
-                                                    <option value="Indi-Haste">Indi-Haste (Haste+20%)</option>
-                                                </optgroup>
-                                                <optgroup label="Entrust">
-                                                    <option value="Entrust Indi-Fury">Entrust Indi-Fury (Atk+20%)</option>
-                                                    <option value="Entrust Indi-Haste">Entrust Indi-Haste (Haste+20%)</option>
-                                                </optgroup>
+                                                <option value="">Loading bubbles...</option>
                                             </select>
                                             <div id="ws-geo-bubbles-list" class="space-y-1"></div>
                                         </div>
@@ -807,24 +745,7 @@
                                         <div class="space-y-1">
                                             <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">WHM Spells</label>
                                             <select id="ws-whm-spell-add" class="input-field w-full text-sm">
-                                                <option value="">Add spell...</option>
-                                                <optgroup label="Haste">
-                                                    <option value="Haste">Haste (15%)</option>
-                                                    <option value="Haste II">Haste II (30%)</option>
-                                                </optgroup>
-                                                <optgroup label="Boost">
-                                                    <option value="Boost-STR">Boost-STR (+25)</option>
-                                                    <option value="Boost-DEX">Boost-DEX (+25)</option>
-                                                    <option value="Boost-VIT">Boost-VIT (+25)</option>
-                                                </optgroup>
-                                                <optgroup label="Gain">
-                                                    <option value="Gain-STR">Gain-STR (+55)</option>
-                                                    <option value="Gain-DEX">Gain-DEX (+55)</option>
-                                                </optgroup>
-                                                <optgroup label="Storms">
-                                                    <option value="Firestorm II">Firestorm II (STR+7)</option>
-                                                    <option value="Thunderstorm II">Thunderstorm II (DEX+7)</option>
-                                                </optgroup>
+                                                <option value="">Loading spells...</option>
                                             </select>
                                             <div id="ws-whm-spells-list" class="space-y-1"></div>
                                         </div>
@@ -832,32 +753,10 @@
                                         <!-- Job Abilities -->
                                         <div class="space-y-1">
                                             <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">Job Abilities</label>
-                                            <div id="ws-job-abilities-container" class="grid grid-cols-2 gap-1 text-sm">
-                                                <label class="flex items-center gap-1 cursor-pointer">
-                                                    <input type="checkbox" class="checkbox ws-ability-checkbox" data-ability="Berserk">
-                                                    <span>Berserk</span>
-                                                </label>
-                                                <label class="flex items-center gap-1 cursor-pointer">
-                                                    <input type="checkbox" class="checkbox ws-ability-checkbox" data-ability="Aggressor">
-                                                    <span>Aggressor</span>
-                                                </label>
-                                                <label class="flex items-center gap-1 cursor-pointer">
-                                                    <input type="checkbox" class="checkbox ws-ability-checkbox" data-ability="Warcry">
-                                                    <span>Warcry</span>
-                                                </label>
-                                                <label class="flex items-center gap-1 cursor-pointer">
-                                                    <input type="checkbox" class="checkbox ws-ability-checkbox" data-ability="Hasso">
-                                                    <span>Hasso</span>
-                                                </label>
-                                                <label class="flex items-center gap-1 cursor-pointer">
-                                                    <input type="checkbox" class="checkbox ws-ability-checkbox" data-ability="Last Resort">
-                                                    <span>Last Resort</span>
-                                                </label>
-                                                <label class="flex items-center gap-1 cursor-pointer">
-                                                    <input type="checkbox" class="checkbox ws-ability-checkbox" data-ability="Innin">
-                                                    <span>Innin</span>
-                                                </label>
-                                            </div>
+                                            <select id="ws-ability-add" class="input-field w-full text-sm">
+                                                <option value="">Select a job first...</option>
+                                            </select>
+                                            <div id="ws-abilities-list" class="space-y-1 mt-1"></div>
                                         </div>
                                     </div>
                                 </div>
@@ -966,16 +865,16 @@
                         </div>
                     </div>
 
-                    <!-- Magic Tab (unchanged) -->
+                    <!-- Magic Tab -->
                     <div id="tab-magic" class="tab-panel hidden">
-                        <div class="max-w-4xl">
+                        <div class="max-w-5xl">
                             <h2 class="font-display text-xl text-ffxi-accent mb-4">Magic Set Optimization</h2>
                             <p class="text-ffxi-text-dim mb-6">
                                 Optimize gear for maximum magic damage, accuracy, or spell potency.
                             </p>
                             
                             <div class="grid grid-cols-2 gap-6 mb-6">
-                                <!-- Left Column: Spell Selection -->
+                                <!-- Left Column: Spell Selection & Options -->
                                 <div class="space-y-4">
                                     <!-- Spell Category Selection -->
                                     <div>
@@ -1009,113 +908,6 @@
                                         </div>
                                     </div>
                                     
-                                    <!-- Magic-Specific Buffs -->
-                                    <div>
-                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
-                                            Magic Buffs
-                                        </label>
-                                        <select id="magic-buff-add" class="input-field w-full text-sm">
-                                            <option value="">Add magic buff...</option>
-                                            <optgroup label="BRD">
-                                                <option value="brd:Sage Etude">Sage Etude (+15 INT)</option>
-                                                <option value="brd:Logical Etude">Logical Etude (+15 MND)</option>
-                                                <option value="brd:Learned Etude">Learned Etude (+10 INT)</option>
-                                                <option value="brd:Spirited Etude">Spirited Etude (+10 MND)</option>
-                                            </optgroup>
-                                            <optgroup label="GEO (Self)">
-                                                <option value="geo:Geo-Acumen">Geo-Acumen (+35% MAB)</option>
-                                                <option value="geo:Indi-Acumen">Indi-Acumen (+20% MAB)</option>
-                                                <option value="geo:Geo-Focus">Geo-Focus (+75 M.Acc)</option>
-                                                <option value="geo:Indi-Focus">Indi-Focus (+45 M.Acc)</option>
-                                            </optgroup>
-                                            <optgroup label="COR">
-                                                <option value="cor:Wizard's Roll XI">Wizard's Roll XI (+50 MAB)</option>
-                                                <option value="cor:Wizard's Roll X">Wizard's Roll X (+30 MAB)</option>
-                                                <option value="cor:Warlock's Roll XI">Warlock's Roll XI (+52 M.Acc)</option>
-                                                <option value="cor:Warlock's Roll X">Warlock's Roll X (+32 M.Acc)</option>
-                                            </optgroup>
-                                            <optgroup label="SCH">
-                                                <option value="sch:Ebullience">Ebullience (+40% DMG)</option>
-                                                <option value="sch:Immanence">Immanence (SC Enabled)</option>
-                                            </optgroup>
-                                            <optgroup label="Food">
-                                                <option value="food:Tropical Crepe">Tropical Crepe (+60 MAB/M.Acc)</option>
-                                                <option value="food:Pear Crepe">Pear Crepe (+50 MAB/M.Acc)</option>
-                                                <option value="food:Seafood Stew">Seafood Stew (+40 MAB)</option>
-                                            </optgroup>
-                                        </select>
-                                        <div id="magic-buffs-list" class="space-y-1 mt-2"></div>
-                                    </div>
-                                    
-                                    <!-- Magic Debuffs on Target -->
-                                    <div>
-                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
-                                            Target Debuffs
-                                        </label>
-                                        <select id="magic-debuff-add" class="input-field w-full text-sm">
-                                            <option value="">Add debuff...</option>
-                                            <optgroup label="GEO (Target)">
-                                                <option value="Geo-Languor">Geo-Languor (-75 M.Eva)</option>
-                                                <option value="Indi-Languor">Indi-Languor (-45 M.Eva)</option>
-                                                <option value="Geo-Malaise">Geo-Malaise (-35 MDB)</option>
-                                                <option value="Indi-Malaise">Indi-Malaise (-20 MDB)</option>
-                                            </optgroup>
-                                            <optgroup label="RDM">
-                                                <option value="Frazzle III">Frazzle III (-45 M.Eva)</option>
-                                                <option value="Frazzle II">Frazzle II (-30 M.Eva)</option>
-                                                <option value="Frazzle">Frazzle (-15 M.Eva)</option>
-                                            </optgroup>
-                                        </select>
-                                        <div id="magic-debuffs-list" class="space-y-1 mt-2"></div>
-                                    </div>
-                                    
-                                    <!-- Custom Magic Buffs Panel -->
-                                    <div class="mt-4">
-                                        <div class="flex items-center justify-between mb-2">
-                                            <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">Custom Magic Buffs</label>
-                                            <button id="magic-custom-buffs-toggle" class="text-xs text-ffxi-text-dim hover:text-ffxi-text">
-                                                <span id="magic-custom-buffs-toggle-text">Show</span> ▼
-                                            </button>
-                                        </div>
-                                        <div id="magic-custom-buffs-panel" class="hidden bg-ffxi-dark rounded-lg p-3 space-y-3">
-                                            <p class="text-xs text-ffxi-text-dim">
-                                                Enter custom values for non-standard potencies (e.g., Idris GEO, lucky rolls).
-                                            </p>
-                                            
-                                            <div class="grid grid-cols-2 gap-2">
-                                                <div>
-                                                    <label class="block text-xs text-ffxi-text-dim mb-1">INT</label>
-                                                    <input type="number" id="magic-custom-int" class="input-field w-full text-sm" min="0" max="150" value="0" placeholder="0">
-                                                </div>
-                                                <div>
-                                                    <label class="block text-xs text-ffxi-text-dim mb-1">MND</label>
-                                                    <input type="number" id="magic-custom-mnd" class="input-field w-full text-sm" min="0" max="150" value="0" placeholder="0">
-                                                </div>
-                                                <div>
-                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Magic Attack</label>
-                                                    <input type="number" id="magic-custom-mab" class="input-field w-full text-sm" min="0" max="100" value="0" placeholder="0">
-                                                </div>
-                                                <div>
-                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Magic Accuracy</label>
-                                                    <input type="number" id="magic-custom-macc" class="input-field w-full text-sm" min="0" max="150" value="0" placeholder="0">
-                                                </div>
-                                                <div class="col-span-2">
-                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Magic Damage</label>
-                                                    <input type="number" id="magic-custom-mdmg" class="input-field w-full text-sm" min="0" max="50" value="0" placeholder="0">
-                                                </div>
-                                            </div>
-                                            
-                                            <div class="flex justify-end">
-                                                <button id="magic-custom-buffs-clear" class="text-xs text-ffxi-red hover:text-red-400">
-                                                    Clear Custom Buffs
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <!-- Right Column: Optimization Options -->
-                                <div class="space-y-4">
                                     <!-- Optimization Type -->
                                     <div>
                                         <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
@@ -1163,12 +955,13 @@
                                         <input type="checkbox" id="magic-include-weapons" class="checkbox">
                                         <span class="text-sm">Include Weapons</span>
                                     </label>
-                                    
-                                    <!-- Magic Target Selection -->
+                                </div>
+                                
+                                <!-- Right Column: Target & Debuffs -->
+                                <div class="space-y-4">
+                                    <!-- Target -->
                                     <div>
-                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">
-                                            Target
-                                        </label>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">Target</label>
                                         <select id="magic-target-select" class="input-field w-full">
                                             <option value="apex_mob">Apex Mob (M.Eva 600)</option>
                                             <option value="odyssey_nm">Odyssey NM (M.Eva 750)</option>
@@ -1177,6 +970,149 @@
                                             <option value="training_dummy">Training Dummy (M.Eva 300)</option>
                                             <option value="high_resist">High Resist (M.Eva 900)</option>
                                         </select>
+                                    </div>
+                                    
+                                    <!-- Target Debuffs -->
+                                    <div>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">Target Debuffs</label>
+                                        <select id="magic-debuff-add" class="input-field w-full text-sm">
+                                            <option value="">Loading debuffs...</option>
+                                        </select>
+                                        <div id="magic-debuffs-list" class="space-y-1 mt-2"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <hr class="border-ffxi-border mb-6">
+                            
+                            <!-- Buff Configuration -->
+                            <div class="space-y-4 mb-6">
+                                <h3 class="text-xs uppercase tracking-wider text-ffxi-accent font-semibold">Buff Configuration</h3>
+                                
+                                <div class="grid grid-cols-2 gap-6">
+                                    <!-- Left Column -->
+                                    <div class="space-y-4">
+                                        <!-- Food -->
+                                        <div class="space-y-1">
+                                            <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim">Food</label>
+                                            <select id="magic-food-select" class="input-field w-full text-sm">
+                                                <option value="">Loading...</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <!-- BRD Songs -->
+                                        <div class="space-y-1">
+                                            <div class="flex items-center justify-between">
+                                                <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">BRD Songs</label>
+                                                <span id="magic-brd-song-count" class="text-xs text-ffxi-text-dim">0/4</span>
+                                            </div>
+                                            <select id="magic-brd-song-add" class="input-field w-full text-sm">
+                                                <option value="">Loading songs...</option>
+                                            </select>
+                                            <div id="magic-brd-songs-list" class="space-y-1"></div>
+                                        </div>
+                                        
+                                        <!-- COR Rolls -->
+                                        <div class="space-y-1">
+                                            <div class="flex items-center justify-between">
+                                                <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">COR Rolls</label>
+                                                <span id="magic-cor-roll-count" class="text-xs text-ffxi-text-dim">0/2</span>
+                                            </div>
+                                            <select id="magic-cor-roll-add" class="input-field w-full text-sm">
+                                                <option value="">Loading rolls...</option>
+                                            </select>
+                                            <div id="magic-cor-rolls-list" class="space-y-1"></div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Right Column -->
+                                    <div class="space-y-4">
+                                        <!-- GEO Bubbles -->
+                                        <div class="space-y-1">
+                                            <div class="flex items-center justify-between">
+                                                <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">GEO Bubbles</label>
+                                                <span id="magic-geo-bubble-count" class="text-xs text-ffxi-text-dim">0/3</span>
+                                            </div>
+                                            <select id="magic-geo-bubble-add" class="input-field w-full text-sm">
+                                                <option value="">Loading bubbles...</option>
+                                            </select>
+                                            <div id="magic-geo-bubbles-list" class="space-y-1"></div>
+                                        </div>
+                                        
+                                        <!-- SCH Abilities -->
+                                        <div class="space-y-1">
+                                            <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">SCH Abilities</label>
+                                            <select id="magic-sch-ability-add" class="input-field w-full text-sm">
+                                                <option value="">Loading abilities...</option>
+                                            </select>
+                                            <div id="magic-sch-abilities-list" class="space-y-1"></div>
+                                        </div>
+                                        
+                                        <!-- WHM Spells -->
+                                        <div class="space-y-1">
+                                            <label class="text-xs uppercase tracking-wider text-ffxi-text-dim">WHM Spells</label>
+                                            <select id="magic-whm-spell-add" class="input-field w-full text-sm">
+                                                <option value="">Loading spells...</option>
+                                            </select>
+                                            <div id="magic-whm-spells-list" class="space-y-1"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Custom Buffs Panel -->
+                            <div class="space-y-4 mb-6">
+                                <div class="flex items-center justify-between">
+                                    <h3 class="text-xs uppercase tracking-wider text-ffxi-accent font-semibold">Custom Buffs (Advanced)</h3>
+                                    <button id="magic-custom-buffs-toggle" class="text-xs text-ffxi-text-dim hover:text-ffxi-text">
+                                        <span id="magic-custom-buffs-toggle-text">Show</span> ▼
+                                    </button>
+                                </div>
+                                <div id="magic-custom-buffs-panel" class="hidden bg-ffxi-dark rounded-lg p-4 space-y-4">
+                                    <p class="text-xs text-ffxi-text-dim mb-3">
+                                        Enter custom values for non-standard potencies (e.g., Idris GEO, lucky rolls).
+                                    </p>
+                                    
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <!-- Left Column: Stats -->
+                                        <div class="space-y-3">
+                                            <div class="text-xs font-semibold text-ffxi-text-dim uppercase mb-2">Primary Stats</div>
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">INT</label>
+                                                    <input type="number" id="magic-custom-int" class="input-field w-full text-sm" min="0" max="150" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">MND</label>
+                                                    <input type="number" id="magic-custom-mnd" class="input-field w-full text-sm" min="0" max="150" value="0" placeholder="0">
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Right Column: Magic Stats -->
+                                        <div class="space-y-3">
+                                            <div class="text-xs font-semibold text-ffxi-text-dim uppercase mb-2">Magic Stats</div>
+                                            <div class="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Magic Attack</label>
+                                                    <input type="number" id="magic-custom-mab" class="input-field w-full text-sm" min="0" max="100" value="0" placeholder="0">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs text-ffxi-text-dim mb-1">Magic Accuracy</label>
+                                                    <input type="number" id="magic-custom-macc" class="input-field w-full text-sm" min="0" max="150" value="0" placeholder="0">
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs text-ffxi-text-dim mb-1">Magic Damage</label>
+                                                <input type="number" id="magic-custom-mdmg" class="input-field w-full text-sm" min="0" max="50" value="0" placeholder="0">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="flex justify-end mt-3">
+                                        <button id="magic-custom-buffs-clear" class="text-xs text-ffxi-red hover:text-red-400">
+                                            Clear All Custom Buffs
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -1712,23 +1648,293 @@
                         </div>
                     </div>
 
-                    <!-- Compare Tab -->
+                    <!-- Compare Tab - Set Builder -->
                     <div id="tab-compare" class="tab-panel hidden">
                         <div class="max-w-6xl">
-                            <h2 class="font-display text-xl text-ffxi-accent mb-4">Set Comparison</h2>
-                            <p class="text-ffxi-text-dim mb-6">
-                                Compare optimized sets side-by-side with simulated DPS.
+                            <!-- Header with Set Tabs -->
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="flex items-center gap-4">
+                                    <h2 id="set-builder-header" class="font-display text-xl text-ffxi-accent">Set Builder - Set A</h2>
+                                    <!-- Set Tabs -->
+                                    <div class="flex items-center gap-2">
+                                        <button id="tab-set-a" class="set-tab active" onclick="SetBuilder.switchSet('A')">Set A</button>
+                                        <button id="tab-set-b" class="set-tab" onclick="SetBuilder.switchSet('B')">Set B</button>
+                                        <button class="btn-secondary text-xs text-ffxi-red hover:bg-ffxi-red/20 ml-2" onclick="SetBuilder.clearBothSets()">
+                                            Clear Both Sets
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <!-- Copy Between Sets Dropdown -->
+                                    <div class="copy-dropdown">
+                                        <button class="btn-secondary text-sm">
+                                            <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                                            </svg>
+                                            Copy Set
+                                            <svg class="w-3 h-3 inline ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                                            </svg>
+                                        </button>
+                                        <div class="copy-dropdown-content">
+                                            <div class="copy-dropdown-item" onclick="SetBuilder.copySetAToB()">Copy A → B</div>
+                                            <div class="copy-dropdown-item" onclick="SetBuilder.copySetBToA()">Copy B → A</div>
+                                        </div>
+                                    </div>
+                                    <button id="btn-export-lua" class="btn-secondary text-sm" onclick="SetBuilder.showExportModal()">
+                                        <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                                        </svg>
+                                        Export Lua
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- Mode & Job Info -->
+                            <div class="flex items-center justify-between mb-6 bg-ffxi-panel p-3 rounded-lg border border-ffxi-border">
+                                <div class="flex items-center gap-4">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs uppercase tracking-wider text-ffxi-text-dim">Mode:</span>
+                                        <select id="set-builder-mode" class="input-field text-sm" onchange="SetBuilder.setMode(this.value)">
+                                            <option value="inventory">Inventory</option>
+                                            <option value="dream">Dream Set</option>
+                                        </select>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs uppercase tracking-wider text-ffxi-text-dim">Job:</span>
+                                        <span id="set-builder-job" class="text-ffxi-accent font-medium">Select a job</span>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <!-- Configure Paths Button (Dream Mode only) -->
+                                    <button id="set-builder-path-config-btn" class="hidden btn-secondary text-xs flex items-center gap-1" onclick="SetBuilder.openPathConfigModal()">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/>
+                                        </svg>
+                                        Configure Paths
+                                        <span id="path-config-count" class="text-xs bg-ffxi-accent text-ffxi-dark px-1.5 py-0.5 rounded-full">0</span>
+                                    </button>
+                                    <button id="btn-copy-to-dream" class="btn-secondary text-xs" onclick="SetBuilder.copyToDreamSet()">
+                                        Copy to Dream Set
+                                    </button>
+                                    <button id="btn-clear-set" class="btn-secondary text-xs text-ffxi-red hover:bg-ffxi-red/20" onclick="SetBuilder.clearAllSlots()">
+                                        Clear All
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="grid grid-cols-3 gap-6">
+                                <!-- Equipment Grid (Left 2/3) -->
+                                <div class="col-span-2">
+                                    <h3 class="text-xs uppercase tracking-wider text-ffxi-text-dim mb-3">Equipment</h3>
+                                    <div id="set-builder-grid" class="grid grid-cols-4 gap-2">
+                                        <!-- Row 1: Weapons -->
+                                        <div class="slot-card" data-slot="main" onclick="SetBuilder.openSlotPicker('main')">
+                                            <div class="slot-label">Main</div>
+                                            <div class="slot-icon"><span class="text-ffxi-text-dim">?</span></div>
+                                            <div class="slot-name">Empty</div>
+                                        </div>
+                                        <div class="slot-card" data-slot="sub" onclick="SetBuilder.openSlotPicker('sub')">
+                                            <div class="slot-label">Sub</div>
+                                            <div class="slot-icon"><span class="text-ffxi-text-dim">?</span></div>
+                                            <div class="slot-name">Empty</div>
+                                        </div>
+                                        <div class="slot-card" data-slot="range" onclick="SetBuilder.openSlotPicker('range')">
+                                            <div class="slot-label">Range</div>
+                                            <div class="slot-icon"><span class="text-ffxi-text-dim">?</span></div>
+                                            <div class="slot-name">Empty</div>
+                                        </div>
+                                        <div class="slot-card" data-slot="ammo" onclick="SetBuilder.openSlotPicker('ammo')">
+                                            <div class="slot-label">Ammo</div>
+                                            <div class="slot-icon"><span class="text-ffxi-text-dim">?</span></div>
+                                            <div class="slot-name">Empty</div>
+                                        </div>
+                                        
+                                        <!-- Row 2: Head, Neck, Ears -->
+                                        <div class="slot-card" data-slot="head" onclick="SetBuilder.openSlotPicker('head')">
+                                            <div class="slot-label">Head</div>
+                                            <div class="slot-icon"><span class="text-ffxi-text-dim">?</span></div>
+                                            <div class="slot-name">Empty</div>
+                                        </div>
+                                        <div class="slot-card" data-slot="neck" onclick="SetBuilder.openSlotPicker('neck')">
+                                            <div class="slot-label">Neck</div>
+                                            <div class="slot-icon"><span class="text-ffxi-text-dim">?</span></div>
+                                            <div class="slot-name">Empty</div>
+                                        </div>
+                                        <div class="slot-card" data-slot="ear1" onclick="SetBuilder.openSlotPicker('ear1')">
+                                            <div class="slot-label">Ear 1</div>
+                                            <div class="slot-icon"><span class="text-ffxi-text-dim">?</span></div>
+                                            <div class="slot-name">Empty</div>
+                                        </div>
+                                        <div class="slot-card" data-slot="ear2" onclick="SetBuilder.openSlotPicker('ear2')">
+                                            <div class="slot-label">Ear 2</div>
+                                            <div class="slot-icon"><span class="text-ffxi-text-dim">?</span></div>
+                                            <div class="slot-name">Empty</div>
+                                        </div>
+                                        
+                                        <!-- Row 3: Body, Hands, Rings -->
+                                        <div class="slot-card" data-slot="body" onclick="SetBuilder.openSlotPicker('body')">
+                                            <div class="slot-label">Body</div>
+                                            <div class="slot-icon"><span class="text-ffxi-text-dim">?</span></div>
+                                            <div class="slot-name">Empty</div>
+                                        </div>
+                                        <div class="slot-card" data-slot="hands" onclick="SetBuilder.openSlotPicker('hands')">
+                                            <div class="slot-label">Hands</div>
+                                            <div class="slot-icon"><span class="text-ffxi-text-dim">?</span></div>
+                                            <div class="slot-name">Empty</div>
+                                        </div>
+                                        <div class="slot-card" data-slot="ring1" onclick="SetBuilder.openSlotPicker('ring1')">
+                                            <div class="slot-label">Ring 1</div>
+                                            <div class="slot-icon"><span class="text-ffxi-text-dim">?</span></div>
+                                            <div class="slot-name">Empty</div>
+                                        </div>
+                                        <div class="slot-card" data-slot="ring2" onclick="SetBuilder.openSlotPicker('ring2')">
+                                            <div class="slot-label">Ring 2</div>
+                                            <div class="slot-icon"><span class="text-ffxi-text-dim">?</span></div>
+                                            <div class="slot-name">Empty</div>
+                                        </div>
+                                        
+                                        <!-- Row 4: Back, Waist, Legs, Feet -->
+                                        <div class="slot-card" data-slot="back" onclick="SetBuilder.openSlotPicker('back')">
+                                            <div class="slot-label">Back</div>
+                                            <div class="slot-icon"><span class="text-ffxi-text-dim">?</span></div>
+                                            <div class="slot-name">Empty</div>
+                                        </div>
+                                        <div class="slot-card" data-slot="waist" onclick="SetBuilder.openSlotPicker('waist')">
+                                            <div class="slot-label">Waist</div>
+                                            <div class="slot-icon"><span class="text-ffxi-text-dim">?</span></div>
+                                            <div class="slot-name">Empty</div>
+                                        </div>
+                                        <div class="slot-card" data-slot="legs" onclick="SetBuilder.openSlotPicker('legs')">
+                                            <div class="slot-label">Legs</div>
+                                            <div class="slot-icon"><span class="text-ffxi-text-dim">?</span></div>
+                                            <div class="slot-name">Empty</div>
+                                        </div>
+                                        <div class="slot-card" data-slot="feet" onclick="SetBuilder.openSlotPicker('feet')">
+                                            <div class="slot-label">Feet</div>
+                                            <div class="slot-icon"><span class="text-ffxi-text-dim">?</span></div>
+                                            <div class="slot-name">Empty</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Stats Comparison Panel (Right 1/3) -->
+                                <div class="col-span-1">
+                                    <h3 class="text-xs uppercase tracking-wider text-ffxi-text-dim mb-3">Stats Comparison</h3>
+                                    <div id="set-builder-stats" class="bg-ffxi-panel rounded-lg border border-ffxi-border p-4 space-y-4 max-h-[600px] overflow-y-auto">
+                                        <!-- Populated dynamically by JS with comparison rows -->
+                                        <p class="text-ffxi-text-dim text-center py-4">No stats to compare. Select items in Set A or Set B.</p>
+                                    </div>
+                                </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Set Builder Item Picker Modal -->
+                    <div id="set-builder-picker-modal" class="modal hidden">
+                        <div class="modal-backdrop" onclick="SetBuilder.closePickerModal()"></div>
+                        <div class="modal-content max-w-4xl max-h-[80vh] flex flex-col">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 id="picker-modal-title" class="font-display text-lg text-ffxi-accent">Select Item</h3>
+                                <button onclick="SetBuilder.closePickerModal()" class="text-ffxi-text-dim hover:text-ffxi-text">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            
+                            <!-- Search -->
+                            <div class="flex gap-2 mb-4">
+                                <input type="text" id="picker-search" class="input-field flex-1" placeholder="Search items..." oninput="SetBuilder.filterPickerItems()">
+                                <button id="picker-clear-slot" class="btn-secondary text-sm text-ffxi-red" onclick="SetBuilder.clearCurrentSlot()">
+                                    Clear Slot
+                                </button>
+                            </div>
+                            
+                            <!-- Item Count -->
+                            <div class="text-xs text-ffxi-text-dim mb-2">
+                                <span id="picker-item-count">0</span> items
+                            </div>
+                            
+                            <!-- Item Grid -->
+                            <div id="picker-items-grid" class="grid grid-cols-2 md:grid-cols-3 gap-2 overflow-y-auto flex-1 min-h-0">
+                                <p class="text-ffxi-text-dim col-span-full text-center py-8">Loading items...</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Set Builder Export Modal -->
+                    <div id="set-builder-export-modal" class="modal hidden">
+                        <div class="modal-backdrop" onclick="SetBuilder.closeExportModal()"></div>
+                        <div class="modal-content max-w-2xl">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 id="export-modal-title" class="font-display text-lg text-ffxi-accent">Export GearSwap Lua</h3>
+                                <button onclick="SetBuilder.closeExportModal()" class="text-ffxi-text-dim hover:text-ffxi-text">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            
+                            <!-- Set Name -->
+                            <div class="mb-4">
+                                <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">Set Name</label>
+                                <input type="text" id="export-set-name" class="input-field w-full" placeholder="my_set" value="my_set">
+                            </div>
+                            
+                            <!-- Lua Code Preview -->
+                            <div class="mb-4">
+                                <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">Generated Lua</label>
+                                <pre id="export-lua-code" class="bg-ffxi-dark rounded p-4 text-sm text-ffxi-text font-mono overflow-x-auto max-h-64 overflow-y-auto border border-ffxi-border"></pre>
+                            </div>
+                            
+                            <!-- Actions -->
+                            <div class="flex justify-end gap-2">
+                                <button onclick="SetBuilder.copyLuaToClipboard()" class="btn-secondary">
+                                    <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                                    </svg>
+                                    Copy to Clipboard
+                                </button>
+                                <button onclick="SetBuilder.downloadLuaFile()" class="btn-primary">
+                                    <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                                    </svg>
+                                    Download .lua
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Set Builder Path Configuration Modal -->
+                    <div id="set-builder-path-modal" class="modal hidden">
+                        <div class="modal-backdrop" onclick="SetBuilder.closePathConfigModal()"></div>
+                        <div class="modal-content max-w-2xl max-h-[80vh] flex flex-col">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 id="path-config-modal-title" class="font-display text-lg text-ffxi-accent">Configure Path Augments</h3>
+                                <button onclick="SetBuilder.closePathConfigModal()" class="text-ffxi-text-dim hover:text-ffxi-text">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            
+                            <p class="text-sm text-ffxi-text-dim mb-4">
+                                Configure path augments and ranks for Set <span id="path-config-set-label" class="text-ffxi-accent font-medium">A</span>. Stats will be added to your set totals.
                             </p>
                             
-                            <div id="compare-container" class="grid grid-cols-2 gap-6">
-                                <div class="bg-ffxi-panel p-4 rounded border border-ffxi-border">
-                                    <h3 class="text-ffxi-accent font-display mb-4">Set A</h3>
-                                    <p class="text-ffxi-text-dim text-sm">Run an optimization to compare sets</p>
-                                </div>
-                                <div class="bg-ffxi-panel p-4 rounded border border-ffxi-border">
-                                    <h3 class="text-ffxi-accent font-display mb-4">Set B</h3>
-                                    <p class="text-ffxi-text-dim text-sm">Run an optimization to compare sets</p>
-                                </div>
+                            <!-- Path Items List -->
+                            <div id="path-config-items" class="space-y-3 overflow-y-auto flex-1 min-h-0">
+                                <!-- Populated by JS -->
+                            </div>
+                            
+                            <!-- Close Button -->
+                            <div class="flex justify-end mt-4 pt-4 border-t border-ffxi-border">
+                                <button onclick="SetBuilder.closePathConfigModal()" class="btn-primary">
+                                    Done
+                                </button>
                             </div>
                         </div>
                     </div>
