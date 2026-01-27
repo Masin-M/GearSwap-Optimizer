@@ -29,7 +29,7 @@ sys.path.insert(0, str(WSDIST_DIR))
 from models import (
     Stats, Slot, Job, Container,
     OptimizationProfile, BuffContext,
-    create_priority_profile,
+    # create_priority_profile,
     SLOT_BITMASK, EQUIPPABLE_CONTAINERS
 )
 from inventory_loader import Inventory, load_inventory

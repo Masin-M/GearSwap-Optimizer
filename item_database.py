@@ -792,7 +792,7 @@ class ItemDatabase:
                 f"Multi-slot item (blocks {blocked_slot}) - stats not parsed"
             )
 
-            print(item.name)
+            #print(item.name)
             # Don't parse stats - the item will have empty stats and won't
             # be selected by the optimizer
             return

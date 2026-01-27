@@ -116,6 +116,22 @@ from job_gifts_loader import (
     get_job_gifts_summary,
 )
 
+from buff_definitions import (
+    PHYSICAL_BUFFS,
+    MAGIC_BUFFS,
+    PHYSICAL_DEBUFFS,
+    MAGIC_DEBUFFS,
+    CUSTOM_BUFF_CAPS,
+    PHYSICAL_TARGETS,
+    MAGIC_TARGETS,
+    PHYSICAL_ABILITIES,
+    get_buff_by_name,
+    get_debuff_by_name,
+    get_all_physical_buffs_flat,
+    get_all_magic_buffs_flat,
+    get_abilities_for_jobs,
+)
+
 # Import optimizer functions
 from optimizer_ui import (
     TPSetType,
@@ -1021,8 +1037,8 @@ def convert_ui_buffs_to_wsdist(
     custom_buffs = {}
     
     # Process food
-    if food and food in BUFF_DEFINITIONS.get("food", {}):
-        food_stats = BUFF_DEFINITIONS["food"][food]
+    if food and food in PHYSICAL_BUFFS.get("food", {}):
+        food_stats = PHYSICAL_BUFFS["food"][food]
         buffs_dict["Food"] = {
             "STR": food_stats.get("STR", 0),
             "DEX": food_stats.get("DEX", 0),
@@ -1045,8 +1061,8 @@ def convert_ui_buffs_to_wsdist(
             "INT": 0, "MND": 0, "CHR": 0, "PDL": 0,
         }
         for song in ui_buffs["brd"]:
-            if song in BUFF_DEFINITIONS.get("brd", {}):
-                s = BUFF_DEFINITIONS["brd"][song]
+            if song in PHYSICAL_BUFFS.get("brd", {}):
+                s = PHYSICAL_BUFFS["brd"][song]
                 brd_stats["Attack"] += s.get("attack", 0)
                 brd_stats["Ranged Attack"] += s.get("attack", 0)
                 brd_stats["Accuracy"] += s.get("accuracy", 0)
@@ -1065,8 +1081,8 @@ def convert_ui_buffs_to_wsdist(
             "Magic Attack": 0,
         }
         for roll in ui_buffs["cor"]:
-            if roll in BUFF_DEFINITIONS.get("cor", {}):
-                r = BUFF_DEFINITIONS["cor"][roll]
+            if roll in PHYSICAL_BUFFS.get("cor", {}):
+                r = PHYSICAL_BUFFS["cor"][roll]
                 cor_stats["Attack%"] += r.get("attack_pct", 0)
                 cor_stats["Accuracy"] += r.get("accuracy", 0)
                 cor_stats["Ranged Accuracy"] += r.get("ranged_accuracy", 0)
@@ -1085,8 +1101,8 @@ def convert_ui_buffs_to_wsdist(
             "Magic Attack": 0, "Magic Accuracy": 0,
         }
         for bubble in ui_buffs["geo"]:
-            if bubble in BUFF_DEFINITIONS.get("geo", {}):
-                g = BUFF_DEFINITIONS["geo"][bubble]
+            if bubble in PHYSICAL_BUFFS.get("geo", {}):
+                g = PHYSICAL_BUFFS["geo"][bubble]
                 geo_stats["Attack%"] += g.get("attack_pct", 0)
                 geo_stats["Accuracy"] += g.get("accuracy", 0)
                 geo_stats["Magic Haste"] += g.get("magic_haste", 0)
@@ -1104,8 +1120,8 @@ def convert_ui_buffs_to_wsdist(
             "MDT": 0,
         }
         for spell in ui_buffs["whm"]:
-            if spell in BUFF_DEFINITIONS.get("whm", {}):
-                w = BUFF_DEFINITIONS["whm"][spell]
+            if spell in PHYSICAL_BUFFS.get("whm", {}):
+                w = PHYSICAL_BUFFS["whm"][spell]
                 whm_stats["Magic Haste"] += w.get("magic_haste", 0)
                 whm_stats["MDT"] += w.get("mdt", 0)
                 for stat in ["STR", "DEX", "VIT", "AGI", "INT", "MND", "CHR"]:
@@ -1169,7 +1185,7 @@ def convert_ui_buffs_to_wsdist(
         "magic_evasion_down": 0,
     }
     for debuff in debuffs:
-        for category in DEBUFF_DEFINITIONS.values():
+        for category in PHYSICAL_DEBUFFS.values():
             if debuff in category:
                 d = category[debuff]
                 debuffs_info["defense_down_pct"] += d.get("defense_down_pct", 0)
@@ -2343,233 +2359,78 @@ async def optimize_dt(request: DTOptimizeRequest):
 # =============================================================================
 # Custom Buff Caps (for user-entered values)
 # =============================================================================
-# These are the maximum values users can enter for custom buffs.
-# All values are entered as whole numbers or percentages (NOT decimals).
-# Example: attack_pct of 31.25 means 31.25% attack bonus.
-# The conversion to wsdist's decimal format (0.3125) happens in apply_custom_buffs_to_player.
-
-CUSTOM_BUFF_CAPS = {
-    # Physical custom buffs
-    "physical": {
-        "STR": 150,
-        "DEX": 150,
-        "VIT": 150,
-        "AGI": 150,
-        "attack": 500,               # Flat attack bonus
-        "attack_pct": 100,           # Attack% as percentage (31.25 = 31.25% bonus, like Chaos Roll XI)
-        "accuracy": 200,
-        "ranged_attack": 500,
-        "ranged_accuracy": 200,
-        "magic_haste": 43.75,        # Magic haste cap, entered as percentage (30 = 30% haste)
-        "double_attack": 50,         # DA percentage (15 = 15% DA)
-        "triple_attack": 30,         # TA percentage
-        "store_tp": 100,             # Store TP flat bonus
-        "crit_rate": 50,             # Crit rate percentage
-        "pdl": 30,                   # Physical Damage Limit percentage
-    },
-    # Magic custom buffs
-    "magic": {
-        "INT": 150,
-        "MND": 150,
-        "magic_attack": 100,         # MAB percentage
-        "magic_accuracy": 150,
-        "magic_damage": 50,          # Flat magic damage
-    },
-}
-
-
 # =============================================================================
-# Full Buff/Debuff Definitions (matching wsdist)
+# Buff/Debuff API Endpoints
+# (Data definitions are now in buff_definitions.py)
 # =============================================================================
 
-BUFF_DEFINITIONS = {
-    "brd": {
-        "Honor March": {"magic_haste": 126/1024, "attack": 168, "accuracy": 42, "songs": 1},
-        "Victory March": {"magic_haste": 163/1024, "songs": 1},
-        "Advancing March": {"magic_haste": 108/1024, "songs": 1},
-        "Minuet V": {"attack": 149, "songs": 1},
-        "Minuet IV": {"attack": 137, "songs": 1},
-        "Minuet III": {"attack": 121, "songs": 1},
-        "Blade Madrigal": {"accuracy": 60, "songs": 1},
-        "Sword Madrigal": {"accuracy": 45, "songs": 1},
-        "Herculean Etude": {"STR": 15, "songs": 1},
-        "Uncanny Etude": {"DEX": 15, "songs": 1},
-        "Vital Etude": {"VIT": 15, "songs": 1},
-        "Swift Etude": {"AGI": 15, "songs": 1},
-        "Sage Etude": {"INT": 15, "songs": 1},
-        "Logical Etude": {"MND": 15, "songs": 1},
-        "Aria of Passion": {"pdl": 12, "songs": 1},
-    },
-    "cor": {
-        "Chaos Roll XI": {"attack_pct": 0.3125},
-        "Chaos Roll X": {"attack_pct": 0.1875},
-        "Samurai Roll XI": {"store_tp": 40},
-        "Samurai Roll X": {"store_tp": 24},
-        "Fighter's Roll XI": {"double_attack": 15},
-        "Fighter's Roll X": {"double_attack": 7},
-        "Rogue's Roll XI": {"crit_rate": 14},
-        "Rogue's Roll X": {"crit_rate": 8},
-        "Hunter's Roll XI": {"accuracy": 50, "ranged_accuracy": 50},
-        "Hunter's Roll X": {"accuracy": 30, "ranged_accuracy": 30},
-        "Wizard's Roll XI": {"magic_attack": 30},
-        "Tactician's Roll XI": {"regain": 40},
-    },
-    "geo": {
-        "Geo-Fury": {"attack_pct": 0.347},
-        "Indi-Fury": {"attack_pct": 0.20},
-        "Geo-Precision": {"accuracy": 50},
-        "Indi-Precision": {"accuracy": 30},
-        "Geo-Haste": {"magic_haste": 299/1024},
-        "Indi-Haste": {"magic_haste": 200/1024},
-        "Geo-STR": {"STR": 25},
-        "Geo-DEX": {"DEX": 25},
-        "Geo-VIT": {"VIT": 25},
-        "Geo-Acumen": {"magic_attack": 15},
-        "Geo-Focus": {"magic_accuracy": 50},
-        "Entrust Indi-Fury": {"attack_pct": 0.20},
-        "Entrust Indi-Haste": {"magic_haste": 200/1024},
-    },
-    "whm": {
-        "Haste": {"magic_haste": 150/1024},
-        "Haste II": {"magic_haste": 307/1024},
-        "Boost-STR": {"STR": 25},
-        "Boost-DEX": {"DEX": 25},
-        "Boost-VIT": {"VIT": 25},
-        "Boost-AGI": {"AGI": 25},
-        "Gain-STR": {"STR": 55},
-        "Gain-DEX": {"DEX": 55},
-        "Firestorm II": {"STR": 7},
-        "Thunderstorm II": {"DEX": 7},
-        "Sandstorm II": {"VIT": 7},
-        "Shell V": {"mdt": -29},
-    },
-    "abilities": {
-        "Berserk": {"attack_pct": 0.25, "job": "war"},
-        "Warcry": {"attack": 0, "job": "war"},
-        "Aggressor": {"accuracy": 25, "job": "war"},
-        "Mighty Strikes": {"crit_rate": 100, "job": "war"},
-        "Last Resort": {"attack_pct": 0.25, "job": "drk"},
-        "Hasso": {"STR": 14, "ja_haste": 10, "accuracy": 10, "job": "sam"},
-        "Meditate": {"tp": 0, "job": "sam"},
-        "Sekkanoki": {"tp": 0, "job": "sam"},
-        "Sange": {"daken": 100, "job": "nin"},
-        "Innin": {"crit_rate": 20, "accuracy": 20, "job": "nin"},
-        "Focus": {"crit_rate": 20, "accuracy": 100, "job": "mnk"},
-        "Impetus": {"crit_rate": 50, "attack": 140, "job": "mnk"},
-        "Footwork": {"kick_attacks": 20, "job": "mnk"},
-        "Sharpshot": {"ranged_accuracy": 40, "job": "rng"},
-        "Velocity Shot": {"ranged_attack_pct": 0.15, "job": "rng"},
-        "Double Shot": {"double_shot": 40, "job": "rng"},
-        "Triple Shot": {"triple_shot": 40, "job": "cor"},
-        "Sneak Attack": {"job": "thf"},
-        "Trick Attack": {"job": "thf"},
-        "Conspirator": {"accuracy": 45, "job": "thf"},
-    },
-    "food": {
-        "Grape Daifuku": {"STR": 7, "attack": 150, "accuracy": 60},
-        "Sublime Sushi +1": {"STR": 8, "accuracy": 90, "attack": 0},
-        "Red Curry Bun +1": {"STR": 9, "attack": 180, "accuracy": 0},
-        "Miso Ramen +1": {"DEX": 8, "accuracy": 90, "ranged_accuracy": 90},
-        "Custom Food": {"STR": 0, "DEX": 0, "attack": 0, "accuracy": 0},
-    },
-}
+@app.get("/api/buffs/physical")
+async def get_physical_buffs():
+    """
+    Get all physical buff definitions for TP/WS UI.
+    
+    Returns categorized buffs: brd, cor, geo, whm, food
+    Also returns abilities dict with job info for dynamic filtering.
+    """
+    return {
+        "buffs": PHYSICAL_BUFFS,
+        "abilities": PHYSICAL_ABILITIES,
+        "debuffs": PHYSICAL_DEBUFFS,
+        "targets": PHYSICAL_TARGETS,
+        "custom_caps": CUSTOM_BUFF_CAPS.get("physical", {}),
+    }
 
-DEBUFF_DEFINITIONS = {
-    "whm": {
-        "Dia": {"defense_down_pct": 0.101},
-        "Dia II": {"defense_down_pct": 0.152},
-        "Dia III": {"defense_down_pct": 0.203},
-    },
-    "geo": {
-        "Geo-Frailty": {"defense_down_pct": 0.148},
-        "Indi-Frailty": {"defense_down_pct": 0.10},
-        "Geo-Torpor": {"evasion_down": 50},
-        "Geo-Malaise": {"magic_defense_down": 15},
-        "Geo-Languor": {"magic_evasion_down": 50},
-    },
-    "cor": {
-        "Light Shot": {"defense_down_pct": 0.027},
-    },
-    "misc": {
-        "Angon": {"defense_down_pct": 0.20},
-        "Armor Break": {"defense_down_pct": 0.25},
-        "Box Step": {"defense_down_pct": 0.23},
-        "Box Step (sub)": {"defense_down_pct": 0.13},
-        "Corrosive Ooze": {"defense_down_pct": 0.33},
-        "Distract III": {"evasion_down": 280},
-        "Swooping Frenzy": {"defense_down_pct": 0.25, "magic_defense_down": 25},
-    },
-}
 
-# =============================================================================
-# Magic-Specific Buff Definitions
-# =============================================================================
+@app.get("/api/abilities/{main_job}")
+async def get_abilities_for_job(main_job: str, sub_job: str = None, include_2hr: bool = False):
+    """
+    Get abilities available for a specific job combination.
+    
+    Args:
+        main_job: Main job (e.g., "nin", "war")
+        sub_job: Optional sub job query param
+        include_2hr: Whether to include 2-hour abilities
+        
+    Returns:
+        Dict of available abilities with their info
+    """
+    return get_abilities_for_jobs(main_job, sub_job, include_2hr)
 
-MAGIC_BUFF_ADDITIONS = {
-    # BRD magic songs (etudes for mages)
-    "brd_magic": {
-        "Sage Etude": {"INT": 15},
-        "Logical Etude": {"MND": 15},
-        "Learned Etude": {"INT": 10},
-        "Spirited Etude": {"MND": 10},
-    },
-    # COR magic rolls
-    "cor_magic": {
-        "Wizard's Roll XI": {"magic_attack": 50},
-        "Wizard's Roll X": {"magic_attack": 30},
-        "Warlock's Roll XI": {"magic_accuracy": 52},
-        "Warlock's Roll X": {"magic_accuracy": 32},
-    },
-    # GEO magic bubbles
-    "geo_magic": {
-        "Geo-Acumen": {"magic_attack_pct": 35},  # 35% MAB
-        "Indi-Acumen": {"magic_attack_pct": 20},
-        "Geo-Focus": {"magic_accuracy": 75},
-        "Indi-Focus": {"magic_accuracy": 45},
-        "Geo-Languor": {"magic_evasion_down": 75},  # Target debuff
-        "Indi-Languor": {"magic_evasion_down": 45},
-        "Geo-Malaise": {"magic_defense_down": 35},  # Target debuff
-        "Indi-Malaise": {"magic_defense_down": 20},
-    },
-    # SCH-specific abilities
-    "sch": {
-        "Ebullience": {"magic_damage_mult": 40},  # +40% magic damage on next spell
-        "Immanence": {"skillchain_enabled": True},
-        "Dark Arts": {"dark_magic_cast_time": -10, "dark_magic_recast": -10},
-        "Light Arts": {"enhancing_cast_time": -10, "healing_cast_time": -10},
-    },
-    # Magic-specific food
-    "food_magic": {
-        "Tropical Crepe": {"INT": 8, "magic_attack": 60, "magic_accuracy": 60},
-        "Pear Crepe": {"INT": 6, "magic_attack": 50, "magic_accuracy": 50},
-        "Miso Ramen +1": {"DEX": 8, "accuracy": 90, "ranged_accuracy": 90, "magic_accuracy": 90},
-        "Seafood Stew": {"INT": 6, "MND": 6, "magic_attack": 40},
-        "Rolanberry Pie +1": {"INT": 7, "MP": 70},
-    },
-}
 
-# Magic-specific debuffs on target
-MAGIC_DEBUFF_DEFINITIONS = {
-    "geo_magic_debuff": {
-        "Geo-Languor": {"magic_evasion_down": 75},
-        "Indi-Languor": {"magic_evasion_down": 45},
-        "Geo-Malaise": {"magic_defense_down": 35},
-        "Indi-Malaise": {"magic_defense_down": 20},
-    },
-    "rdm": {
-        "Frazzle III": {"magic_evasion_down": 45},
-        "Frazzle II": {"magic_evasion_down": 30},
-        "Frazzle": {"magic_evasion_down": 15},
-    },
-}
+@app.get("/api/buffs/magic")
+async def get_magic_buffs():
+    """
+    Get all magic buff definitions for Magic UI.
+    
+    Returns categorized buffs: brd, cor, geo, sch, whm, food
+    """
+    return {
+        "buffs": MAGIC_BUFFS,
+        "debuffs": MAGIC_DEBUFFS,
+        "targets": MAGIC_TARGETS,
+        "custom_caps": CUSTOM_BUFF_CAPS.get("magic", {}),
+    }
 
 
 @app.get("/api/buffs/full")
 async def get_full_buffs():
-    """Get complete buff/debuff definitions matching wsdist."""
+    """
+    Get complete buff/debuff definitions (both physical and magic).
+    Kept for backwards compatibility.
+    """
     return {
-        "buffs": BUFF_DEFINITIONS,
-        "debuffs": DEBUFF_DEFINITIONS,
+        "physical": {
+            "buffs": PHYSICAL_BUFFS,
+            "debuffs": PHYSICAL_DEBUFFS,
+        },
+        "magic": {
+            "buffs": MAGIC_BUFFS,
+            "debuffs": MAGIC_DEBUFFS,
+        },
+        "targets": {
+            "physical": PHYSICAL_TARGETS,
+            "magic": MAGIC_TARGETS,
+        },
     }
 
 
@@ -2758,12 +2619,10 @@ async def calculate_stats(request: StatsRequest):
             apply_job_gifts_to_player(player, jg)
         
 
-        player_keys = player.stats.keys()
-        init_values = list(player.stats.values())
-
         print(f"Player stats before adding custom buffs:")
         print(f"  Attack%: {player.stats.get('Attack%', 'N/A')}")
         print(f"  Attack1: {player.stats.get('Attack1', 'N/A')}")
+        print(f"  Accuracy: {player.stats.get('Accuracy', 'N/A')}")
         # Apply custom buffs after job gifts
         if custom_buffs:
             from optimizer_ui import apply_custom_buffs_to_player
@@ -2771,6 +2630,7 @@ async def calculate_stats(request: StatsRequest):
             print(f"Player stats after adding custom buffs:")
             print(f"  Attack%: {player.stats.get('Attack%', 'N/A')}")
             print(f"  Attack1: {player.stats.get('Attack1', 'N/A')}")
+            print(f"  Accuracy: {player.stats.get('Accuracy', 'N/A')}")
             print(f"  Custom buffs applied: {custom_buffs}")
 
         
@@ -2782,7 +2642,7 @@ async def calculate_stats(request: StatsRequest):
         total_def_down = 0
         total_eva_down = 0
         for debuff in request.debuffs:
-            for category in DEBUFF_DEFINITIONS.values():
+            for category in PHYSICAL_DEBUFFS.values():
                 if debuff in category:
                     d = category[debuff]
                     total_def_down += d.get("defense_down_pct", 0)
@@ -3472,11 +3332,11 @@ async def get_magic_targets():
 
 
 @app.get("/api/magic/buffs")
-async def get_magic_buffs():
-    """Get magic-specific buff and debuff definitions."""
+async def get_magic_buffs_legacy():
+    """Get magic-specific buff and debuff definitions. (Legacy endpoint - use /api/buffs/magic instead)"""
     return {
-        "buffs": MAGIC_BUFF_ADDITIONS,
-        "debuffs": MAGIC_DEBUFF_DEFINITIONS,
+        "buffs": MAGIC_BUFFS,
+        "debuffs": MAGIC_DEBUFFS,
     }
 
 
@@ -3553,7 +3413,7 @@ async def optimize_magic(request: MagicOptimizeRequest):
         total_meva_down = 0
         total_mdef_down = 0
         for debuff in request.debuffs:
-            for category in MAGIC_DEBUFF_DEFINITIONS.values():
+            for category in MAGIC_DEBUFFS.values():
                 if debuff in category:
                     d = category[debuff]
                     total_meva_down += d.get("magic_evasion_down", 0)
@@ -3933,7 +3793,7 @@ async def simulate_magic(request: MagicSimulateRequest):
         
         # Apply debuffs to target
         for debuff in request.debuffs:
-            for category in MAGIC_DEBUFF_DEFINITIONS.values():
+            for category in MAGIC_DEBUFFS.values():
                 if debuff in category:
                     d = category[debuff]
                     target.magic_evasion -= d.get("magic_evasion_down", 0)
@@ -4168,6 +4028,8 @@ def convert_magic_buffs_to_caster_stats(
     bonuses = {
         "INT": 0,
         "MND": 0,
+        "STR": 0,
+        "DEX": 0,
         "magic_attack": 0,
         "magic_accuracy": 0,
         "magic_damage": 0,
@@ -4176,16 +4038,16 @@ def convert_magic_buffs_to_caster_stats(
     # Process BRD magic songs (etudes)
     if "brd" in ui_buffs:
         for buff in ui_buffs["brd"]:
-            if buff in MAGIC_BUFF_ADDITIONS.get("brd_magic", {}):
-                b = MAGIC_BUFF_ADDITIONS["brd_magic"][buff]
+            if buff in MAGIC_BUFFS.get("brd", {}):
+                b = MAGIC_BUFFS["brd"][buff]
                 bonuses["INT"] += b.get("INT", 0)
                 bonuses["MND"] += b.get("MND", 0)
     
     # Process GEO magic buffs
     if "geo" in ui_buffs:
         for buff in ui_buffs["geo"]:
-            if buff in MAGIC_BUFF_ADDITIONS.get("geo_magic", {}):
-                b = MAGIC_BUFF_ADDITIONS["geo_magic"][buff]
+            if buff in MAGIC_BUFFS.get("geo", {}):
+                b = MAGIC_BUFFS["geo"][buff]
                 bonuses["magic_attack"] += b.get("magic_attack", 0)
                 bonuses["magic_accuracy"] += b.get("magic_accuracy", 0)
                 # GEO MAB% is treated as flat MAB bonus (how it works in FFXI)
@@ -4194,14 +4056,32 @@ def convert_magic_buffs_to_caster_stats(
     # Process COR magic rolls
     if "cor" in ui_buffs:
         for buff in ui_buffs["cor"]:
-            if buff in MAGIC_BUFF_ADDITIONS.get("cor_magic", {}):
-                b = MAGIC_BUFF_ADDITIONS["cor_magic"][buff]
+            if buff in MAGIC_BUFFS.get("cor", {}):
+                b = MAGIC_BUFFS["cor"][buff]
                 bonuses["magic_attack"] += b.get("magic_attack", 0)
                 bonuses["magic_accuracy"] += b.get("magic_accuracy", 0)
     
+    # Process WHM magic buffs (storms)
+    if "whm" in ui_buffs:
+        for buff in ui_buffs["whm"]:
+            if buff in MAGIC_BUFFS.get("whm", {}):
+                b = MAGIC_BUFFS["whm"][buff]
+                bonuses["INT"] += b.get("INT", 0)
+                bonuses["MND"] += b.get("MND", 0)
+                bonuses["STR"] += b.get("STR", 0)
+                bonuses["DEX"] += b.get("DEX", 0)
+    
+    # Process SCH abilities
+    if "sch" in ui_buffs:
+        for buff in ui_buffs["sch"]:
+            if buff in MAGIC_BUFFS.get("sch", {}):
+                b = MAGIC_BUFFS["sch"][buff]
+                bonuses["magic_attack"] += b.get("magic_attack", 0)
+                # Note: Ebullience's magic_damage_mult is handled separately in the simulator
+    
     # Process food
-    if food and food in MAGIC_BUFF_ADDITIONS.get("food_magic", {}):
-        f = MAGIC_BUFF_ADDITIONS["food_magic"][food]
+    if food and food in MAGIC_BUFFS.get("food", {}):
+        f = MAGIC_BUFFS["food"][food]
         bonuses["INT"] += f.get("INT", 0)
         bonuses["MND"] += f.get("MND", 0)
         bonuses["magic_attack"] += f.get("magic_attack", 0)

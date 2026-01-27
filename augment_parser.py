@@ -328,6 +328,60 @@ STAT_LOOKUP = {
     'Regain': 'regain',
     
     # =========================================================================
+    # PASSIVE GEAR REGEN/REFRESH (for DT/Idle sets)
+    # =========================================================================
+    # These give passive MP/HP per tick from wearing the gear
+    # e.g., '"Refresh"+2' augments or gear with 'Refresh+3'
+    '\\"Refresh\\"': 'refresh',
+    '"Refresh"': 'refresh',
+    'Refresh': 'refresh',
+    
+    '\\"Regen\\"': 'regen',
+    '"Regen"': 'regen',
+    'Regen': 'regen',
+    
+    # =========================================================================
+    # MIDCAST REGEN SPELL STATS (for sets.midcast.Regen)
+    # =========================================================================
+    # Regen potency - flat HP/tick added to Regen spells you cast
+    # e.g., Bookworm's Cape '"Regen" potency+8'
+    '\\"Regen\\" potency': 'regen_potency',
+    '"Regen" potency': 'regen_potency',
+    'Regen potency': 'regen_potency',
+    
+    # Regen effect duration - flat seconds added to Regen spell duration
+    # e.g., Telchine Chasuble, Lugh's Cape
+    # Note: This is FLAT seconds, not percentage
+    'Regen effect dur.': 'regen_effect_duration',
+    '\\"Regen\\" effect dur.': 'regen_effect_duration',
+    '"Regen" effect dur.': 'regen_effect_duration',
+    'Regen effect duration': 'regen_effect_duration',
+    
+    # =========================================================================
+    # MIDCAST REFRESH SPELL STATS (for sets.midcast.Refresh)
+    # =========================================================================
+    # Refresh potency - flat MP/tick added (rare stat)
+    '\\"Refresh\\" potency': 'refresh_potency',
+    '"Refresh" potency': 'refresh_potency',
+    'Refresh potency': 'refresh_potency',
+    
+    # Refresh effect duration - flat seconds added
+    'Refresh effect dur.': 'refresh_effect_duration',
+    '\\"Refresh\\" effect dur.': 'refresh_effect_duration',
+    '"Refresh" effect dur.': 'refresh_effect_duration',
+    'Refresh effect duration': 'refresh_effect_duration',
+    
+    # =========================================================================
+    # ENHANCING MAGIC DURATION FROM AUGMENTS (separate from non-augmented)
+    # =========================================================================
+    # Telchine/Chironic/etc augments use this format
+    # Applies at a different step than non-augmented enhancing duration gear
+    'Enh. Mag. eff. dur.': ('enhancing_duration_augment', 100),
+    'Enh. mag. eff. dur.': ('enhancing_duration_augment', 100),
+    '\\"Enh. Mag. eff. dur.\\"': ('enhancing_duration_augment', 100),
+    '"Enh. Mag. eff. dur."': ('enhancing_duration_augment', 100),
+    
+    # =========================================================================
     # OCCASIONAL ATTACKS
     # =========================================================================
     '\\"OA2\\"': 'oa2',
@@ -511,6 +565,18 @@ DESCRIPTIVE_PATTERNS = [
     
     # Duration/potency without number
     (re.compile(r'Enhancing Magic duration', re.IGNORECASE), 'enhancing_duration_flag'),
+    
+    # =========================================================================
+    # PASSIVE REGEN/REFRESH FROM GEAR
+    # =========================================================================
+    # "Adds Refresh effect" - gives passive 1 MP/tick
+    # "Adds improved Refresh effect" - gives passive 2 MP/tick (set bonus)
+    (re.compile(r'Adds\s+improved\s+(?:\\"|")?Refresh(?:\\"|")?\s+effect', re.IGNORECASE), 'adds_improved_refresh'),
+    (re.compile(r'Adds\s+(?:\\"|")?Refresh(?:\\"|")?\s+effect', re.IGNORECASE), 'adds_refresh'),
+    
+    # "Adds Regen effect" - gives passive HP/tick
+    (re.compile(r'Adds\s+improved\s+(?:\\"|")?Regen(?:\\"|")?\s+effect', re.IGNORECASE), 'adds_improved_regen'),
+    (re.compile(r'Adds\s+(?:\\"|")?Regen(?:\\"|")?\s+effect', re.IGNORECASE), 'adds_regen'),
 ]
 
 
@@ -578,11 +644,41 @@ class AugmentParser:
         Phase 3: Handle descriptive augments
         """
         text = text.strip()
+        processed_text = text  # Track remaining text after special pattern removal
         
         # =================================================================
-        # Phase 1 & 2: Numeric augments
+        # Pre-Phase: Special patterns that the main regex doesn't handle well
         # =================================================================
-        matches = NUMERIC_AUGMENT_PATTERN.findall(text)
+        # Handle "Regen" potency+X and similar patterns with quoted prefix
+        special_patterns = [
+            # Regen potency: "Regen" potency+8 or \"Regen\" potency+8
+            (re.compile(r'(?:\\"|")?Regen(?:\\"|")?\s+potency\s*[+]?\s*(\d+)', re.IGNORECASE), 'regen_potency'),
+            # Refresh potency: "Refresh" potency+X
+            (re.compile(r'(?:\\"|")?Refresh(?:\\"|")?\s+potency\s*[+]?\s*(\d+)', re.IGNORECASE), 'refresh_potency'),
+            # Pet Regen: Pet: "Regen"+3 (for SMN/BST/PUP)
+            (re.compile(r'Pet:\s*(?:\\"|")?Regen(?:\\"|")?\s*[+]\s*(\d+)', re.IGNORECASE), 'pet_regen'),
+        ]
+        
+        for pattern, stat_attr in special_patterns:
+            match = pattern.search(text)
+            if match:
+                try:
+                    value = int(match.group(1))
+                    if hasattr(stats, stat_attr):
+                        current = getattr(stats, stat_attr)
+                        setattr(stats, stat_attr, current + value)
+                    elif stat_attr == 'pet_regen':
+                        # Store pet stats separately for now
+                        stats.special_effects.append(f'Pet: Regen+{value}')
+                    # Remove matched portion to avoid double-counting in main regex
+                    processed_text = pattern.sub('', processed_text)
+                except (ValueError, IndexError):
+                    pass
+        
+        # =================================================================
+        # Phase 1 & 2: Numeric augments (on processed text)
+        # =================================================================
+        matches = NUMERIC_AUGMENT_PATTERN.findall(processed_text)
         
         for stat_name, sign, value_str, percent in matches:
             stat_name = stat_name.strip()
@@ -673,7 +769,7 @@ class AugmentParser:
             stats.special_effects.append(f"{stat_attr}: {value:+d}")
     
     def _parse_descriptive_augment(self, text: str, stats: Stats):
-        """Parse descriptive augments (Enhances, Path, etc.)."""
+        """Parse descriptive augments (Enhances, Path, Adds Refresh/Regen, etc.)."""
         
         for pattern, effect_type in DESCRIPTIVE_PATTERNS:
             match = pattern.search(text)
@@ -687,6 +783,24 @@ class AugmentParser:
                 elif effect_type == 'path':
                     path = match.group(1).upper()
                     stats.special_effects.append(f'Path: {path}')
+                # =========================================================
+                # Passive Refresh from gear
+                # =========================================================
+                elif effect_type == 'adds_improved_refresh':
+                    # "Adds improved Refresh effect" - typically set bonus giving +2 MP/tick
+                    stats.refresh += 2
+                elif effect_type == 'adds_refresh':
+                    # "Adds Refresh effect" - standard 1 MP/tick
+                    stats.refresh += 1
+                # =========================================================
+                # Passive Regen from gear
+                # =========================================================
+                elif effect_type == 'adds_improved_regen':
+                    # "Adds improved Regen effect" - set bonus, higher value
+                    stats.regen += 2
+                elif effect_type == 'adds_regen':
+                    # "Adds Regen effect" - standard value (varies, usually 1-3)
+                    stats.regen += 1
                 else:
                     # Simple flag-type effects
                     stats.special_effects.append(effect_type)

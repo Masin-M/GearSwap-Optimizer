@@ -309,11 +309,43 @@ class Stats:
     regain: int = 0              # Regain (TP/tick)
     
     # ==========================================================================
-    # RESOURCE RECOVERY (MP/HP per tick)
+    # RESOURCE RECOVERY (MP/HP per tick) - PASSIVE GEAR
     # ==========================================================================
-    refresh: int = 0             # Refresh (MP/tick)
-    regen: int = 0               # Regen (HP/tick)
+    # These are for gear that gives passive regen/refresh (DT/Idle sets)
+    # e.g., 'Adds "Refresh" effect' or '"Refresh"+2' augments
+    refresh: int = 0             # Refresh (MP/tick) - passive from gear
+    regen: int = 0               # Regen (HP/tick) - passive from gear
     convert_mp: int = 0          # Convert MP recovered bonus
+    
+    # ==========================================================================
+    # MIDCAST REGEN/REFRESH SPELL STATS
+    # ==========================================================================
+    # These affect Regen/Refresh SPELLS you cast (for sets.midcast.Regen/Refresh)
+    # NOT passive gear-based recovery
+    
+    # Regen spell potency (adds flat HP/tick to Regen spells)
+    # e.g., Bookworm's Cape '"Regen" potency+8', Telchine augments
+    regen_potency: int = 0       # Flat HP/tick added to Regen spell
+    
+    # Regen spell duration (flat seconds added)
+    # e.g., Telchine Chasuble 'Regen effect duration +27'
+    # This is DIFFERENT from general enhancing duration %
+    regen_effect_duration: int = 0  # Flat seconds added to Regen duration
+    
+    # Refresh spell potency (adds flat MP/tick to Refresh spells)
+    # Rare stat - most Refresh optimization is duration-based
+    refresh_potency: int = 0     # Flat MP/tick added to Refresh spell
+    
+    # Refresh spell duration (flat seconds added)
+    refresh_effect_duration: int = 0  # Flat seconds added to Refresh duration
+    
+    # ==========================================================================
+    # ENHANCING MAGIC DURATION (Important: Augmented vs Non-Augmented)
+    # ==========================================================================
+    # Per BG-Wiki, these apply at DIFFERENT steps of the duration formula!
+    # Non-augmented: Embla Sash, Ammurapi Shield, etc. (already have enhancing_duration)
+    # Augmented: Telchine 'Enh. Mag. eff. dur. +10' augments (separate multiplier)
+    enhancing_duration_augment: int = 0  # Augmented gear % (basis points, e.g., Telchine)
     
     # ==========================================================================
     # OCCASIONAL ATTACKS (OA2-OA8, FUA)
@@ -1764,262 +1796,270 @@ def get_player_base_stats(job: Job, preset: str = 'master_25') -> Stats:
 # The primary stat group gets ~100x weight, secondary gets ~10x, tertiary gets ~1x.
 # This ensures  search maximizes primary before considering secondary.
 
-def create_priority_profile(
-    name: str,
-    priority: str,
-    job: Optional[Job] = None,
-    dw_trait: int = 0,
-    magic_haste: int = 3000,
-    ja_haste: int = 0,
-    weapon_delay: int = 0,
-    is_dual_wield: bool = False,
-    off_hand_delay: int = 0,
-    target_evasion: int = 0,
-    base_accuracy: int = 1100,
-) -> OptimizationProfile:
-    """
-    Create an optimization profile based on priority preset.
+
+####This is old and left over from the original implementation. It might be worthwhile to come back later and check out
+####we could use these in the future.
+
+# def create_priority_profile(
+#     name: str,
+#     priority: str,
+#     job: Optional[Job] = None,
+#     dw_trait: int = 0,
+#     magic_haste: int = 3000,
+#     ja_haste: int = 0,
+#     weapon_delay: int = 0,
+#     is_dual_wield: bool = False,
+#     off_hand_delay: int = 0,
+#     target_evasion: int = 0,
+#     base_accuracy: int = 1100,
+# ) -> OptimizationProfile:
+#     """
+#     Create an optimization profile based on priority preset.
     
-    Priority presets and their weight distributions:
+#     Priority presets and their weight distributions:
     
-    PURE_TP: Maximum TP rate, ignore other stats
-        - TP stats: 100x weight
+#     PURE_TP: Maximum TP rate, ignore other stats
+#         - TP stats: 100x weight
         
-    PURE_ACC: Maximum accuracy
-        - Accuracy stats: 100x weight
+#     PURE_ACC: Maximum accuracy
+#         - Accuracy stats: 100x weight
         
-    PURE_DT: Maximum damage reduction
-        - DT stats: 100x weight
+#     PURE_DT: Maximum damage reduction
+#         - DT stats: 100x weight
         
-    ACC_TP: Accuracy first, then TP
-        - Accuracy: 100x weight (maximize first)
-        - TP stats: 10x weight (secondary)
+#     ACC_TP: Accuracy first, then TP
+#         - Accuracy: 100x weight (maximize first)
+#         - TP stats: 10x weight (secondary)
         
-    TP_ACC: TP first, then Accuracy (default)
-        - TP stats: 100x weight
-        - Accuracy: 10x weight
+#     TP_ACC: TP first, then Accuracy (default)
+#         - TP stats: 100x weight
+#         - Accuracy: 10x weight
         
-    ACC_DT: Accuracy first, then DT
-        - Accuracy: 100x weight
-        - DT stats: 10x weight
+#     ACC_DT: Accuracy first, then DT
+#         - Accuracy: 100x weight
+#         - DT stats: 10x weight
         
-    DT_TP: DT first, then TP (engaged.DT style)
-        - DT stats: 100x weight
-        - TP stats: 10x weight
+#     DT_TP: DT first, then TP (engaged.DT style)
+#         - DT stats: 100x weight
+#         - TP stats: 10x weight
         
-    TP_DT: TP first, then DT
-        - TP stats: 100x weight
-        - DT stats: 10x weight
+#     TP_DT: TP first, then DT
+#         - TP stats: 100x weight
+#         - DT stats: 10x weight
     
-    Args:
-        name: Profile name
-        priority: Priority preset string (e.g., 'acc_tp', 'pure_tp')
-        job: Job requirement
-        dw_trait: Job's DW trait in basis points
-        magic_haste: Magic haste in basis points
-        ja_haste: JA haste in basis points
-        weapon_delay: Weapon delay for simulation
-        is_dual_wield: Whether dual wielding
-        off_hand_delay: Off-hand delay
-        target_evasion: Target's evasion stat (if >0, calculates hit rate from accuracy)
-        base_accuracy: Player's base accuracy from skills/DEX/buffs (before gear)
+#     Args:
+#         name: Profile name
+#         priority: Priority preset string (e.g., 'acc_tp', 'pure_tp')
+#         job: Job requirement
+#         dw_trait: Job's DW trait in basis points
+#         magic_haste: Magic haste in basis points
+#         ja_haste: JA haste in basis points
+#         weapon_delay: Weapon delay for simulation
+#         is_dual_wield: Whether dual wielding
+#         off_hand_delay: Off-hand delay
+#         target_evasion: Target's evasion stat (if >0, calculates hit rate from accuracy)
+#         base_accuracy: Player's base accuracy from skills/DEX/buffs (before gear)
         
-    Returns:
-        OptimizationProfile configured for the specified priority
-    """
-    ctx = BuffContext(magic_haste=magic_haste, ja_haste=ja_haste, dw_trait=dw_trait)
-    dw_needed = ctx.get_dw_needed()
+#     Returns:
+#         OptimizationProfile configured for the specified priority
+#     """
+#     ctx = BuffContext(magic_haste=magic_haste, ja_haste=ja_haste, dw_trait=dw_trait)
+#     dw_needed = ctx.get_dw_needed()
     
-    # Define stat group weights
-    # Tier 1 (primary): 100x - will be maximized first
-    # Tier 2 (secondary): 10x - considered after primary is good
-    # Tier 3 (tertiary): 1x - nice to have / tiebreaker
+#     # Define stat group weights
+#     # Tier 1 (primary): 100x - will be maximized first
+#     # Tier 2 (secondary): 10x - considered after primary is good
+#     # Tier 3 (tertiary): 1x - nice to have / tiebreaker
     
-    # TP stat weights (for Tier 1, scale down for lower tiers)
-    TP_WEIGHTS_T1 = {
-        'store_tp': 100.0,
-        'double_attack': 80.0,
-        'triple_attack': 120.0,
-        'quad_attack': 150.0,
-        'gear_haste': 70.0,
-        'dual_wield': 60.0 if is_dual_wield else 0.0,
-        'attack': 10.0,
-    }
+#     # TP stat weights (for Tier 1, scale down for lower tiers)
+#     TP_WEIGHTS_T1 = {
+#         'store_tp': 100.0,
+#         'double_attack': 80.0,
+#         'triple_attack': 120.0,
+#         'quad_attack': 150.0,
+#         'gear_haste': 70.0,
+#         'dual_wield': 60.0 if is_dual_wield else 0.0,
+#         'attack': 10.0,
+#     }
     
-    # Accuracy stat weights
-    ACC_WEIGHTS_T1 = {
-        'accuracy': 100.0,
-        'DEX': 5.0,  # Minor accuracy contribution
-    }
+#     # Accuracy stat weights
+#     ACC_WEIGHTS_T1 = {
+#         'accuracy': 100.0,
+#         'DEX': 5.0,  # Minor accuracy contribution
+#     }
     
-    # DT stat weights (negative because lower DT = better)
-    DT_WEIGHTS_T1 = {
-        'damage_taken': -100.0,
-        'physical_dt': -100.0,
-        'magical_dt': -80.0,
-        'HP': 20.0,
-        'VIT': 8.0,
-        'defense': 5.0,
-    }
+#     # DT stat weights (negative because lower DT = better)
+#     DT_WEIGHTS_T1 = {
+#         'damage_taken': -100.0,
+#         'physical_dt': -100.0,
+#         'magical_dt': -80.0,
+#         'HP': 20.0,
+#         'VIT': 8.0,
+#         'defense': 5.0,
+#     }
     
-    # Scale weights by tier
-    def scale_weights(weights: dict, tier: int) -> dict:
-        """Scale weights by tier (1=100%, 2=10%, 3=1%)"""
-        scale = {1: 1.0, 2: 0.1, 3: 0.01}[tier]
-        return {k: v * scale for k, v in weights.items()}
+#     # Scale weights by tier
+#     def scale_weights(weights: dict, tier: int) -> dict:
+#         """Scale weights by tier (1=100%, 2=10%, 3=1%)"""
+#         scale = {1: 1.0, 2: 0.1, 3: 0.01}[tier]
+#         return {k: v * scale for k, v in weights.items()}
     
-    # Build weights based on priority
-    weights = {}
+#     # Build weights based on priority
+#     weights = {}
     
-    priority_lower = priority.lower()
+#     priority_lower = priority.lower()
     
-    if priority_lower == 'pure_tp':
-        weights = TP_WEIGHTS_T1.copy()
+#     if priority_lower == 'pure_tp':
+#         weights = TP_WEIGHTS_T1.copy()
         
-    elif priority_lower == 'pure_acc':
-        weights = ACC_WEIGHTS_T1.copy()
+#     elif priority_lower == 'pure_acc':
+#         weights = ACC_WEIGHTS_T1.copy()
         
-    elif priority_lower == 'pure_dt':
-        weights = DT_WEIGHTS_T1.copy()
+#     elif priority_lower == 'pure_dt':
+#         weights = DT_WEIGHTS_T1.copy()
         
-    elif priority_lower == 'acc_tp':
-        # Accuracy first, then TP
-        weights.update(scale_weights(ACC_WEIGHTS_T1, 1))  # Primary
-        weights.update(scale_weights(TP_WEIGHTS_T1, 2))   # Secondary
+#     elif priority_lower == 'acc_tp':
+#         # Accuracy first, then TP
+#         weights.update(scale_weights(ACC_WEIGHTS_T1, 1))  # Primary
+#         weights.update(scale_weights(TP_WEIGHTS_T1, 2))   # Secondary
         
-    elif priority_lower == 'tp_acc':
-        # TP first, then Accuracy (default)
-        weights.update(scale_weights(TP_WEIGHTS_T1, 1))   # Primary
-        weights.update(scale_weights(ACC_WEIGHTS_T1, 2))  # Secondary
+#     elif priority_lower == 'tp_acc':
+#         # TP first, then Accuracy (default)
+#         weights.update(scale_weights(TP_WEIGHTS_T1, 1))   # Primary
+#         weights.update(scale_weights(ACC_WEIGHTS_T1, 2))  # Secondary
         
-    elif priority_lower == 'acc_dt':
-        # Accuracy first, then DT
-        weights.update(scale_weights(ACC_WEIGHTS_T1, 1))  # Primary
-        weights.update(scale_weights(DT_WEIGHTS_T1, 2))   # Secondary
+#     elif priority_lower == 'acc_dt':
+#         # Accuracy first, then DT
+#         weights.update(scale_weights(ACC_WEIGHTS_T1, 1))  # Primary
+#         weights.update(scale_weights(DT_WEIGHTS_T1, 2))   # Secondary
         
-    elif priority_lower == 'dt_tp':
-        # DT first, then TP (engaged.DT style)
-        weights.update(scale_weights(DT_WEIGHTS_T1, 1))   # Primary
-        weights.update(scale_weights(TP_WEIGHTS_T1, 2))   # Secondary
+#     elif priority_lower == 'dt_tp':
+#         # DT first, then TP (engaged.DT style)
+#         weights.update(scale_weights(DT_WEIGHTS_T1, 1))   # Primary
+#         weights.update(scale_weights(TP_WEIGHTS_T1, 2))   # Secondary
         
-    elif priority_lower == 'tp_dt':
-        # TP first, then DT
-        weights.update(scale_weights(TP_WEIGHTS_T1, 1))   # Primary
-        weights.update(scale_weights(DT_WEIGHTS_T1, 2))   # Secondary
+#     elif priority_lower == 'tp_dt':
+#         # TP first, then DT
+#         weights.update(scale_weights(TP_WEIGHTS_T1, 1))   # Primary
+#         weights.update(scale_weights(DT_WEIGHTS_T1, 2))   # Secondary
         
-    else:
-        # Default to TP_ACC if unknown priority
-        weights.update(scale_weights(TP_WEIGHTS_T1, 1))
-        weights.update(scale_weights(ACC_WEIGHTS_T1, 2))
+#     else:
+#         # Default to TP_ACC if unknown priority
+#         weights.update(scale_weights(TP_WEIGHTS_T1, 1))
+#         weights.update(scale_weights(ACC_WEIGHTS_T1, 2))
     
-    return OptimizationProfile(
-        name=name,
-        weights=weights,
-        hard_caps={
-            'gear_haste': 2500,      # 25% gear haste cap
-            'damage_taken': -5000,   # -50% DT cap
-            'physical_dt': -5000,
-            'magical_dt': -5000,
-        },
-        soft_caps={
-            'dual_wield': max(dw_needed, 1000) if is_dual_wield else 0,
-        },
-        buff_context=ctx,
-        exclude_slots={Slot.MAIN, Slot.SUB},
-        job=job,
-        use_simulation=weapon_delay > 0,
-        simulation_mode='tp_rate' if weapon_delay > 0 else 'weighted',
-        weapon_delay=weapon_delay,
-        is_dual_wield=is_dual_wield,
-        off_hand_delay=off_hand_delay,
-        target_evasion=target_evasion,
-        base_accuracy=base_accuracy,
-    )
+#     return OptimizationProfile(
+#         name=name,
+#         weights=weights,
+#         hard_caps={
+#             'gear_haste': 2500,      # 25% gear haste cap
+#             'double_attack': 10000,
+#             'damage_taken': -5000,   # -50% DT cap
+#             'physical_dt': -5000,
+#             'magical_dt': -5000,
+#         },
+#         soft_caps={
+#             'dual_wield': max(dw_needed, 1000) if is_dual_wield else 0,
+#         },
+#         buff_context=ctx,
+#         exclude_slots={Slot.MAIN, Slot.SUB},
+#         job=job,
+#         use_simulation=weapon_delay > 0,
+#         simulation_mode='tp_rate' if weapon_delay > 0 else 'weighted',
+#         weapon_delay=weapon_delay,
+#         is_dual_wield=is_dual_wield,
+#         off_hand_delay=off_hand_delay,
+#         target_evasion=target_evasion,
+#         base_accuracy=base_accuracy,
+#     )
 
 
-def create_dt_priority_profile(
-    name: str,
-    dt_type: str,
-    job: Optional[Job] = None,
-    include_weapons: bool = False,
-    include_hp: bool = True,
-    include_defense: bool = True,
-) -> OptimizationProfile:
-    """
-    Create a DT set optimization profile based on DT type priority.
-    
-    DT Types:
-    - 'dt': General Damage Taken - reduces ALL damage
-    - 'pdt': Physical Damage Taken - only physical damage
-    - 'mdt': Magical Damage Taken - only magical damage
-    
-    Each type caps at -50% separately. They stack multiplicatively.
-    
-    Args:
-        name: Profile name
-        dt_type: DT type to prioritize ('dt', 'pdt', 'mdt')
-        job: Job requirement
-        include_weapons: Include weapon slots in optimization
-        include_hp: Include HP in optimization
-        include_defense: Include Defense in optimization
+# def create_dt_priority_profile(
         
-    Returns:
-        OptimizationProfile configured for the specified DT type
-    """
-    dt_type_lower = dt_type.lower()
+#     name: str,
+#     dt_type: str,
+#     job: Optional[Job] = None,
+#     include_weapons: bool = False,
+#     include_hp: bool = True,
+#     include_defense: bool = True,
+# ) -> OptimizationProfile:
+#     """
+#     Create a DT set optimization profile based on DT type priority.
     
-    # Base weights for DT stats
-    # Negative weights because lower (more negative) = better
-    weights = {}
+#     DT Types:
+#     - 'dt': General Damage Taken - reduces ALL damage
+#     - 'pdt': Physical Damage Taken - only physical damage
+#     - 'mdt': Magical Damage Taken - only magical damage
     
-    if dt_type_lower == 'dt':
-        # General DT - affects both physical and magical
-        weights = {
-            'damage_taken': -12.0,    # Primary - most versatile
-            'physical_dt': -8.0,      # Secondary
-            'magical_dt': -8.0,       # Secondary
-        }
-    elif dt_type_lower == 'pdt':
-        # Physical DT priority
-        weights = {
-            'physical_dt': -12.0,     # Primary
-            'damage_taken': -10.0,    # Also reduces physical
-            'magical_dt': -4.0,       # Low priority
-        }
-    elif dt_type_lower == 'mdt':
-        # Magical DT priority
-        weights = {
-            'magical_dt': -12.0,      # Primary
-            'damage_taken': -10.0,    # Also reduces magical
-            'physical_dt': -4.0,      # Low priority
-        }
-    else:
-        # Default to general DT
-        weights = {
-            'damage_taken': -12.0,
-            'physical_dt': -8.0,
-            'magical_dt': -8.0,
-        }
+#     Each type caps at -50% separately. They stack multiplicatively.
     
-    # Add secondary stats
-    if include_hp:
-        weights['HP'] = 2.0
-        weights['VIT'] = 0.8  # Reduces enemy fSTR
+#     Args:
+#         name: Profile name
+#         dt_type: DT type to prioritize ('dt', 'pdt', 'mdt')
+#         job: Job requirement
+#         include_weapons: Include weapon slots in optimization
+#         include_hp: Include HP in optimization
+#         include_defense: Include Defense in optimization
+        
+#     Returns:
+#         OptimizationProfile configured for the specified DT type
+#     """
+#     dt_type_lower = dt_type.lower()
     
-    if include_defense:
-        weights['defense'] = 0.5
-        weights['evasion'] = 0.4
-        weights['magic_evasion'] = 0.3
-        weights['AGI'] = 0.3  # Reduces enemy crit rate
+#     # Base weights for DT stats
+#     # Negative weights because lower (more negative) = better
+#     weights = {}
     
-    return OptimizationProfile(
-        name=name,
-        weights=weights,
-        hard_caps={
-            'damage_taken': -5000,   # -50% cap
-            'physical_dt': -5000,
-            'magical_dt': -5000,
-        },
-        exclude_slots=set() if include_weapons else {Slot.MAIN, Slot.SUB},
-        job=job,
-    )
+#     if dt_type_lower == 'dt':
+#         # General DT - affects both physical and magical
+#         weights = {
+#             'damage_taken': -12.0,    # Primary - most versatile
+#             'physical_dt': -8.0,      # Secondary
+#             'magical_dt': -8.0,       # Secondary
+#         }
+#     elif dt_type_lower == 'pdt':
+#         # Physical DT priority
+#         weights = {
+#             'physical_dt': -12.0,     # Primary
+#             'damage_taken': -10.0,    # Also reduces physical
+#             'magical_dt': -4.0,       # Low priority
+#         }
+#     elif dt_type_lower == 'mdt':
+#         # Magical DT priority
+#         weights = {
+#             'magical_dt': -12.0,      # Primary
+#             'damage_taken': -10.0,    # Also reduces magical
+#             'physical_dt': -4.0,      # Low priority
+#         }
+#     else:
+#         # Default to general DT
+#         weights = {
+#             'damage_taken': -12.0,
+#             'physical_dt': -8.0,
+#             'magical_dt': -8.0,
+#         }
+    
+#     # Add secondary stats
+#     if include_hp:
+#         weights['HP'] = 2.0
+#         weights['VIT'] = 0.8  # Reduces enemy fSTR
+    
+#     if include_defense:
+#         weights['defense'] = 0.5
+#         weights['evasion'] = 0.4
+#         weights['magic_evasion'] = 0.3
+#         weights['AGI'] = 0.3  # Reduces enemy crit rate
+    
+#     return OptimizationProfile(
+#         name=name,
+#         weights=weights,
+#         hard_caps={
+#             'damage_taken': -5000,   # -50% cap
+#             'physical_dt': -5000,
+#             'magical_dt': -5000,
+#         },
+#         exclude_slots=set() if include_weapons else {Slot.MAIN, Slot.SUB},
+#         job=job,
+#     )
+
+
