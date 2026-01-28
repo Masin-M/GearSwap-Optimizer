@@ -1578,6 +1578,12 @@ async function restoreSelections() {
     
     // Update DW hint after sub job is restored
     updateDWHint();
+    
+    // Update SetBuilder's job display after restoration
+    // (The DOM event listener doesn't fire for programmatic changes)
+    if (typeof SetBuilder !== 'undefined' && SetBuilder.updateJobDisplay) {
+        SetBuilder.updateJobDisplay();
+    }
 }
 
 async function reloadCachedInventory() {
@@ -2604,6 +2610,14 @@ function handleTabChange(tab) {
     document.querySelectorAll('.tab-panel').forEach(panel => {
         panel.classList.toggle('hidden', panel.id !== `tab-${tab}`);
     });
+    
+    // Hide/show results panel based on tab
+    // Compare tab has its own inline stats comparison, Inventory tab doesn't need it
+    const resultsPanel = document.getElementById('results-panel');
+    if (resultsPanel) {
+        const hidePanelTabs = ['compare', 'inventory'];
+        resultsPanel.classList.toggle('hidden', hidePanelTabs.includes(tab));
+    }
     
     // If switching from magic to a melee tab, restore the melee stats panel format
     if (previousTab === 'magic' && (tab === 'tp' || tab === 'ws')) {
@@ -5359,6 +5373,17 @@ const SetBuilder = {
             });
         }
         
+        // Listen for sub-job changes (affects dual wield eligibility)
+        const subjobSelect = document.getElementById('subjob-select');
+        if (subjobSelect) {
+            subjobSelect.addEventListener('change', () => {
+                this.updateJobDisplay();
+                // Invalidate inventory cache when subjob changes (affects DW options)
+                this.inventoryCache = null;
+                this.inventoryCacheJob = null;
+            });
+        }
+        
         // Initialize set tabs
         this.updateSetTabs();
         
@@ -5602,13 +5627,24 @@ const SetBuilder = {
     updateJobDisplay() {
         const jobSpan = document.getElementById('set-builder-job');
         if (jobSpan) {
-            const job = AppState.selectedJob || 'Select a job';
-            jobSpan.textContent = job;
+            const mainJob = AppState.selectedJob || 'Select a job';
+            const subJob = AppState.selectedSubJob ? `/${AppState.selectedSubJob.toUpperCase()}` : '';
+            const dwStatus = this.canDualWield() ? ' <span class="text-ffxi-green text-xs">(DW)</span>' : '';
+            jobSpan.innerHTML = `${mainJob}${subJob}${dwStatus}`;
         }
     },
     
     // === Slot Management ===
     async openSlotPicker(slot) {
+        // Block sub slot if main weapon is hand-to-hand (2H can use grips)
+        if (slot === 'sub') {
+            const mainWeapon = this.currentSet.main;
+            if (mainWeapon && this.isHandToHand(mainWeapon)) {
+                showToast('Hand-to-hand weapons use both hands - off-hand slot is unavailable', 'warning');
+                return;
+            }
+        }
+        
         this.activeSlot = slot;
         
         // Update modal title
@@ -5655,6 +5691,62 @@ const SetBuilder = {
                 this.pickerItems = [];
             } else {
                 this.pickerItems = response.items || [];
+            }
+            
+            // For sub slot with dual wield capability, also fetch one-handed main weapons
+            if (slot === 'sub' && this.canDualWield()) {
+                // Check if main hand has a 2H weapon - if so, don't show DW options
+                const mainWeapon = this.currentSet.main;
+                if (!mainWeapon || !this.isTwoHandedWeapon(mainWeapon)) {
+                    let mainUrl = `/api/inventory?slot=Main`;
+                    if (job) mainUrl += `&job=${job}`;
+                    if (showAll) mainUrl += '&show_all=true';
+                    
+                    const mainResponse = await API.fetch(mainUrl);
+                    
+                    if (!mainResponse.error && mainResponse.items) {
+                        // Filter to only one-handed weapons and add to picker items
+                        const oneHandedWeapons = mainResponse.items.filter(item => this.isOneHandedWeapon(item));
+                        
+                        // Add a marker to identify these as dual-wield options
+                        oneHandedWeapons.forEach(item => {
+                            item._isDualWieldOption = true;
+                        });
+                        
+                        // Combine: sub items first, then one-handed weapons
+                        // Use a Set to avoid duplicates by item ID
+                        const existingIds = new Set(this.pickerItems.map(i => i.id));
+                        const uniqueWeapons = oneHandedWeapons.filter(w => !existingIds.has(w.id));
+                        this.pickerItems = [...this.pickerItems, ...uniqueWeapons];
+                    }
+                }
+            }
+            
+            // For sub slot, filter based on main hand weapon
+            if (slot === 'sub') {
+                const mainWeapon = this.currentSet.main;
+                const mainIs2H = mainWeapon && this.isTwoHandedWeapon(mainWeapon);
+                const mainIs1H = mainWeapon && !this.isTwoHandedWeapon(mainWeapon) && !this.isHandToHand(mainWeapon);
+                
+                this.pickerItems = this.pickerItems.filter(item => {
+                    // If main hand has 2H weapon, only allow grips
+                    if (mainIs2H) {
+                        return item.type === 'Grip';
+                    }
+                    
+                    // If main hand has 1H weapon, exclude grips
+                    if (mainIs1H && item.type === 'Grip') {
+                        return false;
+                    }
+                    
+                    // Otherwise, normal filtering:
+                    // Allow normal sub-slot items (shields, grips, etc.)
+                    if (item.slot === 'Sub') return true;
+                    // For Main slot items (dual-wield weapons), ensure they're one-handed
+                    if (item.slot === 'Main') return this.isOneHandedWeapon(item);
+                    // Allow other items (shouldn't happen, but be safe)
+                    return true;
+                });
             }
             
             this.filteredPickerItems = [...this.pickerItems];
@@ -5749,14 +5841,56 @@ const SetBuilder = {
         const item = this.filteredPickerItems[index];
         if (!item || !this.activeSlot) return;
         
+        // Prevent invalid items in sub slot
+        if (this.activeSlot === 'sub') {
+            if (this.isTwoHandedWeapon(item)) {
+                showToast('Two-handed weapons cannot be equipped in the off-hand', 'warning');
+                return;
+            }
+            if (this.isHandToHand(item)) {
+                showToast('Hand-to-hand weapons cannot be equipped in the off-hand', 'warning');
+                return;
+            }
+            
+            const mainWeapon = this.currentSet.main;
+            // If main hand has 2H weapon, only allow grips
+            if (mainWeapon && this.isTwoHandedWeapon(mainWeapon) && item.type !== 'Grip') {
+                showToast('Two-handed weapons can only be paired with grips', 'warning');
+                return;
+            }
+            // If main hand has 1H weapon, block grips
+            if (mainWeapon && !this.isTwoHandedWeapon(mainWeapon) && !this.isHandToHand(mainWeapon) && item.type === 'Grip') {
+                showToast('Grips can only be used with two-handed weapons', 'warning');
+                return;
+            }
+        }
+        
         // Set the item in the current slot
         this.currentSet[this.activeSlot] = item;
         
-        // Handle 2H weapons - clear sub slot
-        if (this.activeSlot === 'main' && this.isTwoHandedWeapon(item)) {
-            this.currentSet.sub = null;
-            // Also clear sub's path config if it exists
-            delete this.currentPathConfig['sub'];
+        // Handle main weapon changes that affect sub slot
+        if (this.activeSlot === 'main') {
+            // Hand-to-Hand weapons - always clear sub slot
+            if (this.isHandToHand(item)) {
+                this.currentSet.sub = null;
+                delete this.currentPathConfig['sub'];
+            }
+            // Two-handed weapons - clear sub slot if it's not a grip
+            else if (this.isTwoHandedWeapon(item)) {
+                const subItem = this.currentSet.sub;
+                if (subItem && subItem.type !== 'Grip') {
+                    this.currentSet.sub = null;
+                    delete this.currentPathConfig['sub'];
+                }
+            }
+            // One-handed weapons - clear sub slot if it's a grip
+            else {
+                const subItem = this.currentSet.sub;
+                if (subItem && subItem.type === 'Grip') {
+                    this.currentSet.sub = null;
+                    delete this.currentPathConfig['sub'];
+                }
+            }
         }
         
         // Store slot before closing modal (closePickerModal sets activeSlot to null)
@@ -5801,9 +5935,56 @@ const SetBuilder = {
     
     isTwoHandedWeapon(item) {
         if (!item) return false;
+        // Check stats['Skill Type'] for weapons from inventory API
+        const skillType = item.stats?.['Skill Type'] || item.skill_type || '';
+        const twoHandedSkills = ['Great Sword', 'Great Axe', 'Scythe', 'Polearm', 'Staff', 'Great Katana'];
+        if (twoHandedSkills.includes(skillType)) return true;
+        
+        // Fallback: check type field (lowercase) for other items
         const type = (item.type || '').toLowerCase();
         const twoHandedTypes = ['great sword', 'great axe', 'scythe', 'polearm', 'staff', 'great katana'];
         return twoHandedTypes.some(t => type.includes(t));
+    },
+    
+    isOneHandedWeapon(item) {
+        if (!item) return false;
+        
+        // Must be a main-hand weapon (API returns slot field)
+        if (item.slot !== 'Main') return false;
+        
+        // Check stats['Skill Type'] for weapons from inventory API
+        const skillType = item.stats?.['Skill Type'] || item.skill_type || '';
+        
+        // Exclude two-handed weapons
+        const twoHandedSkills = ['Great Sword', 'Great Axe', 'Scythe', 'Polearm', 'Staff', 'Great Katana'];
+        if (twoHandedSkills.includes(skillType)) return false;
+        
+        // Exclude hand-to-hand (can't go in sub slot)
+        if (skillType === 'Hand-to-Hand') return false;
+        
+        // If it's a main slot item and not 2H or H2H, it's valid for DW
+        return true;
+    },
+    
+    isHandToHand(item) {
+        if (!item) return false;
+        // Check stats['Skill Type'] for weapons from inventory API
+        const skillType = item.stats?.['Skill Type'] || item.skill_type || '';
+        if (skillType === 'Hand-to-Hand') return true;
+        // Fallback to type field
+        const type = (item.type || '').toLowerCase();
+        return type.includes('hand-to-hand');
+    },
+    
+    canDualWield() {
+        // Jobs that have native dual wield
+        const dualWieldMainJobs = ['NIN', 'DNC', 'BLU'];
+        const dualWieldSubJobs = ['NIN', 'DNC'];
+        
+        const mainJob = (AppState.selectedJob || '').toUpperCase();
+        const subJob = (AppState.selectedSubJob || '').toUpperCase();
+        
+        return dualWieldMainJobs.includes(mainJob) || dualWieldSubJobs.includes(subJob);
     },
     
     clearCurrentSlot() {
@@ -5889,6 +6070,30 @@ const SetBuilder = {
         const nameDiv = card.querySelector('.slot-name');
         
         if (!iconDiv || !nameDiv) return;
+        
+        // Check if sub slot should be blocked (H2H weapon in main - 2H can use grips)
+        if (slot === 'sub') {
+            const mainWeapon = this.currentSet.main;
+            const isBlocked = mainWeapon && this.isHandToHand(mainWeapon);
+            
+            if (isBlocked) {
+                card.classList.remove('filled', 'missing-item', 'empty');
+                card.classList.add('empty');
+                card.style.opacity = '0.5';
+                card.style.cursor = 'not-allowed';
+                
+                iconDiv.innerHTML = '<span class="text-ffxi-text-dim text-lg">🚫</span>';
+                nameDiv.textContent = 'Blocked';
+                nameDiv.classList.add('empty');
+                nameDiv.classList.remove('missing');
+                nameDiv.title = 'Hand-to-hand weapon equipped';
+                return;
+            } else {
+                // Reset blocked styling
+                card.style.opacity = '';
+                card.style.cursor = '';
+            }
+        }
         
         // Check if this item is missing from inventory (only in inventory mode)
         const isMissing = this.currentMode === 'inventory' && 
