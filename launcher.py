@@ -285,4 +285,10 @@ def main():
     log("\nServer stopped. Goodbye!")
 
 if __name__ == "__main__":
+    # CRITICAL: This MUST be the first thing called for multiprocessing to work
+    # in frozen executables on Windows. Without this, child processes fail to
+    # spawn correctly and Python falls back to single-process execution.
+    import multiprocessing
+    multiprocessing.freeze_support()
+    
     main()

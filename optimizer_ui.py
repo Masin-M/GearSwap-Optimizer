@@ -22,16 +22,54 @@ import multiprocessing
 # =============================================================================
 # FROZEN EXECUTABLE DETECTION
 # =============================================================================
-# PyInstaller + Windows + ProcessPoolExecutor is problematic.
-# Child processes fail to spawn properly in frozen executables.
-# We detect this and fall back to sequential processing.
+# PyInstaller + Windows + ProcessPoolExecutor requires freeze_support() to be
+# called at the very start of the entry point (launcher.py).
+# With freeze_support() in place, parallel processing should work.
+
+def _is_frozen():
+    """Check if running as a frozen PyInstaller executable."""
+    return getattr(sys, 'frozen', False)
 
 def _is_frozen_windows():
     """Check if running as a frozen PyInstaller exe on Windows."""
-    return getattr(sys, 'frozen', False) and sys.platform == 'win32'
+    return _is_frozen() and sys.platform == 'win32'
 
-# Disable parallel by default when frozen on Windows
-PARALLEL_AVAILABLE = not _is_frozen_windows()
+def _test_multiprocessing():
+    """
+    Test if multiprocessing actually works in the current environment.
+    Returns True if a simple multiprocessing task succeeds.
+    """
+    try:
+        import multiprocessing
+        # Use spawn method explicitly on Windows for frozen executables
+        if _is_frozen_windows():
+            try:
+                multiprocessing.set_start_method('spawn', force=True)
+            except RuntimeError:
+                pass  # Already set
+        
+        # Quick test: can we create a pool and run a simple task?
+        def _test_worker(x):
+            return x * 2
+        
+        with multiprocessing.Pool(1) as pool:
+            result = pool.map(_test_worker, [1])
+            return result == [2]
+    except Exception as e:
+        print(f"Multiprocessing test failed: {e}")
+        return False
+
+# Test multiprocessing availability at import time
+# With freeze_support() properly configured in launcher.py, this should work
+if _is_frozen_windows():
+    # For frozen Windows executables, test if multiprocessing actually works
+    PARALLEL_AVAILABLE = _test_multiprocessing()
+    if not PARALLEL_AVAILABLE:
+        print("Warning: Multiprocessing not available in frozen executable. "
+              "Falling back to single-threaded mode.")
+else:
+    # For non-frozen or non-Windows, parallel should always work
+    PARALLEL_AVAILABLE = True
 
 # =============================================================================
 # PATH SETUP

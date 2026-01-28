@@ -60,8 +60,23 @@ hidden_imports = [
     'pystray',
     'pystray._win32',
     
-    # Multiprocessing (for numba if used)
+    # Multiprocessing - CRITICAL for Windows frozen executables
+    # All these submodules are needed for multiprocessing to work correctly
     'multiprocessing',
+    'multiprocessing.pool',
+    'multiprocessing.process',
+    'multiprocessing.queues',
+    'multiprocessing.synchronize',
+    'multiprocessing.heap',
+    'multiprocessing.managers',
+    'multiprocessing.sharedctypes',
+    'multiprocessing.spawn',
+    'multiprocessing.popen_spawn_win32',
+    'multiprocessing.reduction',
+    'multiprocessing.resource_sharer',
+    'multiprocessing.forkserver',
+    'multiprocessing.context',
+    'multiprocessing.util',
     
     # Email (sometimes needed by FastAPI)
     'email.mime',
@@ -76,6 +91,12 @@ hidden_imports = [
     'typing',
     'enum',
     'pathlib',
+    
+    # Concurrent futures - often used with multiprocessing
+    'concurrent',
+    'concurrent.futures',
+    'concurrent.futures.process',
+    'concurrent.futures.thread',
 ]
 
 # Add PIL hidden imports

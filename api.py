@@ -4699,6 +4699,10 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 # =============================================================================
 
 if __name__ == "__main__":
+    # CRITICAL: Must be called first for multiprocessing in frozen executables
+    import multiprocessing
+    multiprocessing.freeze_support()
+    
     print("=" * 60)
     print("FFXI Gear Set Optimizer - Web Server")
     print("=" * 60)
