@@ -222,9 +222,9 @@
         </header>
 
         <!-- Main Layout -->
-        <div class="flex flex-1 overflow-hidden">
+        <div class="flex flex-1 overflow-hidden flex-nowrap">
             <!-- Sidebar: Job & Weapon Configuration Only -->
-            <aside id="sidebar" class="w-72 bg-ffxi-panel border-r border-ffxi-border flex flex-col overflow-y-auto">
+            <aside id="sidebar" class="w-72 shrink-0 bg-ffxi-panel border-r border-ffxi-border flex flex-col overflow-y-auto">
                 <div class="p-4 space-y-6">
                     <!-- Job Selection -->
                     <div class="space-y-2">
@@ -349,7 +349,7 @@
             </aside>
 
             <!-- Main Content -->
-            <main class="flex-1 flex flex-col overflow-hidden">
+            <main class="flex-1 min-w-0 flex flex-col overflow-hidden">
                 <!-- Tab Navigation -->
                 <nav class="bg-ffxi-panel border-b border-ffxi-border px-4">
                     <div class="flex gap-1">
@@ -1826,8 +1826,6 @@
                                         <p class="text-ffxi-text-dim text-center py-4">No stats to compare. Select items in Set A or Set B.</p>
                                     </div>
                                 </div>
-                                    </div>
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -1942,7 +1940,7 @@
             </main>
 
             <!-- Results Panel -->
-            <aside id="results-panel" class="w-[420px] bg-ffxi-panel border-l border-ffxi-border flex flex-col overflow-hidden">
+            <aside id="results-panel" class="w-[420px] shrink-0 bg-ffxi-panel border-l border-ffxi-border flex flex-col overflow-hidden">
                 <!-- Stats Panel -->
                 <div id="stats-panel" class="bg-ffxi-darker border-b border-ffxi-border">
                     <div class="p-4">
