@@ -355,7 +355,35 @@ class ItemDatabase:
         (r'Assault:\s*', None),
         (r'Salvage:\s*', None),
         (r'Domain Invasion:\s*', None),
+        (r'Synergy:\s*', None),
+        (r'Latent [Ee]ffects?:\s*', None),
     ]
+    
+    # Effect types for user-facing search/filter feature
+    # Maps display name -> regex pattern to detect in item description
+    EFFECT_TYPES = {
+        'Pet': r'Pet:\s*',
+        'Automaton': r'Automaton:\s*',
+        'Avatar': r'Avatar:\s*',
+        'Wyvern': r'Wyvern:\s*',
+        'Dynamis': r'(?:In\s+)?Dynamis:\s*',
+        'Daytime': r'Daytime:\s*',
+        'Firesday': r'Firesdays?:\s*',
+        'Earthsday': r'Earthsdays?:\s*',
+        'Watersday': r'Watersdays?:\s*',
+        'Windsday': r'Windsdays?:\s*',
+        'Iceday': r'Icedays?:\s*',
+        'Lightningsday': r'Lightningsdays?:\s*',
+        'Lightsday': r'Lightsdays?:\s*',
+        'Darksday': r'Darksdays?:\s*',
+        'Latent Effect': r'Latent [Ee]ffects?:\s*',
+        'Reives': r'Reives?:\s*',
+        'Campaign': r'Campaign:\s*',
+        'Assault': r'Assault:\s*',
+        'Salvage': r'Salvage:\s*',
+        'Domain Invasion': r'Domain Invasion:\s*',
+        'Synergy': r'Synergy:\s*',
+    }
     
     # Common stat patterns in FFXI item descriptions
     # Note: Pattern value format is (regex, stat_name, multiplier)
@@ -859,6 +887,48 @@ class ItemDatabase:
         query_lower = query.lower()
         return [item for item in self.items.values() 
                 if query_lower in item.name.lower()]
+    
+    def get_item_effects(self, item: ItemBase) -> List[str]:
+        """
+        Get list of conditional effect types present in an item's description.
+        
+        Returns display names like 'Pet', 'Latent Effect', 'Domain Invasion', etc.
+        """
+        if not item.description:
+            return []
+        
+        effects = []
+        for effect_name, pattern in self.EFFECT_TYPES.items():
+            if re.search(pattern, item.description, re.IGNORECASE):
+                effects.append(effect_name)
+        
+        return effects
+    
+    def get_items_by_effect(self, effect_type: str) -> List[ItemBase]:
+        """
+        Get all items that have a specific conditional effect type.
+        
+        Args:
+            effect_type: Effect name like 'Pet', 'Latent Effect', etc.
+        
+        Returns:
+            List of ItemBase objects with that effect
+        """
+        if effect_type not in self.EFFECT_TYPES:
+            return []
+        
+        pattern = self.EFFECT_TYPES[effect_type]
+        result = []
+        
+        for item in self.items.values():
+            if item.description and re.search(pattern, item.description, re.IGNORECASE):
+                result.append(item)
+        
+        return result
+    
+    def get_all_effect_types(self) -> List[str]:
+        """Get list of all available effect type names for filtering."""
+        return sorted(self.EFFECT_TYPES.keys())
 
 
 # Global database instance

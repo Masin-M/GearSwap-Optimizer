@@ -2799,7 +2799,7 @@ async def calculate_stats(request: StatsRequest):
 
 
 @app.get("/api/inventory")
-async def get_inventory(slot: str = None, job: str = None, show_all: bool = False, search: str = None):
+async def get_inventory(slot: str = None, job: str = None, show_all: bool = False, search: str = None, effect: str = None):
     """Get inventory items, optionally filtered by slot and job.
     
     Args:
@@ -2807,6 +2807,7 @@ async def get_inventory(slot: str = None, job: str = None, show_all: bool = Fals
         job: Filter by job that can equip
         show_all: If true, show all items from database (not just inventory)
         search: Search string to filter items by name
+        effect: Filter by conditional effect type (Pet, Latent Effect, etc.)
     """
     from models import Slot, SLOT_BITMASK
     
@@ -2944,17 +2945,25 @@ async def get_inventory(slot: str = None, job: str = None, show_all: bool = Fals
                         if not item_base.can_equip(job_enum):
                             continue
                     
-                    # Filter by search string
+                    # Filter by search string - include name_log for full unabbreviated names
                     if search:
                         search_lower = search.lower()
                         name_match = search_lower in item_base.name.lower()
                         name2_match = search_lower in wsdist_item.get("Name2", "").lower()
-                        if not name_match and not name2_match:
+                        name_log_match = search_lower in (item_base.name_log or "").lower()
+                        if not name_match and not name2_match and not name_log_match:
+                            continue
+                    
+                    # Filter by effect type (Pet, Latent Effect, etc.)
+                    if effect:
+                        item_effects = db.get_item_effects(item_base)
+                        if effect not in item_effects:
                             continue
                     
                     items.append({
                         "id": item_base.id,
                         "name": item_base.name,
+                        "name_log": item_base.name_log or item_base.name,  # Full unabbreviated name
                         "name2": wsdist_item.get("Name2", item_base.name),
                         "type": wsdist_item.get("Type", "Unknown"),
                         "slot": slot_name,
@@ -2962,6 +2971,7 @@ async def get_inventory(slot: str = None, job: str = None, show_all: bool = Fals
                         "jobs": wsdist_item.get("Jobs", []),
                         "stats": {k: v for k, v in wsdist_item.items() 
                                  if k not in ["Name", "Name2", "Jobs", "Type", "Slot"]},
+                        "effects": db.get_item_effects(item_base),  # Include effects in response
                     })
                 except Exception:
                     # Skip items that fail to convert
@@ -2973,6 +2983,8 @@ async def get_inventory(slot: str = None, job: str = None, show_all: bool = Fals
         # Return items from loaded inventory
         if not state.inventory:
             return {"items": [], "error": "No inventory loaded"}
+        
+        db = get_database()  # Need db for get_item_effects
         
         for item in state.inventory.items:
             # Convert to wsdist format to get stats
@@ -2993,17 +3005,25 @@ async def get_inventory(slot: str = None, job: str = None, show_all: bool = Fals
                 if not item.base.can_equip(job_enum):
                     continue
             
-            # Filter by search string
+            # Filter by search string - include name_log for full unabbreviated names
             if search:
                 search_lower = search.lower()
                 name_match = search_lower in item.base.name.lower()
                 name2_match = search_lower in wsdist_item.get("Name2", "").lower()
-                if not name_match and not name2_match:
+                name_log_match = search_lower in (item.base.name_log or "").lower()
+                if not name_match and not name2_match and not name_log_match:
+                    continue
+            
+            # Filter by effect type (Pet, Latent Effect, etc.)
+            item_effects = db.get_item_effects(item.base)
+            if effect:
+                if effect not in item_effects:
                     continue
             
             items.append({
                 "id": item.base.id,
                 "name": item.base.name,
+                "name_log": item.base.name_log or item.base.name,  # Full unabbreviated name
                 "name2": wsdist_item.get("Name2", item.base.name),
                 "type": wsdist_item.get("Type", "Unknown"),
                 "slot": slot_name,
@@ -3011,6 +3031,7 @@ async def get_inventory(slot: str = None, job: str = None, show_all: bool = Fals
                 "jobs": wsdist_item.get("Jobs", []),
                 "stats": {k: v for k, v in wsdist_item.items() 
                          if k not in ["Name", "Name2", "Jobs", "Type", "Slot"]},
+                "effects": item_effects,  # Include effects in response
             })
     
     # Sort by item level descending
@@ -3056,6 +3077,32 @@ async def get_item(item_id: int):
         return {"error": str(e), "trace": traceback.format_exc()}
 
 
+@app.get("/api/inventory/effect-types")
+async def get_inventory_effect_types():
+    """
+    Get list of conditional effect types found in loaded inventory.
+    
+    Returns effect types like 'Pet', 'Latent Effect', 'Domain Invasion', etc.
+    Only returns effect types that are actually present in the loaded inventory.
+    """
+    if not state.inventory:
+        return {"effect_types": [], "error": "No inventory loaded"}
+    
+    db = get_database()
+    
+    # Collect effect types present in inventory
+    effect_types_found = set()
+    
+    for item in state.inventory.items:
+        effects = db.get_item_effects(item.base)
+        effect_types_found.update(effects)
+    
+    # Sort alphabetically
+    sorted_effects = sorted(effect_types_found)
+    
+    return {"effect_types": sorted_effects, "count": len(sorted_effects)}
+
+
 @app.get("/api/inventory/search")
 async def search_inventory(q: str, slot: str = None, limit: int = 15):
     """
@@ -3099,16 +3146,18 @@ async def search_inventory(q: str, slot: str = None, limit: int = 15):
         if target_mask and not (item.base.slots & target_mask):
             continue
         
-        # Filter by search string
+        # Filter by search string - include name_log for full unabbreviated names
         name_match = search_lower in item.base.name.lower()
         name2_match = search_lower in wsdist_item.get("Name2", "").lower()
-        if not name_match and not name2_match:
+        name_log_match = search_lower in (item.base.name_log or "").lower()
+        if not name_match and not name2_match and not name_log_match:
             continue
         
         # Build item data - include full wsdist data for simulation
         item_data = {
             "id": item.base.id,
             "name": item.base.name,
+            "name_log": item.base.name_log or item.base.name,  # Full unabbreviated name
             "Name": item.base.name,  # Include wsdist format
             "Name2": wsdist_item.get("Name2", item.base.name),
             "type": wsdist_item.get("Type", "Unknown"),

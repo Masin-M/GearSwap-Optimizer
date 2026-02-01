@@ -1219,12 +1219,24 @@
                                     <select id="inventory-stat-filter" class="input-field">
                                         <option value="">+ Add Stat Filter</option>
                                     </select>
+                                    <select id="inventory-effect-filter" class="input-field">
+                                        <option value="">+ Add Effect Filter</option>
+                                    </select>
                                 </div>
                                 <!-- Selected stat filters -->
                                 <div id="inventory-stat-tags-container" class="hidden flex items-center gap-2 mt-2">
                                     <div id="inventory-stat-tags" class="flex flex-wrap gap-2"></div>
                                     <button id="btn-clear-stat-filters" 
                                             onclick="InventoryBrowser.clearStatFilters()"
+                                            class="text-xs text-ffxi-text-dim hover:text-ffxi-red px-2 py-1">
+                                        Clear All
+                                    </button>
+                                </div>
+                                <!-- Selected effect filters -->
+                                <div id="inventory-effect-tags-container" class="hidden flex items-center gap-2 mt-2">
+                                    <div id="inventory-effect-tags" class="flex flex-wrap gap-2"></div>
+                                    <button id="btn-clear-effect-filters" 
+                                            onclick="InventoryBrowser.clearEffectFilters()"
                                             class="text-xs text-ffxi-text-dim hover:text-ffxi-red px-2 py-1">
                                         Clear All
                                     </button>

@@ -178,14 +178,23 @@ function clearStoredJobGifts() {
     localStorage.removeItem(STORAGE_KEYS.JOB_GIFTS_DATA);
 }
 
-// Helper to update DW hint based on sub job
+// Helper to update DW hint based on main/sub job
 function updateDWHint() {
     const dwHint = document.getElementById('dw-hint');
+    const mainJob = AppState.selectedJob?.toUpperCase() || '';
     const subjob = AppState.selectedSubJob?.toUpperCase() || '';
     
     if (dwHint) {
+        // Jobs that provide DW as main job (THF only gets DW as main, not sub)
+        const dwMainJobs = ['NIN', 'DNC', 'BLU', 'THF'];
+        // Jobs that provide DW as sub job
         const dwSubJobs = ['NIN', 'DNC'];
-        if (dwSubJobs.includes(subjob)) {
+        
+        if (dwMainJobs.includes(mainJob)) {
+            dwHint.textContent = `${mainJob} has native Dual Wield trait`;
+            dwHint.classList.add('text-ffxi-green');
+            dwHint.classList.remove('text-ffxi-text-dim');
+        } else if (dwSubJobs.includes(subjob)) {
             dwHint.textContent = `/${subjob} provides Dual Wield trait`;
             dwHint.classList.add('text-ffxi-green');
             dwHint.classList.remove('text-ffxi-text-dim');
@@ -1576,7 +1585,7 @@ async function restoreSelections() {
         }
     }
     
-    // Update DW hint after sub job is restored
+    // Update DW hint after job/subjob is restored
     updateDWHint();
     
     // Update SetBuilder's job display after restoration
@@ -2405,6 +2414,9 @@ async function handleJobChange(e) {
     
     // Save to localStorage
     saveToLocalStorage('ffxi_selected_job', job);
+    
+    // Update DW hint based on new main job
+    updateDWHint();
     
     // Reset dependent selections
     AppState.selectedMainWeapon = null;
@@ -4547,10 +4559,13 @@ const InventoryBrowser = {
     compareSlotB: null,
     currentModalItem: null,
     selectedStatFilters: [],  // Array of stat names to filter by (AND logic)
+    selectedEffectFilters: [], // Array of effect types to filter by (OR logic)
+    availableEffectTypes: [],  // Effect types found in inventory
     
     async init() {
         this.setupEventListeners();
         this.populateJobFilter();
+        await this.loadEffectTypes();
     },
     
     setupEventListeners() {
@@ -4602,6 +4617,21 @@ const InventoryBrowser = {
                 }
                 // Reset dropdown to placeholder
                 statFilter.value = '';
+            });
+        }
+        
+        // Effect filter - adds to list of selected effects (Pet, Latent Effect, etc.)
+        const effectFilter = document.getElementById('inventory-effect-filter');
+        if (effectFilter) {
+            effectFilter.addEventListener('change', () => {
+                const selectedEffect = effectFilter.value;
+                if (selectedEffect && !this.selectedEffectFilters.includes(selectedEffect)) {
+                    this.selectedEffectFilters.push(selectedEffect);
+                    this.renderEffectTags();
+                    this.filterAndDisplay();
+                }
+                // Reset dropdown to placeholder
+                effectFilter.value = '';
             });
         }
         
@@ -4678,6 +4708,9 @@ const InventoryBrowser = {
             
             // Extract and populate stat filter options
             this.populateStatFilter();
+            
+            // Refresh effect types from inventory
+            await this.loadEffectTypes();
             
             this.currentPage = 1;
             this.filterAndDisplay();
@@ -4764,17 +4797,87 @@ const InventoryBrowser = {
         this.filterAndDisplay();
     },
     
+    // Load available effect types from API
+    async loadEffectTypes() {
+        try {
+            const response = await API.fetch('/api/inventory/effect-types');
+            if (response.effect_types) {
+                this.availableEffectTypes = response.effect_types;
+                this.populateEffectFilter();
+            }
+        } catch (error) {
+            console.error('Failed to load effect types:', error);
+        }
+    },
+    
+    // Populate effect filter dropdown
+    populateEffectFilter() {
+        const effectFilter = document.getElementById('inventory-effect-filter');
+        if (!effectFilter) return;
+        
+        // Clear and repopulate
+        effectFilter.innerHTML = '<option value="">+ Add Effect Filter</option>';
+        this.availableEffectTypes.forEach(effect => {
+            const option = document.createElement('option');
+            option.value = effect;
+            option.textContent = effect;
+            effectFilter.appendChild(option);
+        });
+    },
+    
+    // Render selected effect filters as removable tags
+    renderEffectTags() {
+        const container = document.getElementById('inventory-effect-tags');
+        const wrapper = document.getElementById('inventory-effect-tags-container');
+        if (!container) return;
+        
+        if (this.selectedEffectFilters.length === 0) {
+            container.innerHTML = '';
+            if (wrapper) wrapper.classList.add('hidden');
+            return;
+        }
+        
+        if (wrapper) wrapper.classList.remove('hidden');
+        
+        container.innerHTML = this.selectedEffectFilters.map(effect => `
+            <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-purple-500/20 text-purple-400 text-sm">
+                ${effect}
+                <button onclick="InventoryBrowser.removeEffectFilter('${effect.replace(/'/g, "\\'")}')" 
+                        class="hover:text-ffxi-red ml-1" title="Remove filter">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </span>
+        `).join('');
+    },
+    
+    // Remove an effect from the filter list
+    removeEffectFilter(effect) {
+        this.selectedEffectFilters = this.selectedEffectFilters.filter(e => e !== effect);
+        this.renderEffectTags();
+        this.filterAndDisplay();
+    },
+    
+    // Clear all effect filters
+    clearEffectFilters() {
+        this.selectedEffectFilters = [];
+        this.renderEffectTags();
+        this.filterAndDisplay();
+    },
+    
     filterAndDisplay() {
         const search = document.getElementById('inventory-search')?.value?.toLowerCase().trim() || '';
         const slotFilter = document.getElementById('inventory-slot-filter')?.value || '';
         const jobFilter = document.getElementById('inventory-job-filter')?.value?.toLowerCase() || '';
         
         this.filteredItems = this.items.filter(item => {
-            // Name search - simple substring match on name/name2 only
+            // Name search - substring match on name/name2/name_log (full unabbreviated name)
             if (search) {
                 const nameLower = item.name.toLowerCase();
                 const name2Lower = item.name2?.toLowerCase() || '';
-                if (!nameLower.includes(search) && !name2Lower.includes(search)) {
+                const nameLogLower = item.name_log?.toLowerCase() || '';
+                if (!nameLower.includes(search) && !name2Lower.includes(search) && !nameLogLower.includes(search)) {
                     return false;
                 }
             }
@@ -4789,6 +4892,15 @@ const InventoryBrowser = {
                         return false;
                     }
                 }
+            }
+            
+            // Effect filters - item must have AT LEAST ONE selected effect (OR logic)
+            if (this.selectedEffectFilters.length > 0) {
+                const itemEffects = item.effects || [];
+                const hasMatchingEffect = this.selectedEffectFilters.some(effect => 
+                    itemEffects.includes(effect)
+                );
+                if (!hasMatchingEffect) return false;
             }
             
             // Slot filter
@@ -5771,7 +5883,8 @@ const SetBuilder = {
             this.filteredPickerItems = this.pickerItems.filter(item => {
                 const name = (item.name || '').toLowerCase();
                 const name2 = (item.name2 || '').toLowerCase();
-                return name.includes(search) || name2.includes(search);
+                const nameLog = (item.name_log || '').toLowerCase();
+                return name.includes(search) || name2.includes(search) || nameLog.includes(search);
             });
         }
         
@@ -5978,7 +6091,8 @@ const SetBuilder = {
     
     canDualWield() {
         // Jobs that have native dual wield
-        const dualWieldMainJobs = ['NIN', 'DNC', 'BLU'];
+        // Note: THF only gets DW as main job, not as sub job
+        const dualWieldMainJobs = ['NIN', 'DNC', 'BLU', 'THF'];
         const dualWieldSubJobs = ['NIN', 'DNC'];
         
         const mainJob = (AppState.selectedJob || '').toUpperCase();
