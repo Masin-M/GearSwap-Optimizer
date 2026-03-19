@@ -337,6 +337,26 @@
                             <!-- Populated by SearchableDropdown -->
                         </div>
                     </div>
+
+                    <!-- Ranged Weapon -->
+                    <div id="ranged-weapon-section" class="space-y-2">
+                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim">Ranged Weapon</label>
+                        <div id="ranged-weapon-container" class="relative">
+                            <!-- Populated by SearchableDropdown -->
+                        </div>
+                        <div id="ranged-weapon-info" class="text-xs text-ffxi-text-dim hidden"></div>
+                    </div>
+
+                    <!-- Ammo (required for ranged WS) -->
+                    <div id="ammo-section" class="space-y-2">
+                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim">
+                            Ammo <span class="text-ffxi-text-dim font-normal normal-case tracking-normal">(required for ranged WS)</span>
+                        </label>
+                        <div id="ammo-container" class="relative">
+                            <!-- Populated by SearchableDropdown -->
+                        </div>
+                        <div id="ammo-info" class="text-xs text-ffxi-text-dim hidden"></div>
+                    </div>
                 </div>
 
                 <!-- Inventory Summary (bottom of sidebar) -->
@@ -605,6 +625,30 @@
                                 </div>
                             </div>
 
+                            <!-- Deep Optimization (Slow Mode) -->
+                            <div class="bg-ffxi-dark border border-ffxi-border rounded-lg p-4 mb-4 space-y-3">
+                                <label class="flex items-center gap-3 cursor-pointer">
+                                    <input type="checkbox" id="tp-slow-mode" class="checkbox">
+                                    <div>
+                                        <span class="text-sm font-semibold text-ffxi-text">Deep Optimization (Slow Mode)</span>
+                                        <p class="text-xs text-ffxi-text-dim mt-0.5">Runs multiple passes using simulation feedback to find better gear. Takes 3–5× longer.</p>
+                                    </div>
+                                </label>
+                                <div id="tp-slow-advanced" class="hidden space-y-3 pl-6 border-l border-ffxi-border">
+                                    <p class="text-xs text-ffxi-accent font-semibold uppercase tracking-wider">Advanced Settings</p>
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-xs text-ffxi-text-dim mb-1">Max Iterations <span class="text-ffxi-text-dim">(1–5)</span></label>
+                                            <input type="number" id="tp-slow-max-iterations" class="input-field w-full text-sm" min="1" max="5" value="3">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-ffxi-text-dim mb-1">Items per Slot <span class="text-ffxi-text-dim">(2–4)</span></label>
+                                            <input type="number" id="tp-slow-top-n" class="input-field w-full text-sm" min="2" max="4" value="3">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                             <button id="btn-optimize-tp" class="btn-primary">
                                 Optimize TP Set
                             </button>
@@ -622,6 +666,24 @@
                             <div class="grid grid-cols-2 gap-6 mb-6">
                                 <!-- Left Column: WS Selection & Options -->
                                 <div class="space-y-4">
+                                    <!-- WS Mode Toggle -->
+                                    <div>
+                                        <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-2">WS Mode</label>
+                                        <div class="flex gap-2">
+                                            <button id="ws-mode-melee" class="flex-1 py-1.5 text-sm font-semibold rounded border transition-colors ws-mode-btn active-mode"
+                                                    style="background:#c9a227;color:#0a0e14;border-color:#c9a227;"
+                                                    onclick="handleWSModeToggle('melee')">
+                                                ⚔ Melee
+                                            </button>
+                                            <button id="ws-mode-ranged" class="flex-1 py-1.5 text-sm font-semibold rounded border transition-colors ws-mode-btn"
+                                                    style="background:#12171f;color:#8b9298;border-color:#1e2630;"
+                                                    onclick="handleWSModeToggle('ranged')">
+                                                🏹 Ranged
+                                            </button>
+                                        </div>
+                                        <p id="ws-mode-hint" class="text-xs text-ffxi-text-dim mt-1">Optimizing for melee weaponskill</p>
+                                    </div>
+
                                     <!-- Weaponskill Selection -->
                                     <div>
                                         <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">Weaponskill</label>
@@ -859,6 +921,30 @@
                                 </div>
                             </div>
 
+                            <!-- Deep Optimization (Slow Mode) -->
+                            <div class="bg-ffxi-dark border border-ffxi-border rounded-lg p-4 mb-4 space-y-3">
+                                <label class="flex items-center gap-3 cursor-pointer">
+                                    <input type="checkbox" id="ws-slow-mode" class="checkbox">
+                                    <div>
+                                        <span class="text-sm font-semibold text-ffxi-text">Deep Optimization (Slow Mode)</span>
+                                        <p class="text-xs text-ffxi-text-dim mt-0.5">Runs multiple passes using simulation feedback to find better gear. Takes 3–5× longer.</p>
+                                    </div>
+                                </label>
+                                <div id="ws-slow-advanced" class="hidden space-y-3 pl-6 border-l border-ffxi-border">
+                                    <p class="text-xs text-ffxi-accent font-semibold uppercase tracking-wider">Advanced Settings</p>
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-xs text-ffxi-text-dim mb-1">Max Iterations <span class="text-ffxi-text-dim">(1–5)</span></label>
+                                            <input type="number" id="ws-slow-max-iterations" class="input-field w-full text-sm" min="1" max="5" value="3">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-ffxi-text-dim mb-1">Items per Slot <span class="text-ffxi-text-dim">(2–4)</span></label>
+                                            <input type="number" id="ws-slow-top-n" class="input-field w-full text-sm" min="2" max="4" value="3">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                             <button id="btn-optimize-ws" class="btn-primary">
                                 Optimize WS Set
                             </button>
@@ -950,9 +1036,9 @@
                                         </p>
                                     </div>
                                     
-                                    <!-- Include Weapons Toggle -->
-                                    <label class="flex items-center gap-2 cursor-pointer">
-                                        <input type="checkbox" id="magic-include-weapons" class="checkbox">
+                                    <!-- Include Weapons Toggle (temporarily disabled - TODO: fix slow mode weapon optimization) -->
+                                    <label class="flex items-center gap-2 cursor-not-allowed opacity-40 hidden" title="Weapon optimization is temporarily disabled">
+                                        <input type="checkbox" id="magic-include-weapons" class="checkbox" disabled>
                                         <span class="text-sm">Include Weapons</span>
                                     </label>
                                 </div>
@@ -963,12 +1049,27 @@
                                     <div>
                                         <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">Target</label>
                                         <select id="magic-target-select" class="input-field w-full">
-                                            <option value="apex_mob">Apex Mob (M.Eva 600)</option>
-                                            <option value="odyssey_nm">Odyssey NM (M.Eva 750)</option>
-                                            <option value="sortie_boss">Sortie Boss (M.Eva 800)</option>
-                                            <option value="ambuscade_vd">Ambuscade VD (M.Eva 650)</option>
-                                            <option value="training_dummy">Training Dummy (M.Eva 300)</option>
-                                            <option value="high_resist">High Resist (M.Eva 900)</option>
+                                            <option value="training_dummy">Training Dummy (300 MEva)</option>
+                                            <option value="ambuscade_vd">Ambuscade VD (650 MEva)</option>
+                                            <option value="apex_mob" selected>Apex Mob (600 MEva)</option>
+                                            <option value="odyssey_nm">Odyssey NM (750 MEva)</option>
+                                            <option value="odyssey_v15">Odyssey V15 (1000 MEva)</option>
+                                            <option value="odyssey_v20">Odyssey V20 (1100 MEva)</option>
+                                            <option value="odyssey_v25">Odyssey V25 (1200 MEva)</option>
+                                            <option value="high_resist">High Resist (900 MEva)</option>
+                                            <optgroup label="Sortie Floor Bosses (2000 Gal)">
+                                                <option value="sortie_ghatjot">Sortie A: Ghatjot (800 MEva)</option>
+                                                <option value="sortie_leshonn">Sortie B: Leshonn (800 MEva)</option>
+                                                <option value="sortie_skomora">Sortie C: Skomora (800 MEva)</option>
+                                                <option value="sortie_degei">Sortie D: Degei (800 MEva)</option>
+                                            </optgroup>
+                                            <optgroup label="Sortie Basement Bosses (10000 Gal)">
+                                                <option value="sortie_dhartok">Sortie E: Dhartok (900 MEva)</option>
+                                                <option value="sortie_gartell">Sortie F: Gartell (900 MEva)</option>
+                                                <option value="sortie_triboulex">Sortie G: Triboulex (900 MEva)</option>
+                                                <option value="sortie_aita">Sortie H: Aita (900 MEva)</option>
+                                            </optgroup>
+                                            <option value="sortie_boss">Sortie Boss Legacy (800 MEva)</option>
                                         </select>
                                     </div>
                                     
@@ -1117,6 +1218,30 @@
                                 </div>
                             </div>
 
+                            <!-- Deep Optimization (Slow Mode) -->
+                            <div class="bg-ffxi-dark border border-ffxi-border rounded-lg p-4 mb-4 space-y-3">
+                                <label class="flex items-center gap-3 cursor-pointer">
+                                    <input type="checkbox" id="magic-slow-mode" class="checkbox">
+                                    <div>
+                                        <span class="text-sm font-semibold text-ffxi-text">Deep Optimization (Slow Mode)</span>
+                                        <p class="text-xs text-ffxi-text-dim mt-0.5">Runs multiple passes using simulation feedback to find better gear. Takes 3–5× longer.</p>
+                                    </div>
+                                </label>
+                                <div id="magic-slow-advanced" class="hidden space-y-3 pl-6 border-l border-ffxi-border">
+                                    <p class="text-xs text-ffxi-accent font-semibold uppercase tracking-wider">Advanced Settings</p>
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-xs text-ffxi-text-dim mb-1">Max Iterations <span class="text-ffxi-text-dim">(1–5)</span></label>
+                                            <input type="number" id="magic-slow-max-iterations" class="input-field w-full text-sm" min="1" max="5" value="3">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-ffxi-text-dim mb-1">Items per Slot <span class="text-ffxi-text-dim">(2–4)</span></label>
+                                            <input type="number" id="magic-slow-top-n" class="input-field w-full text-sm" min="2" max="4" value="3">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                             <button id="btn-optimize-magic" class="btn-primary">
                                 Optimize Magic Set
                             </button>
@@ -1136,7 +1261,7 @@
                         <div class="max-w-4xl">
                             <h2 class="font-display text-xl text-ffxi-accent mb-4">Damage Taken Set Optimization</h2>
                             <p class="text-ffxi-text-dim mb-6">
-                                Optimize gear for damage reduction and survivability. Each DT type caps at -50% separately. DT + PDT stack multiplicatively for physical, DT + MDT for magical.
+                                Optimize gear for damage reduction and survivability. DT counts as both PDT and MDT, stacking additively with each up to their -50% caps. For example, 30 DT + 25 PDT yields 50 PDT and 30 MDT.
                             </p>
                             
                             <div class="grid grid-cols-2 gap-6 mb-6">
@@ -1174,8 +1299,7 @@
                                             <p><span class="text-ffxi-text">DT (General):</span> -50% cap, affects all damage</p>
                                             <p><span class="text-ffxi-text">PDT:</span> -50% cap, physical damage only</p>
                                             <p><span class="text-ffxi-text">MDT:</span> -50% cap, magical damage only</p>
-                                            <p class="mt-2 text-ffxi-accent">At -50% DT + -50% PDT: 75% physical reduction</p>
-                                            <p class="text-ffxi-accent">At -50% DT + -50% MDT: 75% magical reduction</p>
+
                                         </div>
                                     </div>
                                 </div>
@@ -1251,20 +1375,31 @@
                                         Clear Comparison
                                     </button>
                                 </div>
-                                <div class="grid grid-cols-2 gap-4">
-                                    <div id="compare-slot-a" class="bg-ffxi-dark rounded p-3 min-h-[120px] border-2 border-dashed border-ffxi-border hover:border-ffxi-accent transition-colors">
-                                        <p class="text-ffxi-text-dim text-sm text-center py-8">Click an item to add to Slot A</p>
+                                <!-- Side-by-side item headers -->
+                                <div class="grid grid-cols-2 gap-4 mb-3">
+                                    <div id="compare-slot-a" class="bg-ffxi-dark rounded p-3 min-h-[80px] border-2 border-dashed border-ffxi-border hover:border-ffxi-accent transition-colors">
+                                        <p class="text-ffxi-text-dim text-sm text-center py-6">Click an item to add to Slot A</p>
                                     </div>
-                                    <div id="compare-slot-b" class="bg-ffxi-dark rounded p-3 min-h-[120px] border-2 border-dashed border-ffxi-border hover:border-ffxi-accent transition-colors">
-                                        <p class="text-ffxi-text-dim text-sm text-center py-8">Click an item to add to Slot B</p>
+                                    <div id="compare-slot-b" class="bg-ffxi-dark rounded p-3 min-h-[80px] border-2 border-dashed border-ffxi-border hover:border-ffxi-accent transition-colors">
+                                        <p class="text-ffxi-text-dim text-sm text-center py-6">Click an item to add to Slot B</p>
                                     </div>
                                 </div>
+                                <!-- Stat diff table (populated by JS when both slots filled) -->
+                                <div id="compare-diff-table" class="hidden bg-ffxi-dark rounded p-3 border border-ffxi-border max-h-[400px] overflow-y-auto"></div>
                             </div>
                             
                             <!-- Item Count -->
                             <div class="flex items-center justify-between mb-2">
                                 <span id="inventory-count" class="text-sm text-ffxi-text-dim">0 items</span>
-                                <div class="flex gap-2">
+                                <div class="flex gap-2 items-center">
+                                    <label class="flex items-center gap-2 text-sm text-ffxi-text-dim">
+                                        <span>Sort By:</span>
+                                        <select id="btn-inventory-sort-toggle"
+                                                class="input-field text-xs py-1">
+                                            <option value="alpha">A → Z</option>
+                                            <option value="value">Value ↓</option>
+                                        </select>
+                                    </label>
                                     <label class="flex items-center gap-1 text-sm text-ffxi-text-dim">
                                         <input type="checkbox" id="inventory-show-all" class="checkbox">
                                         <span>Show all game items</span>
@@ -1693,12 +1828,32 @@
                                             <div class="copy-dropdown-item" onclick="SetBuilder.copySetBToA()">Copy B → A</div>
                                         </div>
                                     </div>
-                                    <button id="btn-export-lua" class="btn-secondary text-sm" onclick="SetBuilder.showExportModal()">
-                                        <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                                        </svg>
-                                        Export Lua
-                                    </button>
+                                    <!-- Lua Import/Export Dropdown -->
+                                    <div class="copy-dropdown">
+                                        <button class="btn-secondary text-sm">
+                                            <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+                                            </svg>
+                                            Lua
+                                            <svg class="w-3 h-3 inline ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                                            </svg>
+                                        </button>
+                                        <div class="copy-dropdown-content">
+                                            <div class="copy-dropdown-item" onclick="SetBuilder.showImportModal()">
+                                                <svg class="w-3.5 h-3.5 inline mr-1.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                                                </svg>
+                                                Import Lua
+                                            </div>
+                                            <div class="copy-dropdown-item" onclick="SetBuilder.showExportModal()">
+                                                <svg class="w-3.5 h-3.5 inline mr-1.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                                                </svg>
+                                                Export Lua
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                             
@@ -1735,6 +1890,157 @@
                                 </div>
                             </div>
                             
+                            <!-- WS Simulation Config Bar -->
+                            <div class="flex items-center gap-3 mb-4 bg-ffxi-panel p-3 rounded-lg border border-ffxi-border">
+                                <span class="text-xs uppercase tracking-wider text-ffxi-text-dim flex-shrink-0">WS Sim:</span>
+                                <select id="sb-ws-select" class="input-field text-sm flex-1" disabled onchange="">
+                                    <option value="">— equip a weapon first —</option>
+                                </select>
+                                <div class="flex items-center gap-2 flex-shrink-0">
+                                    <span class="text-xs text-ffxi-text-dim">TP:</span>
+                                    <select id="sb-ws-tp" class="input-field text-sm w-20">
+                                        <option value="1000">1000</option>
+                                        <option value="2000" selected>2000</option>
+                                        <option value="3000">3000</option>
+                                    </select>
+                                </div>
+                                <div class="w-px h-5 bg-ffxi-border flex-shrink-0"></div>
+                                <button id="btn-simulate-tp" class="btn-secondary text-sm flex-shrink-0" onclick="SetBuilder.runTPSimulation()">
+                                    <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                    </svg>
+                                    Simulate TP
+                                </button>
+                                <button id="btn-simulate-ws" class="btn-primary text-sm flex-shrink-0" onclick="SetBuilder.runWSSimulation()">
+                                    <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                                    </svg>
+                                    Simulate WS
+                                </button>
+                            </div>
+
+                            <!-- Set Builder Custom Stats (per-set, for set bonuses the optimizer can't detect) -->
+                            <div class="mb-4 bg-ffxi-panel rounded-lg border border-ffxi-border">
+                                <div class="flex items-center justify-between p-3 border-b border-ffxi-border">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs uppercase tracking-wider text-ffxi-text-dim">Custom Stats</span>
+                                        <span class="text-xs text-ffxi-text-dim">— set bonuses &amp; augments applied per-set during simulation</span>
+                                    </div>
+                                    <button id="sb-custom-stats-toggle" class="text-xs text-ffxi-text-dim hover:text-ffxi-text">
+                                        <span id="sb-custom-stats-toggle-text">Show</span> ▼
+                                    </button>
+                                </div>
+                                <div id="sb-custom-stats-panel" class="hidden p-4">
+                                    <div class="grid grid-cols-2 gap-4">
+
+                                        <!-- Set A column -->
+                                        <div class="bg-ffxi-dark rounded-lg p-3 border border-ffxi-border">
+                                            <div class="flex items-center justify-between mb-3">
+                                                <span class="text-xs font-semibold text-ffxi-accent uppercase tracking-wider">Set A</span>
+                                                <button class="text-xs text-ffxi-red hover:text-red-400" onclick="SetBuilder.clearCustomStats('A')">Clear</button>
+                                            </div>
+                                            <div class="space-y-2">
+                                                <div class="text-xs font-semibold text-ffxi-text-dim uppercase mb-1">TP / Multi-Attack</div>
+                                                <div class="grid grid-cols-2 gap-2">
+                                                    <div>
+                                                        <label class="block text-xs text-ffxi-text-dim mb-1">Store TP</label>
+                                                        <input type="number" id="sb-a-custom-stp" class="input-field w-full text-sm" min="0" max="100" step="1" value="0" placeholder="0">
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs text-ffxi-text-dim mb-1">TP Bonus</label>
+                                                        <input type="number" id="sb-a-custom-tp-bonus" class="input-field w-full text-sm" min="0" max="1000" step="1" value="0" placeholder="0">
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs text-ffxi-text-dim mb-1">Double Attack %</label>
+                                                        <input type="number" id="sb-a-custom-da" class="input-field w-full text-sm" min="0" max="50" step="1" value="0" placeholder="0">
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs text-ffxi-text-dim mb-1">Triple Attack %</label>
+                                                        <input type="number" id="sb-a-custom-ta" class="input-field w-full text-sm" min="0" max="30" step="1" value="0" placeholder="0">
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs text-ffxi-text-dim mb-1">Quad Attack %</label>
+                                                        <input type="number" id="sb-a-custom-qa" class="input-field w-full text-sm" min="0" max="30" step="1" value="0" placeholder="0">
+                                                    </div>
+                                                </div>
+                                                <div class="text-xs font-semibold text-ffxi-text-dim uppercase mt-2 mb-1">Weapon Skill</div>
+                                                <div class="grid grid-cols-2 gap-2">
+                                                    <div>
+                                                        <label class="block text-xs text-ffxi-text-dim mb-1">WS Damage %</label>
+                                                        <input type="number" id="sb-a-custom-ws-damage" class="input-field w-full text-sm" min="0" max="100" step="1" value="0" placeholder="0">
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs text-ffxi-text-dim mb-1">WS Accuracy</label>
+                                                        <input type="number" id="sb-a-custom-ws-accuracy" class="input-field w-full text-sm" min="0" max="300" step="1" value="0" placeholder="0">
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs text-ffxi-text-dim mb-1">Crit Rate %</label>
+                                                        <input type="number" id="sb-a-custom-crit" class="input-field w-full text-sm" min="0" max="50" step="1" value="0" placeholder="0">
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs text-ffxi-text-dim mb-1">Crit Damage %</label>
+                                                        <input type="number" id="sb-a-custom-crit-damage" class="input-field w-full text-sm" min="0" max="50" step="1" value="0" placeholder="0">
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Set B column -->
+                                        <div class="bg-ffxi-dark rounded-lg p-3 border border-ffxi-border">
+                                            <div class="flex items-center justify-between mb-3">
+                                                <span class="text-xs font-semibold text-ffxi-accent uppercase tracking-wider">Set B</span>
+                                                <button class="text-xs text-ffxi-red hover:text-red-400" onclick="SetBuilder.clearCustomStats('B')">Clear</button>
+                                            </div>
+                                            <div class="space-y-2">
+                                                <div class="text-xs font-semibold text-ffxi-text-dim uppercase mb-1">TP / Multi-Attack</div>
+                                                <div class="grid grid-cols-2 gap-2">
+                                                    <div>
+                                                        <label class="block text-xs text-ffxi-text-dim mb-1">Store TP</label>
+                                                        <input type="number" id="sb-b-custom-stp" class="input-field w-full text-sm" min="0" max="100" step="1" value="0" placeholder="0">
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs text-ffxi-text-dim mb-1">TP Bonus</label>
+                                                        <input type="number" id="sb-b-custom-tp-bonus" class="input-field w-full text-sm" min="0" max="1000" step="1" value="0" placeholder="0">
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs text-ffxi-text-dim mb-1">Double Attack %</label>
+                                                        <input type="number" id="sb-b-custom-da" class="input-field w-full text-sm" min="0" max="50" step="1" value="0" placeholder="0">
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs text-ffxi-text-dim mb-1">Triple Attack %</label>
+                                                        <input type="number" id="sb-b-custom-ta" class="input-field w-full text-sm" min="0" max="30" step="1" value="0" placeholder="0">
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs text-ffxi-text-dim mb-1">Quad Attack %</label>
+                                                        <input type="number" id="sb-b-custom-qa" class="input-field w-full text-sm" min="0" max="30" step="1" value="0" placeholder="0">
+                                                    </div>
+                                                </div>
+                                                <div class="text-xs font-semibold text-ffxi-text-dim uppercase mt-2 mb-1">Weapon Skill</div>
+                                                <div class="grid grid-cols-2 gap-2">
+                                                    <div>
+                                                        <label class="block text-xs text-ffxi-text-dim mb-1">WS Damage %</label>
+                                                        <input type="number" id="sb-b-custom-ws-damage" class="input-field w-full text-sm" min="0" max="100" step="1" value="0" placeholder="0">
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs text-ffxi-text-dim mb-1">WS Accuracy</label>
+                                                        <input type="number" id="sb-b-custom-ws-accuracy" class="input-field w-full text-sm" min="0" max="300" step="1" value="0" placeholder="0">
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs text-ffxi-text-dim mb-1">Crit Rate %</label>
+                                                        <input type="number" id="sb-b-custom-crit" class="input-field w-full text-sm" min="0" max="50" step="1" value="0" placeholder="0">
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-xs text-ffxi-text-dim mb-1">Crit Damage %</label>
+                                                        <input type="number" id="sb-b-custom-crit-damage" class="input-field w-full text-sm" min="0" max="50" step="1" value="0" placeholder="0">
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                    </div>
+                                </div>
+                            </div>
+
                             <div class="grid grid-cols-3 gap-6">
                                 <!-- Equipment Grid (Left 2/3) -->
                                 <div class="col-span-2">
@@ -1839,6 +2145,11 @@
                                     </div>
                                 </div>
                             </div>
+
+                            <!-- Simulation Result Panels -->
+                            <div id="tp-sim-results" class="hidden"></div>
+                            <div id="ws-sim-results" class="hidden"></div>
+
                         </div>
                     </div>
                     
@@ -1876,6 +2187,57 @@
                     </div>
                     
                     <!-- Set Builder Export Modal -->
+                    <!-- Set Builder Import Modal -->
+                    <div id="set-builder-import-modal" class="modal hidden">
+                        <div class="modal-backdrop" onclick="SetBuilder.closeImportModal()"></div>
+                        <div class="modal-content max-w-2xl">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="font-display text-lg text-ffxi-accent">Import Lua Gear Set</h3>
+                                <button onclick="SetBuilder.closeImportModal()" class="text-ffxi-text-dim hover:text-ffxi-text">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                    </svg>
+                                </button>
+                            </div>
+
+                            <p class="text-xs text-ffxi-text-dim mb-4">
+                                Paste any GearSwap-format set (e.g. from the optimizer output) and it will be loaded into the chosen set. 
+                                Use <strong class="text-ffxi-text">Dream Set</strong> mode to load items you don't own.
+                            </p>
+
+                            <!-- Target Set -->
+                            <div class="flex items-center gap-3 mb-4">
+                                <label class="text-xs uppercase tracking-wider text-ffxi-text-dim whitespace-nowrap">Import into:</label>
+                                <select id="import-target-set" class="input-field text-sm w-28">
+                                    <option value="A">Set A</option>
+                                    <option value="B">Set B</option>
+                                </select>
+                            </div>
+
+                            <!-- Lua Textarea -->
+                            <div class="mb-4">
+                                <label class="block text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">Paste Lua Set</label>
+                                <textarea id="import-lua-textarea"
+                                    class="w-full h-48 bg-ffxi-dark border border-ffxi-border rounded p-3 text-sm text-ffxi-text font-mono resize-y focus:outline-none focus:border-ffxi-accent"
+                                    placeholder='sets.precast.WS["Savage Blade"] = {&#10;    main="Naegling",&#10;    head={ name="Nyame Helm", augments={"Path: B"} },&#10;    ...&#10;}'></textarea>
+                            </div>
+
+                            <!-- Results -->
+                            <div id="import-lua-results" class="hidden mb-4 bg-ffxi-dark rounded p-3 border border-ffxi-border text-sm space-y-1"></div>
+
+                            <!-- Actions -->
+                            <div class="flex justify-end gap-2">
+                                <button onclick="SetBuilder.closeImportModal()" class="btn-secondary">Cancel</button>
+                                <button id="btn-do-import-lua" onclick="SetBuilder.importFromLua()" class="btn-primary">
+                                    <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                                    </svg>
+                                    Import
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                     <div id="set-builder-export-modal" class="modal hidden">
                         <div class="modal-backdrop" onclick="SetBuilder.closeExportModal()"></div>
                         <div class="modal-content max-w-2xl">
