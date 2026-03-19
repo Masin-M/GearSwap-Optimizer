@@ -48,6 +48,95 @@ class ResistState(Enum):
     HALF = 0.5
     QUARTER = 0.25
     EIGHTH = 0.125
+    SIXTEENTH = 0.0625  # Only possible at elemental resistance rank <= 50%
+
+
+# =============================================================================
+# Elemental Resistance Ranks
+# =============================================================================
+
+# Valid resistance rank percentages (low % = high resistance)
+VALID_RESISTANCE_RANKS = {150, 130, 115, 100, 85, 70, 60, 50, 40, 30, 25, 20, 15, 10, 5}
+
+# Mapping from resistance rank percentage to MEVA multiplier.
+# A rank of 100% is neutral (multiplier 1.0). Lower percentages (higher resistance)
+# multiply base MEVA upward, making the monster harder to land spells on.
+# Reference: https://www.bg-wiki.com/ffxi/Resist#Elemental_Resistance_Ranks
+RESISTANCE_RANK_MEVA_MULT: Dict[int, float] = {
+    150: 0.95,
+    130: 0.96019,
+    115: 0.98,
+    100: 1.0,
+    85:  1.023,
+    70:  1.049,
+    60:  1.0905,
+    50:  1.126,
+    40:  1.2075,
+    30:  1.3475,
+    25:  1.70065,
+    20:  2.141,
+    15:  2.65,
+    10:  5.0,
+    5:   10.0,
+}
+
+# Resistance ranks at which a forced 1/2 resist is guaranteed (minimum resist state).
+# Spells against these ranks can also land at 1/4, 1/8, or 1/16.
+FORCED_HALF_RESIST_THRESHOLD = 50  # rank% <= 50 triggers forced 1/2
+
+# Resistance rank at which hit rate is hard-floored to 5%
+HIT_RATE_FLOOR_THRESHOLD = 10  # rank% <= 10
+
+# Resistance rank at which all spells are forced to 1/16 (full resist)
+FULL_RESIST_THRESHOLD = 5  # rank% == 5
+
+
+def get_elemental_meva_multiplier(rank_pct: int) -> float:
+    """
+    Return the MEVA multiplier for a given elemental resistance rank percentage.
+
+    The resistance rank is a multiplier applied to a monster's base magic evasion
+    for a specific element. Higher resistance (lower %) = higher multiplier.
+
+    Args:
+        rank_pct: Resistance rank as an integer percentage (e.g., 100, 85, 50, 5).
+                  Values not in the official table are clamped to the nearest valid rank.
+
+    Returns:
+        MEVA multiplier (e.g., 1.0 for rank 100%, 1.126 for rank 50%).
+    """
+    if rank_pct in RESISTANCE_RANK_MEVA_MULT:
+        return RESISTANCE_RANK_MEVA_MULT[rank_pct]
+
+    # Clamp to nearest valid rank (shouldn't be needed with proper data, but be safe)
+    closest = min(VALID_RESISTANCE_RANKS, key=lambda r: abs(r - rank_pct))
+    return RESISTANCE_RANK_MEVA_MULT[closest]
+
+
+def calculate_elemental_meva(
+    base_meva: int,
+    resistance_rank: int = 100,
+    gear_resist: int = 0,
+) -> int:
+    """
+    Calculate effective elemental magic evasion for a specific element.
+
+    For monsters: elemental MEVA = floor(base_meva * rank_multiplier)
+    For players:  elemental MEVA = base_meva + gear_resist (rank is always 100%)
+
+    Both effects can be combined if needed (e.g., a pet with gear and a rank).
+
+    Args:
+        base_meva: Base magic evasion stat (element-agnostic).
+        resistance_rank: Elemental resistance rank as a percentage (default 100 = neutral).
+        gear_resist: Elemental resistance from gear/buffs adding directly to MEVA
+                     (1 point of gear elemental resist = 1 point of MEVA).
+
+    Returns:
+        Effective elemental MEVA for hit rate calculations.
+    """
+    mult = get_elemental_meva_multiplier(resistance_rank)
+    return int(base_meva * mult) + gear_resist
 
 
 # =============================================================================
@@ -154,82 +243,132 @@ def calculate_magic_hit_rate(
     return max(floor, min(cap, hit_rate))
 
 
-def roll_resist_state(magic_hit_rate: float) -> ResistState:
+def roll_resist_state(magic_hit_rate: float, resistance_rank: int = 100) -> ResistState:
     """
-    Roll for resist state based on magic hit rate.
-    
-    Uses the correct 3-roll sequential method from wsdist/nuking.py:
-    - Roll up to 3 times, stopping on first success
-    - Each failed roll halves damage
-    - This produces correct probability distribution
-    
-    At 95% hit rate:
-    - Unresisted: 95%
-    - Half: 4.75% (fail once, then succeed)
-    - Quarter: 0.2375% (fail twice, then succeed)
-    - Eighth: 0.0125% (fail all three)
-    
+    Roll for resist state based on magic hit rate and elemental resistance rank.
+
+    Resistance rank modifies how resists are rolled:
+      - rank <= 5%:  Forced SIXTEENTH (1/16) regardless of hit rate.
+      - rank <= 10%: Hit rate is floored to 5% before rolling.
+      - rank <= 50%: Guaranteed minimum of HALF (1/2); additional rolls can
+                     yield QUARTER (1/4), EIGHTH (1/8), or SIXTEENTH (1/16).
+      - rank > 50%:  Standard 3-roll sequential system (UNRESISTED through EIGHTH).
+
+    Standard system (rank > 50%):
+      Roll up to 3 times, stopping on first success. Each failed roll halves
+      damage. This produces the correct probability distribution.
+
+      At 95% hit rate:
+        - Unresisted: 95%
+        - Half:       4.75%
+        - Quarter:    0.2375%
+        - Eighth:     0.0125%
+
+    High-resistance system (rank <= 50%):
+      The 1/2 resist is guaranteed. Then roll up to 3 more times to determine
+      whether damage is further halved to 1/4, 1/8, or 1/16.
+
     Args:
-        magic_hit_rate: Hit rate as decimal (0.05 to 0.95)
-        
+        magic_hit_rate: Hit rate as decimal (0.05 to 0.95), BEFORE rank adjustments.
+        resistance_rank: Elemental resistance rank percentage (default 100 = no effect).
+
     Returns:
-        ResistState enum value
+        ResistState enum value.
     """
-    resist_multiplier = 1.0
-    
-    for _ in range(3):
-        if random.random() < magic_hit_rate:
-            # Success - stop rolling
-            break
-        else:
-            # Failed roll - halve damage and continue
+    # Rank 5%: forced full resist (1/16), no rolls
+    if resistance_rank <= FULL_RESIST_THRESHOLD:
+        return ResistState.SIXTEENTH
+
+    # Rank 10%: floor hit rate to 5%
+    if resistance_rank <= HIT_RATE_FLOOR_THRESHOLD:
+        magic_hit_rate = min(magic_hit_rate, 0.05)
+
+    # Rank <= 50%: guaranteed 1/2 minimum, then 3 more rolls for deeper resists
+    if resistance_rank <= FORCED_HALF_RESIST_THRESHOLD:
+        resist_multiplier = 0.5  # Minimum is 1/2
+        for _ in range(3):
+            if random.random() < magic_hit_rate:
+                break
             resist_multiplier *= 0.5
-    
-    # Convert multiplier to ResistState enum
-    if resist_multiplier == 1.0:
-        return ResistState.UNRESISTED
-    elif resist_multiplier == 0.5:
-        return ResistState.HALF
-    elif resist_multiplier == 0.25:
-        return ResistState.QUARTER
     else:
+        # Standard 3-roll sequential system
+        resist_multiplier = 1.0
+        for _ in range(3):
+            if random.random() < magic_hit_rate:
+                break
+            resist_multiplier *= 0.5
+
+    # Map multiplier to ResistState
+    if resist_multiplier >= 1.0:
+        return ResistState.UNRESISTED
+    elif resist_multiplier >= 0.5:
+        return ResistState.HALF
+    elif resist_multiplier >= 0.25:
+        return ResistState.QUARTER
+    elif resist_multiplier >= 0.125:
         return ResistState.EIGHTH
+    else:
+        return ResistState.SIXTEENTH
 
 
-def get_resist_state_average(magic_hit_rate: float) -> float:
+def get_resist_state_average(magic_hit_rate: float, resistance_rank: int = 100) -> float:
     """
     Calculate the average resist coefficient analytically (no RNG).
-    
+
     This is useful for calculating expected/average damage without
-    running Monte Carlo simulations. Uses the exact formula from
-    wsdist/nuking.py.
-    
-    The formula accounts for the 3-roll sequential resist system:
-    - P(unresisted) = hit_rate
-    - P(half) = hit_rate * (1 - hit_rate)  [fail once, then succeed]
-    - P(quarter) = hit_rate * (1 - hit_rate)^2  [fail twice, then succeed]
-    - P(eighth) = (1 - hit_rate)^3  [fail all three]
-    
-    Average = 1.0*P(unresisted) + 0.5*P(half) + 0.25*P(quarter) + 0.125*P(eighth)
-    
-    Simplified: hit_rate + 0.5*hit_rate*(1-hit_rate) + 0.25*hit_rate*(1-hit_rate)^2 + 0.125*(1-hit_rate)^3
-    
+    running Monte Carlo simulations.
+
+    Accounts for resistance rank effects:
+      - rank <= 5%:  Always 1/16 → returns 0.0625.
+      - rank <= 10%: Hit rate floored to 5% before calculating.
+      - rank <= 50%: Guaranteed 1/2 minimum; 3 more sequential rolls for 1/4/1/8/1/16.
+                     Average = 0.5*H + 0.25*H*(1-H) + 0.125*H*(1-H)^2 + 0.0625*(1-H)^3
+      - rank > 50%:  Standard 3-roll distribution.
+                     Average = H + 0.5*H*(1-H) + 0.25*H*(1-H)^2 + 0.125*(1-H)^3
+
     Args:
-        magic_hit_rate: Hit rate as decimal (0.0 to 1.0)
-        
+        magic_hit_rate: Hit rate as decimal (0.0 to 1.0), BEFORE rank adjustments.
+        resistance_rank: Elemental resistance rank percentage (default 100 = no effect).
+
     Returns:
-        Average resist multiplier (0.125 to 1.0)
+        Average resist multiplier.
     """
+    # Rank 5%: always 1/16
+    if resistance_rank <= FULL_RESIST_THRESHOLD:
+        return ResistState.SIXTEENTH.value
+
+    # Rank 10%: floor hit rate
+    if resistance_rank <= HIT_RATE_FLOOR_THRESHOLD:
+        magic_hit_rate = min(magic_hit_rate, 0.05)
+
     h = magic_hit_rate
     miss = 1.0 - h
-    
-    resist_avg = (
-        h +                           # Unresisted: hit_rate * 1.0
-        0.500 * h * miss +            # Half: hit_rate * miss * 0.5
-        0.250 * h * (miss ** 2) +     # Quarter: hit_rate * miss^2 * 0.25
-        0.125 * (miss ** 3)           # Eighth: miss^3 * 0.125
-    )
-    
+
+    if resistance_rank <= FORCED_HALF_RESIST_THRESHOLD:
+        # Guaranteed 1/2 minimum; 3 more rolls for deeper resists
+        # P(1/2)    = h               (first roll success)
+        # P(1/4)    = h * miss        (fail once, then succeed)
+        # P(1/8)    = h * miss^2      (fail twice, then succeed)
+        # P(1/16)   = miss^3          (fail all three)
+        resist_avg = (
+            0.5000 * h +                   # Half
+            0.2500 * h * miss +            # Quarter
+            0.1250 * h * (miss ** 2) +     # Eighth
+            0.0625 * (miss ** 3)           # Sixteenth
+        )
+    else:
+        # Standard 3-roll system
+        # P(unresisted) = h
+        # P(half)       = h * miss
+        # P(quarter)    = h * miss^2
+        # P(eighth)     = miss^3
+        resist_avg = (
+            1.0000 * h +                   # Unresisted
+            0.5000 * h * miss +            # Half
+            0.2500 * h * (miss ** 2) +     # Quarter
+            0.1250 * (miss ** 3)           # Eighth
+        )
+
     return resist_avg
 
 
@@ -1468,19 +1607,28 @@ def calculate_haste_potency(
 def calculate_enhancing_duration(
     base_duration: float,
     enhancing_skill: int,
-    duration_gear: int = 0,  # Basis points
+    duration_gear: int = 0,         # Non-augmented gear % (basis points) - Embla Sash, Ammurapi etc.
+    duration_gear_augment: int = 0, # Augmented gear % (basis points) - Telchine, Chironic etc.
+                                    # Applied as a SEPARATE multiplicative step per BG-Wiki
+    spell_duration_flat: int = 0,   # Flat seconds added last - "Regen effect dur." / "Refresh effect dur."
     composure_active: bool = False,
     perpetuance_active: bool = False,
 ) -> float:
     """
     Calculate enhanced spell duration.
     
-    Duration bonuses stack multiplicatively.
+    Duration bonuses stack multiplicatively across categories, then flat seconds
+    are added at the end.
+    
+    Per BG-Wiki, augmented enhancing duration gear (Telchine 'Enh. Mag. eff. dur.')
+    applies as a separate multiplier step from non-augmented duration gear.
     
     Args:
         base_duration: Base spell duration in seconds
         enhancing_skill: Caster's Enhancing Magic skill (minor effect)
-        duration_gear: "Enhancing magic duration +" from gear (basis points)
+        duration_gear: Non-augmented "Enhancing magic duration +" from gear (basis points)
+        duration_gear_augment: Augmented "Enh. Mag. eff. dur." from gear (basis points)
+        spell_duration_flat: Flat seconds from "Regen effect dur." or "Refresh effect dur." gear
         composure_active: RDM Composure (+50% duration on self)
         perpetuance_active: SCH Perpetuance (+100% duration)
         
@@ -1493,9 +1641,13 @@ def calculate_enhancing_duration(
     skill_bonus = min(20, max(0, (enhancing_skill - 300) // 50))  # Cap +20%
     duration = duration * (1.0 + skill_bonus / 100)
     
-    # Gear bonus
+    # Non-augmented gear bonus (Embla Sash, Ammurapi Shield, etc.)
     if duration_gear > 0:
         duration = duration * (1.0 + duration_gear / 10000)
+    
+    # Augmented gear bonus - separate multiplicative step (Telchine, Chironic, etc.)
+    if duration_gear_augment > 0:
+        duration = duration * (1.0 + duration_gear_augment / 10000)
     
     # Composure (+50% on self-cast)
     if composure_active:
@@ -1504,6 +1656,9 @@ def calculate_enhancing_duration(
     # Perpetuance (+100%)
     if perpetuance_active:
         duration = duration * 2.00
+    
+    # Flat seconds added after all multipliers
+    duration = duration + spell_duration_flat
     
     return duration
 

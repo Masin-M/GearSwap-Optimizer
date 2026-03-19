@@ -98,7 +98,7 @@ STAT_NAME_MAP = {
     # Duration stats (basis points in Stats class)
     'enhancing_duration': 'enhancing_duration',
     'enfeebling_duration': 'enfeebling_duration',  # May need to add to Stats
-    
+    'enfeebling_effect': 'enfeebling_effect',
     # Damage limit stats (special - may not be in Stats)
     'physical_damage_limit': 'physical_damage_limit',
     'magical_damage_limit': 'magical_damage_limit',

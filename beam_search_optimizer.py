@@ -657,8 +657,8 @@ class BeamSearchOptimizer:
             # =====================================================
             # ENFEEBLING EFFECT BONUS - ADDED
             # =====================================================
-            'Enfeebling magic effect': 'enfeebling_effect',
-            '"Enfeebling magic effect"': 'enfeebling_effect',
+            'Enfeebling Magic effect': 'enfeebling_effect',
+            '"Enfeebling Magic effect"': 'enfeebling_effect',
             'Enfeebling Magic Effect': 'enfeebling_effect',  # Case variant
             
             # =====================================================

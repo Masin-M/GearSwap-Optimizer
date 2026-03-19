@@ -921,65 +921,73 @@ ENFEEBLING_SPELLS = {
     ),
     
     # Skill-based enfeebles (Distract/Frazzle)
+    # Source: FFXIclopedia (verified March 2026)
+    # Distract line is ICE-element (not Light). Frazzle line is DARK-element (not Light).
+    # All six spells carry an innate +150 magic accuracy bonus (BG-wiki confirmed).
     'Distract': SpellData(
-        name='Distract', element=Element.LIGHT, magic_type=MagicType.ENFEEBLING_MND,
+        name='Distract', element=Element.ICE, magic_type=MagicType.ENFEEBLING_MND,
         skill_type='enfeebling', base_v=0, tier=1, mp_cost=12, cast_time=2.0,
         m_values={0: (0, 0.0)},
         properties={
             'effect': 'evasion_down',
             'potency_type': 'distract',
-            # Base potency from skill, bonus from dMND
             'skill_based': True,
+            'innate_magic_accuracy': 150,  # BG-wiki confirmed innate bonus
         },
     ),
     'Distract II': SpellData(
-        name='Distract II', element=Element.LIGHT, magic_type=MagicType.ENFEEBLING_MND,
+        name='Distract II', element=Element.ICE, magic_type=MagicType.ENFEEBLING_MND,
         skill_type='enfeebling', base_v=0, tier=2, mp_cost=36, cast_time=3.0,
         m_values={0: (0, 0.0)},
         properties={
             'effect': 'evasion_down',
             'potency_type': 'distract',
             'skill_based': True,
+            'innate_magic_accuracy': 150,
         },
     ),
     'Distract III': SpellData(
-        name='Distract III', element=Element.LIGHT, magic_type=MagicType.ENFEEBLING_MND,
+        name='Distract III', element=Element.ICE, magic_type=MagicType.ENFEEBLING_MND,
         skill_type='enfeebling', base_v=0, tier=3, mp_cost=64, cast_time=4.0,
         m_values={0: (0, 0.0)},
         properties={
             'effect': 'evasion_down',
             'potency_type': 'distract',
             'skill_based': True,
+            'innate_magic_accuracy': 150,
         },
     ),
     'Frazzle': SpellData(
-        name='Frazzle', element=Element.LIGHT, magic_type=MagicType.ENFEEBLING_MND,
+        name='Frazzle', element=Element.DARK, magic_type=MagicType.ENFEEBLING_MND,
         skill_type='enfeebling', base_v=0, tier=1, mp_cost=18, cast_time=2.0,
         m_values={0: (0, 0.0)},
         properties={
             'effect': 'magic_evasion_down',
             'potency_type': 'frazzle',
             'skill_based': True,
+            'innate_magic_accuracy': 150,
         },
     ),
     'Frazzle II': SpellData(
-        name='Frazzle II', element=Element.LIGHT, magic_type=MagicType.ENFEEBLING_MND,
+        name='Frazzle II', element=Element.DARK, magic_type=MagicType.ENFEEBLING_MND,
         skill_type='enfeebling', base_v=0, tier=2, mp_cost=48, cast_time=3.0,
         m_values={0: (0, 0.0)},
         properties={
             'effect': 'magic_evasion_down',
             'potency_type': 'frazzle',
             'skill_based': True,
+            'innate_magic_accuracy': 150,
         },
     ),
     'Frazzle III': SpellData(
-        name='Frazzle III', element=Element.LIGHT, magic_type=MagicType.ENFEEBLING_MND,
+        name='Frazzle III', element=Element.DARK, magic_type=MagicType.ENFEEBLING_MND,
         skill_type='enfeebling', base_v=0, tier=3, mp_cost=78, cast_time=4.0,
         m_values={0: (0, 0.0)},
         properties={
             'effect': 'magic_evasion_down',
             'potency_type': 'frazzle',
             'skill_based': True,
+            'innate_magic_accuracy': 150,
         },
     ),
 }

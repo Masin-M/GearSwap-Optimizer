@@ -205,6 +205,9 @@ class Stats:
     magic_evasion: int = 0
     magic_defense: int = 0
     
+    # Enmity
+    enmity: int = 0             # Enmity +/- (positive = more hate, negative = less hate)
+    
     # Damage taken (in basis points, negative = reduction)
     damage_taken: int = 0       # General DT (applies to all damage types)
     physical_dt: int = 0        # Physical Damage Taken (PDT)
@@ -216,6 +219,7 @@ class Stats:
     cure_potency: int = 0           # Cure Potency (capped at 5000 = 50%)
     cure_potency_ii: int = 0        # Cure Potency Received (capped at 3000 = 30%)
     fast_cast: int = 0              # Fast Cast (capped at 8000 = 80%)
+    spell_interruption_rate_down: int = 0  # Spell Interruption Rate Down % (capped at 102%)
     
     # Magic skill bonuses (from gear)
     healing_magic_skill: int = 0
@@ -1467,7 +1471,7 @@ def create_enhancing_profile(name: str = 'Enhancing Magic',
     """
     if duration_focus:
         weights = {
-            'enhancing_duration': 12.0,
+            'enhancing_duration': 1.20,
             'enhancing_magic_skill': 8.0,
             'MND': 4.0,
         }
@@ -1475,7 +1479,7 @@ def create_enhancing_profile(name: str = 'Enhancing Magic',
         weights = {
             'enhancing_magic_skill': 12.0,
             'MND': 6.0,
-            'enhancing_duration': 4.0,
+            'enhancing_duration': .40,
         }
     
     return OptimizationProfile(
@@ -1513,7 +1517,7 @@ def create_healing_profile(name: str = 'Healing Magic',
     return OptimizationProfile(
         name=name,
         weights={
-            'cure_potency': 12.0,
+            'cure_potency': 30.0,
             'MND': 8.0,
             'healing_magic_skill': 4.0,
             'VIT': 3.0,
@@ -1522,6 +1526,130 @@ def create_healing_profile(name: str = 'Healing Magic',
         hard_caps={
             'cure_potency': 5000,  # 50% cap
         },
+        exclude_slots=set() if include_weapons else {Slot.MAIN, Slot.SUB},
+        job=job,
+    )
+
+
+def create_regen_profile(name: str = 'Regen',
+                         job: Optional[Job] = None,
+                         duration_focus: bool = False,
+                         include_weapons: bool = False) -> OptimizationProfile:
+    """
+    Create a Regen spell midcast optimization profile.
+
+    Regen potency is a flat HP/tick bonus added on top of the spell's base tick.
+    Regen effect duration extends how long the Regen buff lasts (flat seconds).
+    Enhancing Magic Skill also increases base Regen potency via a skill formula.
+
+    Per BG-Wiki, regen_effect_duration (flat seconds) and enhancing_duration
+    (percentage) apply at DIFFERENT steps, so both can stack meaningfully.
+
+    Stat priorities (potency focus, default):
+        1. "Regen" potency     - Flat HP/tick directly added to the spell
+        2. Enhancing Magic Skill - Affects base tick amount via skill formula
+        3. MND                 - Minor potency contribution
+        4. "Regen" effect dur. - Flat seconds extending buff duration
+
+    Stat priorities (duration focus):
+        1. "Regen" effect dur. - Flat seconds (direct, no formula)
+        2. Enhancing Duration  - Percentage multiplier on buff duration
+        3. "Regen" potency     - Secondary when maximising uptime
+        4. Enhancing Magic Skill
+
+    Args:
+        name: Profile name
+        job: Job requirement
+        duration_focus: If True, prioritise duration over potency
+        include_weapons: If True, allow weapon selection
+
+    Returns:
+        OptimizationProfile configured for Regen midcast
+    """
+    if duration_focus:
+        weights = {
+            'regen_effect_duration': 15.0,   # Flat seconds - most direct duration stat
+            'enhancing_duration': 1.0,       # % multiplier on duration (augmented gear)
+            '_augment': 1.0,
+            'regen_potency': 6.0,             # Still valuable even when duration-focused
+            'enhancing_magic_skill': 4.0,
+            'MND': 2.0,
+        }
+    else:
+        weights = {
+            'regen_potency': 15.0,            # Flat HP/tick bonus - primary potency stat
+            'enhancing_magic_skill': 8.0,     # Increases base tick amount
+            'MND': 4.0,
+            'regen_effect_duration': 5.0,     # Duration still matters for uptime
+            'enhancing_duration': .30,
+            'enhancing_duration_augment': .30,
+        }
+
+    return OptimizationProfile(
+        name=name,
+        weights=weights,
+        exclude_slots=set() if include_weapons else {Slot.MAIN, Slot.SUB},
+        job=job,
+    )
+
+
+def create_refresh_profile(name: str = 'Refresh',
+                            job: Optional[Job] = None,
+                            duration_focus: bool = False,
+                            include_weapons: bool = False) -> OptimizationProfile:
+    """
+    Create a Refresh spell midcast optimization profile.
+
+    Refresh potency is a flat MP/tick bonus added to the spell's base tick.
+    Refresh effect duration extends how long the Refresh buff lasts (flat seconds).
+    Enhancing Magic Skill affects base Refresh potency via a skill formula.
+
+    Refresh potency gear is rare (e.g., Gishdubar Scepter), so most Refresh
+    midcast sets weight duration and enhancing skill more heavily than potency.
+
+    Stat priorities (potency focus, default):
+        1. "Refresh" potency   - Flat MP/tick directly added to the spell
+        2. Enhancing Magic Skill - Increases base tick amount
+        3. MND                 - Minor contribution
+        4. "Refresh" effect dur. - Flat seconds extending buff duration
+
+    Stat priorities (duration focus):
+        1. "Refresh" effect dur. - Flat seconds (direct)
+        2. Enhancing Duration   - Percentage multiplier on buff duration
+        3. Enhancing Magic Skill
+        4. "Refresh" potency
+
+    Args:
+        name: Profile name
+        job: Job requirement
+        duration_focus: If True, prioritise duration over potency
+        include_weapons: If True, allow weapon selection
+
+    Returns:
+        OptimizationProfile configured for Refresh midcast
+    """
+    if duration_focus:
+        weights = {
+            'refresh_effect_duration': 15.0,  # Flat seconds - most direct duration stat
+            'enhancing_duration': 1.0,        # % multiplier on duration
+            'enhancing_duration_augment': 1.0,
+            'enhancing_magic_skill': 6.0,
+            'refresh_potency': 4.0,            # Rare stat, still worth having
+            'MND': 2.0,
+        }
+    else:
+        weights = {
+            'refresh_potency': 15.0,           # Flat MP/tick bonus
+            'enhancing_magic_skill': 8.0,      # Increases base tick amount
+            'MND': 4.0,
+            'refresh_effect_duration': 5.0,
+            'enhancing_duration': .30,
+            'enhancing_duration_augment': .30,
+        }
+
+    return OptimizationProfile(
+        name=name,
+        weights=weights,
         exclude_slots=set() if include_weapons else {Slot.MAIN, Slot.SUB},
         job=job,
     )

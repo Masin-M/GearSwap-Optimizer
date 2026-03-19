@@ -469,19 +469,58 @@ class ItemDatabase:
         (r'MB\s*[+]?\s*(\d+)%?', 'magic_burst_bonus', 100),
         # "Bonus damage added to magic burst" has no number - capture optional, default handled in parser
         (r'Bonus damage added to magic burst\.?(?:\s*[+]?\s*(\d+)%?)?', 'magic_burst_bonus', 100),
-        (r'"Cure potency"\s*[+]?\s*(\d+)%?', 'cure_potency', 100),
-        (r'Cure potency\s*[+]?\s*(\d+)%?', 'cure_potency', 100),
-        (r'"Cure Potency II"\s*[+]?\s*(\d+)%?', 'cure_potency_ii', 100),
+        # Cure potency - NOTE: in-game format is "Cure" potency (quotes around "Cure" only, not the whole phrase)
+        (r'"Cure"\s+potency\s*[+]?\s*(\d+)%?', 'cure_potency', 100),
+        (r'(?<![a-zA-Z])Cure\s+potency\s*[+]?\s*(\d+)%?', 'cure_potency', 100),
+        (r'"Cure"\s+[Pp]otency\s+II\s*[+]?\s*(\d+)%?', 'cure_potency_ii', 100),
+        (r'(?<![a-zA-Z])Cure\s+[Rr]eceived\s*[+]?\s*(\d+)%?', 'cure_potency_ii', 100),
+        
+        # "Drain" and "Aspir" potency — in-game format always pairs both spell names.
+        # No items exist with Drain potency separate from Aspir potency.
+        # Quoted format: "Drain" and "Aspir" potency+X
+        (r'"Drain"\s+and\s+"Aspir"\s+potency\s*[+]?\s*(\d+)', 'drain_aspir_potency', 100),
+        (r'(?<![a-zA-Z])Drain\s+and\s+Aspir\s+potency\s*[+]?\s*(\d+)', 'drain_aspir_potency', 100),
+        
+        # Passive Refresh from gear (e.g., Genbu's Shield "Refresh+1")
+        # Potency/duration patterns must come before plain Refresh to avoid consuming
+        # "Refresh potency+X" as just a plain "Refresh" match.
+        # NOTE: Requires explicit '+' to avoid false matches on "Refresh effect duration" etc.
+        (r'"Refresh"\s+potency\s*[+]?\s*(\d+)', 'refresh_potency', 1),
+        (r'(?<![a-zA-Z])Refresh\s+potency\s*[+]?\s*(\d+)', 'refresh_potency', 1),
+        (r'"Refresh"\s*[+]\s*(\d+)', 'refresh', 1),
+        (r'(?<![a-zA-Z])Refresh\s*[+]\s*(\d+)', 'refresh', 1),
+        
+        # Passive Regen from gear (e.g., Bookworm's Cape base stats)
+        # Potency/duration patterns come first for the same reason as Refresh above.
+        (r'"Regen"\s+potency\s*[+]?\s*(\d+)', 'regen_potency', 1),
+        (r'(?<![a-zA-Z])Regen\s+potency\s*[+]?\s*(\d+)', 'regen_potency', 1),
+        (r'"Regen"\s+effect\s+dur(?:ation)?\.?\s*[+]?\s*(\d+)', 'regen_effect_duration', 1),
+        (r'(?<![a-zA-Z])Regen\s+effect\s+dur(?:ation)?\.?\s*[+]?\s*(\d+)', 'regen_effect_duration', 1),
+        (r'"Regen"\s*[+]\s*(\d+)', 'regen', 1),
+        (r'(?<![a-zA-Z])Regen\s*[+]\s*(\d+)', 'regen', 1),
         (r'Healing magic skill\s*[+]?\s*(\d+)', 'healing_magic_skill', 1),
         (r'Enfeebling magic skill\s*[+]?\s*(\d+)', 'enfeebling_magic_skill', 1),
         (r'Enhancing magic skill\s*[+]?\s*(\d+)', 'enhancing_magic_skill', 1),
         (r'Elemental magic skill\s*[+]?\s*(\d+)', 'elemental_magic_skill', 1),
         (r'Divine magic skill\s*[+]?\s*(\d+)', 'divine_magic_skill', 1),
         (r'Dark magic skill\s*[+]?\s*(\d+)', 'dark_magic_skill', 1),
-        (r'Enfeebling magic effect\s*[+]?\s*(\d+)', 'enfeebling_effect', 1),
+        # "effect duration" full-form variants — must come BEFORE the bare "effect" pattern.
+        # e.g., Duelist's Torque +2 base stat: "Enfeebling magic effect duration+15%"
+        # e.g., Enhancing gear base stat:       "Enhancing magic effect duration+10%"
+        (r'Enhancing magic effect duration\s*[+]?\s*(\d+)%?', 'enhancing_duration', 100),
+        (r'Enfeebling magic effect duration\s*[+]?\s*(\d+)%?', 'enfeebling_duration', 100),
+        # Enfeebling magic effect potency (flat bonus, NOT duration).
+        # Negative lookahead prevents matching "Enfeebling magic effect duration+X"
+        # in case the digit ever appears later in the same description text.
+        (r'Enfeebling magic effect(?!\s+dur(?:ation)?\.?)\s*[+]?\s*(\d+)', 'enfeebling_effect', 1),
+        # Short duration-only forms (e.g., Embla Sash "Enhancing magic duration+10%",
+        # non-augmented RDM/WHM/SCH gear, or any item whose description omits "effect").
         (r'Enhancing magic duration\s*[+]?\s*(\d+)%?', 'enhancing_duration', 100),
+        (r'Enfeebling magic duration\s*[+]?\s*(\d+)%?', 'enfeebling_duration', 100),
         (r'"Fast Cast"\s*[+]?\s*(\d+)%?', 'fast_cast', 100),
         (r'Fast Cast\s*[+]?\s*(\d+)%?', 'fast_cast', 100),
+        (r'"Spell interruption rate down"\s*[+]?\s*(\d+)%?', 'spell_interruption_rate_down', 1),
+        (r'Spell interruption rate down\s*[+]?\s*(\d+)%?',   'spell_interruption_rate_down', 1),
         
         # Combat skill bonuses (from gear)
         # Note: These are flat skill bonuses that add to character skill cap
@@ -522,6 +561,13 @@ class ItemDatabase:
         (r'Geomancy\s+skill\s*[+]?\s*(\d+)', 'geomancy_skill', 1),
         (r'Handbell\s+skill\s*[+]?\s*(\d+)', 'handbell_skill', 1),
         (r'Summoning\s+(?:magic\s+)?skill\s*[+]?\s*(\d+)', 'summoning_magic_skill', 1),
+        
+        # =========================================================================
+        # ENMITY
+        # =========================================================================
+        # Positive = more hate (tank gear), Negative = less hate (mage/support gear)
+        # Must handle both + and - values
+        (r'Enmity\s*([+-]?\d+)', 'enmity', 1),
         
         # =========================================================================
         # TP-RELATED STATS (HIGH PRIORITY for wsdist)
@@ -773,6 +819,33 @@ class ItemDatabase:
                 stats.elemental_magic_skill += value
                 stats.divine_magic_skill += value
                 stats.dark_magic_skill += value
+            except ValueError:
+                pass
+        
+        # Special handling for "Combat skills +X" - fans out to all weapon/combat skills
+        combat_skills_match = re.search(r'Combat skills?\s*[+]?\s*(\d+)', text, re.IGNORECASE)
+        if combat_skills_match:
+            try:
+                value = int(combat_skills_match.group(1))
+                stats.hand_to_hand_skill += value
+                stats.dagger_skill += value
+                stats.sword_skill += value
+                stats.great_sword_skill += value
+                stats.axe_skill += value
+                stats.great_axe_skill += value
+                stats.scythe_skill += value
+                stats.polearm_skill += value
+                stats.katana_skill += value
+                stats.great_katana_skill += value
+                stats.club_skill += value
+                stats.staff_skill += value
+                stats.archery_skill += value
+                stats.marksmanship_skill += value
+                stats.throwing_skill += value
+                stats.evasion_skill += value
+                stats.shield_skill += value
+                stats.parrying_skill += value
+                stats.guard_skill += value
             except ValueError:
                 pass
     

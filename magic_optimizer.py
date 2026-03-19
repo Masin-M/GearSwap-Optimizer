@@ -107,29 +107,47 @@ def check_stratification(scores: List[float], threshold: float = 0.02) -> bool:
 def get_next_target(current_target: MagicTargetStats) -> Optional[MagicTargetStats]:
     """
     Get the next harder target in the ladder.
-    
+
+    Looks up the target by id in MAGIC_TARGETS first so that elemental resistance
+    ranks are preserved.  Falls back to constructing a plain MagicTargetStats from
+    TARGET_LADDER data if the target id is not found.
+
     Args:
         current_target: Current target stats
-    
+
     Returns:
         Next harder MagicTargetStats, or None if at max difficulty
     """
     current_meva = current_target.magic_evasion
-    
+
     for target_data in TARGET_LADDER:
         if target_data["magic_evasion"] > current_meva:
+            # Prefer the full target from MAGIC_TARGETS (preserves resistance ranks)
+            full_target = MAGIC_TARGETS.get(target_data["id"])
+            if full_target is not None:
+                return full_target
+            # Fallback: build from ladder data (no resistance ranks)
             return MagicTargetStats(
                 int_stat=target_data["int_stat"],
                 mnd_stat=target_data["mnd_stat"],
                 magic_evasion=target_data["magic_evasion"],
                 magic_defense_bonus=target_data["magic_defense_bonus"],
             )
-    
+
     return None  # Already at hardest target
 
 
 def get_target_name(target: MagicTargetStats) -> str:
-    """Get the name of a target based on its magic evasion."""
+    """Get the name of a target based on its id or magic evasion."""
+    # Try to match by id in MAGIC_TARGETS first
+    for target_id, t in MAGIC_TARGETS.items():
+        if t is target:
+            # Look up display name in TARGET_LADDER
+            for td in TARGET_LADDER:
+                if td["id"] == target_id:
+                    return td["name"]
+            return target_id.replace("_", " ").title()
+    # Fall back to MEVA match in TARGET_LADDER
     for target_data in TARGET_LADDER:
         if target_data["magic_evasion"] == target.magic_evasion:
             return target_data["name"]
@@ -445,10 +463,11 @@ def create_magic_potency_profile(
         # Stats contribute to potency formulas (secondary)
         'INT': 6.0,
         'MND': 6.0,
+        'VIT': 0.0,  # Used in Cure formula (floor(VIT/4)); zero by default, set for healing
         
         # Enfeebling-specific bonuses
         'enfeebling_effect': 20.0,       # "Enfeebling magic effect +"
-        'enfeebling_duration': 12.0,     # Duration helps maintain debuffs
+        'enfeebling_duration': 1.0,     # Duration helps maintain debuffs
         
         # Accuracy is SECONDARY for potency - spell must land but skill matters more
         'magic_accuracy': 6.0,
@@ -615,8 +634,10 @@ def create_magic_potency_profile(
             
         elif spell.magic_type == MagicType.HEALING:
             # Healing: Cure potency scales with MND and skill
+            # Cure formula: Power = floor(MND/2) + floor(VIT/4) + Healing Skill
             weights['healing_magic_skill'] = 30.0
             weights['MND'] = 12.0
+            weights['VIT'] = 5.0   # floor(VIT/4) term — roughly 1/3 the weight of MND
             weights['cure_potency'] = 25.0
             weights['magic_accuracy'] = 0.0  # Cures don't miss
             weights['INT'] = 0.0
@@ -637,7 +658,7 @@ def create_magic_potency_profile(
             # Enhancing: duration and potency from skill
             # Primary stats - maximize these
             weights['enhancing_magic_skill'] = 30.0  # 5 skill = 150 points
-            weights['enhancing_duration'] = 22.0
+            weights['enhancing_duration'] = 2.0
             
             # Filler weights to prevent beam collapse (keeps candidates alive)
             weights['fast_cast'] = 0.05
@@ -655,6 +676,44 @@ def create_magic_potency_profile(
             weights['enfeebling_duration'] = 0.0
             weights['magic_attack'] = 0.0
             weights['magic_damage'] = 0.0
+            
+            # Spell-specific potency/duration stats
+            # Augmented duration (Telchine etc.) is always valuable for any enhancing spell
+            weights['enhancing_duration_augment'] = 2.0
+            
+            spell_lower = spell.name.lower() if spell else ''
+            if 'regen' in spell_lower:
+                # Regen: optimize total HP returned = potency × ticks
+                # regen_potency is flat HP/tick - very high value per unit
+                # regen_effect_duration is flat seconds - each 3s = 1 extra tick
+                weights['regen_potency'] = 35.0
+                weights['regen_effect_duration'] = 20.0
+                # enhancing_duration (%) is still useful, keep weight
+                # Zero out irrelevant spell-specific stats
+                weights['refresh_potency'] = 0.0
+                weights['refresh_effect_duration'] = 0.0
+            elif 'refresh' in spell_lower:
+                # Refresh: optimize total MP returned = potency × ticks
+                weights['refresh_potency'] = 35.0
+                weights['refresh_effect_duration'] = 20.0
+                weights['regen_potency'] = 0.0
+                weights['regen_effect_duration'] = 0.0
+            elif 'haste' in spell_lower:
+                # Haste/Haste II: potency is fixed regardless of skill,
+                # only duration matters for optimization
+                weights['enhancing_magic_skill'] = 0.5  # Minimal tiebreaker
+                weights['enhancing_duration'] = 3.5
+                weights['enhancing_duration_augment'] = 3.50
+                weights['regen_potency'] = 0.0
+                weights['refresh_potency'] = 0.0
+                weights['regen_effect_duration'] = 0.0
+                weights['refresh_effect_duration'] = 0.0
+            else:
+                # Other enhancing spells - zero out regen/refresh stats
+                weights['regen_potency'] = 0.0
+                weights['refresh_potency'] = 0.0
+                weights['regen_effect_duration'] = 0.0
+                weights['refresh_effect_duration'] = 0.0
             
             # Enspell-specific: Check if this is an Enspell and add sword enhancement weights
             if spell.properties.get('enspell', False):
@@ -745,6 +804,7 @@ def gear_to_caster_stats(
         # Primary stats = base + gear
         int_stat=job_preset.base_int + gear_stats.INT,
         mnd_stat=job_preset.base_mnd + gear_stats.MND,
+        vit_stat=job_preset.base_vit + gear_stats.VIT,
         
         # Magic offense from job gifts + gear (includes effective magic accuracy skill)
         mab=gifts.magic_attack + gear_stats.magic_attack,
@@ -774,6 +834,13 @@ def gear_to_caster_stats(
         enfeebling_effect=gear_stats.enfeebling_effect,
         enhancing_duration=gear_stats.enhancing_duration,
         
+        # Regen/Refresh spell stats from gear
+        regen_potency=gear_stats.regen_potency,
+        refresh_potency=gear_stats.refresh_potency,
+        regen_effect_duration=gear_stats.regen_effect_duration,
+        refresh_effect_duration=gear_stats.refresh_effect_duration,
+        enhancing_duration_augment=gear_stats.enhancing_duration_augment,
+        
         # Enspell damage bonuses
         sword_enhancement_flat=gear_stats.sword_enhancement_flat,
         sword_enhancement_percent=gear_stats.sword_enhancement_percent,
@@ -792,73 +859,75 @@ class JobMagicPreset:
     healing_skill: int = 0      # Added for Healing magic potency calculations
     enhancing_skill: int = 0    # Added for Enhancing magic potency calculations
     mbb_trait: int = 0          # basis points
+    base_vit: int = 0           # VIT base for job (lv99, no subjob) — used by Cure formula
 
 
 # Job presets (same as magic_ui.py)
+# base_vit values from lv99 job_parameters table (no subjob component)
 JOB_MAGIC_PRESETS = {
     Job.BLM: JobMagicPreset(
-        base_int=165, base_mnd=120,
+        base_int=165, base_mnd=120, base_vit=84,
         elemental_skill=500, dark_skill=424, enfeebling_skill=424, divine_skill=0,
         healing_skill=0, enhancing_skill=305,
         mbb_trait=1600,
     ),
     Job.RDM: JobMagicPreset(
-        base_int=145, base_mnd=145,
+        base_int=145, base_mnd=145, base_vit=87,
         elemental_skill=424, dark_skill=373, enfeebling_skill=500, divine_skill=0,
         healing_skill=404, enhancing_skill=500,
         mbb_trait=0,
     ),
     Job.WHM: JobMagicPreset(
-        base_int=125, base_mnd=165,
+        base_int=125, base_mnd=165, base_vit=90,
         elemental_skill=0, dark_skill=0, enfeebling_skill=404, divine_skill=500,
         healing_skill=500, enhancing_skill=500,
         mbb_trait=0,
     ),
     Job.SCH: JobMagicPreset(
-        base_int=155, base_mnd=145,
+        base_int=155, base_mnd=145, base_vit=87,
         elemental_skill=449, dark_skill=404, enfeebling_skill=449, divine_skill=0,
         healing_skill=449, enhancing_skill=449,
         mbb_trait=800,
     ),
     Job.GEO: JobMagicPreset(
-        base_int=150, base_mnd=140,
+        base_int=150, base_mnd=140, base_vit=90,
         elemental_skill=424, dark_skill=354, enfeebling_skill=424, divine_skill=0,
         mbb_trait=0,
     ),
     Job.DRK: JobMagicPreset(
-        base_int=135, base_mnd=120,
+        base_int=135, base_mnd=120, base_vit=93,
         elemental_skill=354, dark_skill=424, enfeebling_skill=354, divine_skill=0,
         mbb_trait=0,
     ),
     Job.NIN: JobMagicPreset(
-        base_int=130, base_mnd=115,
+        base_int=130, base_mnd=115, base_vit=93,
         elemental_skill=354, dark_skill=0, enfeebling_skill=354, divine_skill=0,
         mbb_trait=0,
     ),
     Job.BLU: JobMagicPreset(
-        base_int=140, base_mnd=130,
+        base_int=140, base_mnd=130, base_vit=87,
         elemental_skill=386, dark_skill=386, enfeebling_skill=386, divine_skill=0,
         mbb_trait=0,
     ),
     Job.SMN: JobMagicPreset(
-        base_int=140, base_mnd=150,
+        base_int=140, base_mnd=150, base_vit=84,
         elemental_skill=0, dark_skill=0, enfeebling_skill=0, divine_skill=0,
         mbb_trait=0,
     ),
     Job.PLD: JobMagicPreset(
-        base_int=115, base_mnd=145,
+        base_int=115, base_mnd=145, base_vit=97,
         elemental_skill=0, dark_skill=0, enfeebling_skill=0, divine_skill=424,
         mbb_trait=0,
     ),
     Job.RUN: JobMagicPreset(
-        base_int=130, base_mnd=125,
+        base_int=130, base_mnd=125, base_vit=87,
         elemental_skill=373, dark_skill=0, enfeebling_skill=373, divine_skill=373,
         mbb_trait=0,
     ),
 }
 
 DEFAULT_MAGIC_PRESET = JobMagicPreset(
-    base_int=130, base_mnd=130,
+    base_int=130, base_mnd=130, base_vit=87,
     elemental_skill=354, dark_skill=354, enfeebling_skill=354, divine_skill=354,
     mbb_trait=0,
 )
@@ -898,6 +967,7 @@ def apply_job_gifts_to_magic(
     modified_preset = JobMagicPreset(
         base_int=job_preset.base_int,
         base_mnd=job_preset.base_mnd,
+        base_vit=job_preset.base_vit,
         elemental_skill=job_preset.elemental_skill + int(stats.get('Elemental Magic Skill', 0)),
         dark_skill=job_preset.dark_skill + int(stats.get('Dark Magic Skill', 0)),
         enfeebling_skill=job_preset.enfeebling_skill + int(stats.get('Enfeebling Magic Skill', 0)),
@@ -966,6 +1036,7 @@ def evaluate_magic_damage(
     if buff_bonuses:
         caster.int_stat += buff_bonuses.get("INT", 0)
         caster.mnd_stat += buff_bonuses.get("MND", 0)
+        caster.vit_stat += buff_bonuses.get("VIT", 0)
         caster.mab += buff_bonuses.get("magic_attack", 0)
         caster.magic_accuracy += buff_bonuses.get("magic_accuracy", 0)
         caster.magic_damage += buff_bonuses.get("magic_damage", 0)
@@ -1024,6 +1095,7 @@ def evaluate_magic_accuracy(
     if buff_bonuses:
         caster.int_stat += buff_bonuses.get("INT", 0)
         caster.mnd_stat += buff_bonuses.get("MND", 0)
+        caster.vit_stat += buff_bonuses.get("VIT", 0)
         caster.mab += buff_bonuses.get("magic_attack", 0)
         caster.magic_accuracy += buff_bonuses.get("magic_accuracy", 0)
     
@@ -1040,37 +1112,55 @@ def evaluate_magic_accuracy(
     # Calculate dSTAT bonus
     dstat_bonus = calculate_dstat_bonus(caster_stat, target_stat)
     
-    # Calculate total magic accuracy
+    # Calculate total magic accuracy (including any spell-innate bonus, e.g. Distract/Frazzle +150)
+    innate_spell_macc = spell.properties.get('innate_magic_accuracy', 0)
     total_macc = calculate_magic_accuracy(
         skill=skill,
-        magic_acc_gear=caster.magic_accuracy,
+        magic_acc_gear=caster.magic_accuracy + innate_spell_macc,
         dstat_bonus=int(dstat_bonus),
         magic_burst=False,  # Don't assume MB bonus for accuracy evaluation
     )
     
-    # Calculate hit rate
-    hit_rate = calculate_magic_hit_rate(total_macc, target.magic_evasion)
-    
+    # Calculate hit rate against element-adjusted MEVA.
+    # Elemental resistance ranks scale the target's base MEVA via a multiplier table
+    # (rank 70% → ×1.049, rank 50% → ×1.126, etc.), so a Thunder spell against a mob
+    # with rank 70 Thunder faces higher effective MEVA than rank 100.
+    # Ranks ≤10% hard-floor hit rate to 5%; rank 5% forces a full resist (1/16).
+    resistance_rank = (
+        target.elemental_resistance_ranks.get(spell.element, 100)
+        if spell.element is not None else 100
+    )
+    effective_meva = target.get_elemental_meva(spell.element)
+    hit_rate = calculate_magic_hit_rate(total_macc, effective_meva)
+    from magic_formulas import FULL_RESIST_THRESHOLD, HIT_RATE_FLOOR_THRESHOLD
+    if resistance_rank <= FULL_RESIST_THRESHOLD:
+        hit_rate = 0.05
+    elif resistance_rank <= HIT_RATE_FLOOR_THRESHOLD:
+        hit_rate = min(hit_rate, 0.05)
+
     # Debug output for first few evaluations
     if not hasattr(evaluate_magic_accuracy, '_debug_count'):
         evaluate_magic_accuracy._debug_count = 0
     evaluate_magic_accuracy._debug_count += 1
     
     if evaluate_magic_accuracy._debug_count <= 3:
+        element_name = spell.element.name if spell.element is not None else "None"
         print(f"\n  [DEBUG] evaluate_magic_accuracy #{evaluate_magic_accuracy._debug_count}:")
-        print(f"    Spell: {spell.name} (type: {spell.magic_type})")
+        print(f"    Spell: {spell.name} (type: {spell.magic_type}, element: {element_name})")
         print(f"    Job preset enfeebling_skill: {job_preset.enfeebling_skill}")
         print(f"    Gear enfeebling_magic_skill: {candidate.stats.enfeebling_magic_skill}")
         print(f"    Caster skill (from get_skill_for_type): {skill}")
         print(f"    Caster magic_accuracy (incl skill+gear+gifts): {caster.magic_accuracy}")
+        if innate_spell_macc:
+            print(f"    Spell innate magic accuracy bonus: +{innate_spell_macc}")
         print(f"    Caster stat (INT/MND): {caster_stat}, Target stat: {target_stat}")
         print(f"    dstat_bonus: {dstat_bonus}")
-        print(f"    total_macc = skill({skill}) + magic_acc_gear({caster.magic_accuracy}) + dstat({int(dstat_bonus)}) = {total_macc}")
-        print(f"    TARGET magic_evasion: {target.magic_evasion}")
-        print(f"    dMAcc = {total_macc} - {target.magic_evasion} = {total_macc - target.magic_evasion}")
+        print(f"    total_macc = skill({skill}) + magic_acc_gear({caster.magic_accuracy + innate_spell_macc}) + dstat({int(dstat_bonus)}) = {total_macc}")
+        print(f"    TARGET base_meva: {target.magic_evasion}, resistance_rank: {resistance_rank}%, effective_meva: {effective_meva}")
+        print(f"    dMAcc = {total_macc} - {effective_meva} = {total_macc - effective_meva}")
         
         # Manual hit rate calculation check
-        dmacc = total_macc - target.magic_evasion
+        dmacc = total_macc - effective_meva
         if dmacc < 0:
             manual_hit = 0.50 + (dmacc // 2) / 100
         else:
@@ -1126,6 +1216,7 @@ def evaluate_magic_potency(
     if buff_bonuses:
         caster.int_stat += buff_bonuses.get("INT", 0)
         caster.mnd_stat += buff_bonuses.get("MND", 0)
+        caster.vit_stat += buff_bonuses.get("VIT", 0)
         caster.mab += buff_bonuses.get("magic_attack", 0)
         caster.magic_accuracy += buff_bonuses.get("magic_accuracy", 0)
         caster.magic_damage += buff_bonuses.get("magic_damage", 0)
@@ -1143,16 +1234,31 @@ def evaluate_magic_potency(
     
     skill = caster.get_skill_for_type(spell.magic_type)
     dstat_bonus = calculate_dstat_bonus(caster_stat, target_stat)
+    innate_spell_macc = spell.properties.get('innate_magic_accuracy', 0)
     total_macc = calculate_magic_accuracy(
         skill=skill,
-        magic_acc_gear=caster.magic_accuracy,
+        magic_acc_gear=caster.magic_accuracy + innate_spell_macc,
         dstat_bonus=int(dstat_bonus),
         magic_burst=False,
     )
-    hit_rate = calculate_magic_hit_rate(total_macc, target.magic_evasion)
-    
+    # Elemental resistance ranks scale the target's base MEVA via a multiplier table,
+    # so hit rate must be calculated against element-adjusted MEVA, not bare magic_evasion.
+    # Ranks ≤10% hard-floor hit rate to 5%; rank 5% forces a full resist (1/16).
+    resistance_rank = (
+        target.elemental_resistance_ranks.get(spell.element, 100)
+        if spell.element is not None else 100
+    )
+    effective_meva = target.get_elemental_meva(spell.element)
+    hit_rate = calculate_magic_hit_rate(total_macc, effective_meva)
+    from magic_formulas import FULL_RESIST_THRESHOLD, HIT_RATE_FLOOR_THRESHOLD
+    if resistance_rank <= FULL_RESIST_THRESHOLD:
+        hit_rate = 0.05
+    elif resistance_rank <= HIT_RATE_FLOOR_THRESHOLD:
+        hit_rate = min(hit_rate, 0.05)
+
     # Route to appropriate simulation based on spell type
     potency_score = 0.0
+    potency_description = ''
     sim_result = None
     
     if spell.magic_type in [MagicType.ENFEEBLING_INT, MagicType.ENFEEBLING_MND]:
@@ -1170,6 +1276,7 @@ def evaluate_magic_potency(
             potency_score = result.potency_value * 50  # Scale up flat values
         else:
             potency_score = result.potency_value * 10  # Default scaling
+        potency_description = result.potency_description
             
     elif spell.magic_type == MagicType.HEALING:
         # Healing simulation
@@ -1177,6 +1284,7 @@ def evaluate_magic_potency(
         sim_result = result
         # Score is HP healed
         potency_score = result.hp_healed
+        potency_description = f"{result.hp_healed:,} HP healed"
         
     elif spell.magic_type == MagicType.ENHANCING:
         # Enhancing simulation
@@ -1187,9 +1295,29 @@ def evaluate_magic_potency(
             # Enspells: damage per hit * expected duration contribution
             # Higher damage + longer duration = better
             potency_score = result.damage_at_cap * 100 + result.final_duration
+        elif result.potency_unit in ('HP/tick', 'MP/tick'):
+            # Regen / Refresh: the only meaningful metric is total resource returned
+            # over the buff's lifetime.  Ticks fire every 3 seconds, so:
+            #   total = potency x floor(duration / 3)
+            # Using floor keeps the score honest - a half-tick at the end doesn't count.
+            ticks = int(result.final_duration / 3)
+            potency_score = result.potency_value * ticks
+            potency_description = (
+                f"{int(result.potency_value)} {result.potency_unit} "
+                f"x {ticks} ticks ({int(result.final_duration)}s) "
+                f"= {int(potency_score)} total"
+            )
+        elif 'haste' in spell.name.lower():
+            # Haste/Haste II: potency is fixed, score purely on duration
+            potency_score = result.final_duration
+            potency_description = (
+                f"{result.potency_description} "
+                f"for {int(result.final_duration)}s"
+            )
         else:
             # Other enhancing: potency value + duration bonus
             potency_score = result.potency_value + result.final_duration * 0.5
+            potency_description = result.potency_description
             
     elif spell.magic_type == MagicType.DARK:
         # Dark magic simulation
@@ -1197,16 +1325,19 @@ def evaluate_magic_potency(
         sim_result = result
         # Score is total damage/drain amount
         potency_score = result.total_damage
+        potency_description = f"{int(result.total_damage):,}"
         
     elif spell.magic_type == MagicType.DIVINE:
         # Divine magic - use standard damage simulation for now
         result = sim.simulate_spell(spell.name, caster, target, num_casts=10)
         potency_score = result.average_damage
+        potency_description = f"{int(result.average_damage):,} avg dmg"
         
     else:
         # Default: standard damage simulation
         result = sim.simulate_spell(spell.name, caster, target, num_casts=10)
         potency_score = result.average_damage
+        potency_description = f"{int(result.average_damage):,} avg dmg"
     
     # Apply hit rate factor for spells that need to land
     # Healing and self-enhancing don't need this
@@ -1249,7 +1380,131 @@ def evaluate_magic_potency(
         print(f"    Hit rate: {hit_rate:.3f}")
         print(f"    Final score: {potency_score:.1f}")
     
-    return potency_score
+    return potency_score, potency_description
+
+
+# =============================================================================
+# ARTIFACT SET BONUS CHECK
+# =============================================================================
+
+# Reforged artifact (119+) set name prefixes, keyed by Job enum name.
+# A piece counts if its Name or Name2 starts with the prefix (case-insensitive).
+_ARTIFACT_SET_PREFIXES: Dict[str, str] = {
+    'WAR': "pummeler's",
+    'MNK': "anchorite's",
+    'WHM': "theophany",
+    'BLM': "spaekona's",
+    'RDM': "atrophy",
+    'THF': "pillager's",
+    'PLD': "reverence",
+    'DRK': "ignominy",
+    'BST': "totemic",
+    'BRD': "brioso",
+    'RNG': "orion",
+    'SAM': "wakido",
+    'NIN': "hachiya",
+    'DRG': "vishap",
+    'SMN': "convoker's",
+    'BLU': "assimilator's",
+    'COR': "laksamana's",
+    'PUP': "foire",
+    'DNC': "maxixi",
+    'SCH': "academic's",
+    'GEO': "azimuth",
+    'RUN': "runeist",
+}
+
+# Regal accessories that count toward the set total regardless of job.
+_REGAL_ITEMS: set = {"regal earring", "regal ring"}
+
+# Slots checked for armor set pieces and regal accessories.
+_ARTIFACT_ARMOR_SLOTS: Tuple = ('head', 'body', 'hands', 'legs', 'feet')
+_REGAL_ACCESSORY_SLOTS: Tuple = ('ear1', 'ear2', 'ring1', 'ring2')
+
+
+def _matches_artifact_prefix(name: str, prefix: str) -> bool:
+    """
+    Check whether an item name matches a reforged artifact set prefix.
+
+    Handles two cases:
+    1. Abbreviated name — the first word ends with a period (e.g. "atro. chapeau +2").
+       The letters before the period are extracted and the prefix is tested to see
+       whether it *starts with* those letters (e.g. "atro" → "atrophy".startswith("atro")).
+       This lets "Atro." correctly match the "atrophy" prefix without needing name_log.
+    2. Full name — the first word has no trailing period (e.g. "atrophy chapeau +2").
+       A straight startswith check is used as before.
+
+    Both ``name`` and ``prefix`` must already be lowercased by the caller.
+    """
+    if not name or not prefix:
+        return False
+
+    first_word = name.split()[0] if name.split() else name
+
+    if first_word.endswith('.'):
+        # Abbreviated: check if the full prefix begins with the abbreviated stem.
+        stem = first_word[:-1]   # strip the trailing period
+        return prefix.startswith(stem)
+    else:
+        # Full name: check if the name begins with the full prefix.
+        return name.startswith(prefix)
+
+
+def check_artifact_set_bonus(candidate: GearsetCandidate, job: Job) -> int:
+    """
+    Count equipped reforged artifact pieces (plus Regal Earring / Regal Ring)
+    and return the flat stat bonus to apply to accuracy, ranged accuracy, and
+    magic accuracy.
+
+    Rules
+    -----
+    - Only pieces whose name matches the job's reforged set prefix count as
+      artifact pieces (head/body/hands/legs/feet slots only).
+    - Name matching handles both full names ("atrophy chapeau +2") and
+      abbreviated names ("atro. chapeau +2") via _matches_artifact_prefix.
+    - Regal Earring and Regal Ring each count as one piece regardless of job
+      (checked across ear1/ear2 and ring1/ring2).
+    - Piece count is capped at 5.
+    - No bonus is applied unless at least 2 qualifying pieces are equipped.
+    - Formula: min(piece_count, 5) * 15
+        2 pieces → +30
+        3 pieces → +45
+        4 pieces → +60
+        5 pieces → +75  (cap)
+
+    Args:
+        candidate: Fully assembled gear set candidate (beam search complete).
+        job:       The player's active job (Job enum).
+
+    Returns:
+        Flat bonus to add to accuracy / ranged_accuracy / magic_accuracy,
+        or 0 if fewer than 2 qualifying pieces are equipped.
+    """
+    prefix = _ARTIFACT_SET_PREFIXES.get(job.name, '').lower()
+    piece_count = 0
+
+    # Count artifact armor pieces in the five body-armor slots.
+    for slot in _ARTIFACT_ARMOR_SLOTS:
+        item = candidate.gear.get(slot)
+        if not item:
+            continue
+        name = item.get('name_log', item.get('Name2', item.get('Name', ''))).lower()
+        if prefix and _matches_artifact_prefix(name, prefix):
+            piece_count += 1
+
+    # Count Regal accessories across both ear and ring slots.
+    for slot in _REGAL_ACCESSORY_SLOTS:
+        item = candidate.gear.get(slot)
+        if not item:
+            continue
+        name = item.get('name_log', item.get('Name2', item.get('Name', ''))).lower()
+        if name in _REGAL_ITEMS:
+            piece_count += 1
+
+    if piece_count < 2:
+        return 0
+
+    return min(piece_count, 5) * 15
 
 
 # =============================================================================
@@ -1374,6 +1629,7 @@ def run_magic_optimization(
             print(f"    Applied to MBB Trait: +{mbb_delta / 100:.0f}%")
     
     # Determine which slots to optimize
+    # ammo is already included in ARMOR_SLOTS
     slots_to_optimize = list(ARMOR_SLOTS)
     if include_weapons:
         slots_to_optimize = ['main', 'sub', 'ranged'] + slots_to_optimize
@@ -1446,31 +1702,48 @@ def run_magic_optimization(
             List of (candidate, effective_score, potency, hit_rate) tuples
         """
         eval_results = []
-        
+        print_count = 0
         for candidate in candidates:
             try:
+                # Build a per-candidate buff_bonuses dict that includes any
+                # reforged artifact set bonus (accuracy / ranged acc / magic acc).
+                _artifact_bonus = check_artifact_set_bonus(candidate, job)
+                candidate_buff_bonuses = dict(buff_bonuses) if buff_bonuses else {}
+                if _artifact_bonus > 0:
+                    # print(f"Found a combination with {_artifact_bonus}")
+                    candidate_buff_bonuses['accuracy'] = (
+                        candidate_buff_bonuses.get('accuracy', 0) + _artifact_bonus
+                    )
+                    candidate_buff_bonuses['ranged_accuracy'] = (
+                        candidate_buff_bonuses.get('ranged_accuracy', 0) + _artifact_bonus
+                    )
+                    candidate_buff_bonuses['magic_accuracy'] = (
+                        candidate_buff_bonuses.get('magic_accuracy', 0) + _artifact_bonus
+                    )
+
                 if optimization_type == MagicOptimizationType.ACCURACY:
                     # Score by hit rate only
                     hit_rate = evaluate_magic_accuracy(
                         candidate, spell, job_preset, eval_target,
                         job_gift_bonuses=job_gift_bonuses,
-                        buff_bonuses=buff_bonuses,
+                        buff_bonuses=candidate_buff_bonuses,
                     )
                     potency = 0.0
                     effective_score = hit_rate
                     
                 elif optimization_type == MagicOptimizationType.POTENCY:
                     # Score by potency × hit_rate for effective value
-                    potency = evaluate_magic_potency(
+                    potency, potency_description = evaluate_magic_potency(
                         candidate, spell, job_preset, eval_target,
                         job_gift_bonuses=job_gift_bonuses,
-                        buff_bonuses=buff_bonuses,
+                        buff_bonuses=candidate_buff_bonuses,
                     )
                     hit_rate = evaluate_magic_accuracy(
                         candidate, spell, job_preset, eval_target,
                         job_gift_bonuses=job_gift_bonuses,
-                        buff_bonuses=buff_bonuses,
+                        buff_bonuses=candidate_buff_bonuses,
                     )
+                    candidate._eval_potency_description = potency_description
                     # Effective score is expected potency per cast
                     effective_score = potency * hit_rate
                     
@@ -1483,12 +1756,12 @@ def run_magic_optimization(
                         skillchain_steps=skillchain_steps,
                         num_casts=num_sim_casts,
                         job_gift_bonuses=job_gift_bonuses,
-                        buff_bonuses=buff_bonuses,
+                        buff_bonuses=candidate_buff_bonuses,
                     )
                     hit_rate = evaluate_magic_accuracy(
                         candidate, spell, job_preset, eval_target,
                         job_gift_bonuses=job_gift_bonuses,
-                        buff_bonuses=buff_bonuses,
+                        buff_bonuses=candidate_buff_bonuses,
                     )
                     potency = damage  # For damage, "potency" is the damage value
                     effective_score = damage
@@ -1506,6 +1779,14 @@ def run_magic_optimization(
     # Check for stratification - if results are too similar, step up target difficulty
     # For Enhancing/Healing (self-cast), target doesn't affect results, so skip stepping
     is_self_cast = spell.magic_type in [MagicType.ENHANCING, MagicType.HEALING]
+
+    # Sortie bosses have specific elemental resistance profiles that are only accurate
+    # for that exact monster. Stepping up to a harder generic target would produce
+    # inaccurate rankings, so we lock these targets and never escalate difficulty.
+    initial_target_id = next(
+        (tid for tid, obj in MAGIC_TARGETS.items() if obj is target), None
+    )
+    target_is_pinned = initial_target_id is not None and initial_target_id.startswith('sortie_')
     
     if not is_self_cast:
         # Sort by score first so we check stratification among TOP candidates only
@@ -1522,39 +1803,43 @@ def run_magic_optimization(
             score_range = (score_max - score_min) / score_max if score_max > 0 else 0
             print(f"  Top {len(top_scores)} scores: min={score_min:.2f}, max={score_max:.2f}, range={score_range:.2%}")
         
-        # Keep stepping up until we get stratification among top candidates or hit max difficulty
-        while not check_stratification(top_scores):
-            next_target = get_next_target(evaluation_target)
-            if next_target is None:
-                print(f"  ⚠ Results still capped at maximum difficulty ({get_target_name(evaluation_target)})")
-                print(f"    Final score range: {score_range:.2%} - may need stat-based tiebreaker")
-                break
-            
-            old_target_name = get_target_name(evaluation_target)
-            evaluation_target = next_target
-            new_target_name = get_target_name(evaluation_target)
-            
-            print(f"  → Top sets capped against {old_target_name} (range: {score_range:.2%}), stepping up to {new_target_name}...")
-            
-            # Re-evaluate against harder target
-            results_with_details = evaluate_candidates_against_target(contenders, evaluation_target)
-            
-            # Re-sort and check top N again
-            results_with_details.sort(key=lambda x: x[1], reverse=True)
-            top_scores = [r[1] for r in results_with_details[:TOP_N_FOR_STRATIFICATION]]
-            
-            # Update range for next iteration
-            if top_scores:
-                score_min, score_max = min(top_scores), max(top_scores)
-                score_range = (score_max - score_min) / score_max if score_max > 0 else 0
-                print(f"    Top {len(top_scores)} scores: min={score_min:.2f}, max={score_max:.2f}, range={score_range:.2%}")
-        
-        # Record if we changed targets
-        if evaluation_target != target:
-            stratification_note = f"Evaluated against {get_target_name(evaluation_target)} for discrimination"
-            print(f"  ✓ {stratification_note}")
+        if target_is_pinned:
+            # Pinned target — report results as-is without stepping up difficulty
+            print(f"  ✓ Pinned target ({get_target_name(evaluation_target)}) — skipping adaptive difficulty escalation")
         else:
-            print(f"  ✓ Good stratification at {get_target_name(evaluation_target)} (range: {score_range:.2%})")
+            # Keep stepping up until we get stratification among top candidates or hit max difficulty
+            while not check_stratification(top_scores):
+                next_target = get_next_target(evaluation_target)
+                if next_target is None:
+                    print(f"  ⚠ Results still capped at maximum difficulty ({get_target_name(evaluation_target)})")
+                    print(f"    Final score range: {score_range:.2%} - may need stat-based tiebreaker")
+                    break
+                
+                old_target_name = get_target_name(evaluation_target)
+                evaluation_target = next_target
+                new_target_name = get_target_name(evaluation_target)
+                
+                print(f"  → Top sets capped against {old_target_name} (range: {score_range:.2%}), stepping up to {new_target_name}...")
+                
+                # Re-evaluate against harder target
+                results_with_details = evaluate_candidates_against_target(contenders, evaluation_target)
+                
+                # Re-sort and check top N again
+                results_with_details.sort(key=lambda x: x[1], reverse=True)
+                top_scores = [r[1] for r in results_with_details[:TOP_N_FOR_STRATIFICATION]]
+                
+                # Update range for next iteration
+                if top_scores:
+                    score_min, score_max = min(top_scores), max(top_scores)
+                    score_range = (score_max - score_min) / score_max if score_max > 0 else 0
+                    print(f"    Top {len(top_scores)} scores: min={score_min:.2f}, max={score_max:.2f}, range={score_range:.2%}")
+            
+            # Record if we changed targets
+            if evaluation_target != target:
+                stratification_note = f"Evaluated against {get_target_name(evaluation_target)} for discrimination"
+                print(f"  ✓ {stratification_note}")
+            else:
+                print(f"  ✓ Good stratification at {get_target_name(evaluation_target)} (range: {score_range:.2%})")
     
     # Sort by effective score (higher is better)
     results_with_details.sort(key=lambda x: x[1], reverse=True)
@@ -1568,9 +1853,373 @@ def run_magic_optimization(
         candidate._eval_hit_rate = hit_rate
         candidate._eval_target = evaluation_target
         candidate._stratification_note = stratification_note
+        # _eval_potency_description is set inside evaluate_candidates_against_target
+        # for POTENCY opt type; ensure it exists for all other types too
+        if not hasattr(candidate, '_eval_potency_description'):
+            candidate._eval_potency_description = ''
         results.append((candidate, effective_score))
-    
     return results
+
+
+# =============================================================================
+# GAR (GEAR ABOVE REPLACEMENT) ANALYSIS
+# =============================================================================
+
+def compute_item_gar(
+    simulated_results: List[Tuple[GearsetCandidate, float]],
+    slot: str,
+    min_appearances: int = 2,
+) -> Dict[str, float]:
+    """
+    Compute the average score delta for every item seen in a given slot.
+
+    For each item I in ``slot``:
+
+        GAR(I) = mean(score | item I in slot) - mean(score | item I NOT in slot)
+
+    This is the mean marginal contribution of the item averaged across the
+    contexts in which other items were chosen — directly analogous to WAR in
+    baseball.  Items that consistently appear in high-scoring sets receive a
+    high positive delta; items only present in mediocre sets receive a low or
+    negative delta.
+
+    Parameters
+    ----------
+    simulated_results : list of (GearsetCandidate, float)
+        Output of a run_magic_optimization* call, sorted by score.
+    slot : str
+        Slot name, e.g. 'head', 'ring1'.
+    min_appearances : int
+        Minimum number of sets the item must appear in to be ranked.
+
+    Returns
+    -------
+    dict : name2 → gar_delta (float).  Higher is better.
+    """
+    with_scores:    Dict[str, List[float]] = {}
+    without_scores: Dict[str, List[float]] = {}
+
+    set_items: List[str] = []
+    for candidate, score in simulated_results:
+        if score <= 0:
+            set_items.append('Empty')
+            continue
+        gear = candidate.gear.get(slot)
+        if gear:
+            name2 = gear.get('Name2', gear.get('Name', 'Empty'))
+        else:
+            name2 = 'Empty'
+        set_items.append(name2)
+
+    all_item_names = {n for n in set_items if n != 'Empty'}
+
+    for item_name in all_item_names:
+        with_scores[item_name]    = []
+        without_scores[item_name] = []
+
+    for (candidate, score), item_in_slot in zip(simulated_results, set_items):
+        if score <= 0:
+            continue
+        for item_name in all_item_names:
+            if item_in_slot == item_name:
+                with_scores[item_name].append(score)
+            else:
+                without_scores[item_name].append(score)
+
+    gar: Dict[str, float] = {}
+    for item_name in all_item_names:
+        w  = with_scores[item_name]
+        wo = without_scores[item_name]
+        if len(w) < min_appearances:
+            continue
+        mean_with    = sum(w)  / len(w)
+        mean_without = sum(wo) / len(wo) if wo else 0.0
+        gar[item_name] = mean_with - mean_without
+
+    return gar
+
+
+def print_magic_gar_rankings(
+    gar_by_slot: Dict[str, Dict[str, float]],
+    top_n: int = 5,
+):
+    """Pretty-print GAR rankings for every slot."""
+    from beam_search_optimizer import WSDIST_SLOTS
+
+    print("\n" + "=" * 70)
+    print("GAR RANKINGS (Gear Above Replacement — score delta)")
+    print("=" * 70)
+
+    for slot in WSDIST_SLOTS:
+        gar = gar_by_slot.get(slot)
+        if not gar:
+            continue
+        ranked = sorted(gar.items(), key=lambda x: x[1], reverse=True)
+        max_abs = max(abs(d) for _, d in ranked) or 1
+        print(f"\n  {slot}:")
+        for rank, (name, delta) in enumerate(ranked[:top_n], 1):
+            bar  = "█" * max(0, int(abs(delta) / max_abs * 20))
+            sign = "+" if delta >= 0 else ""
+            print(f"    {rank}. {name:<35s}  {sign}{delta:,.0f}  {bar}")
+
+
+# =============================================================================
+# SLOW MODE — ITERATIVE GAR REFINEMENT
+# =============================================================================
+
+def run_magic_optimization_slow(
+    inventory: Inventory,
+    job: Job,
+    spell_name: str,
+    optimization_type: MagicOptimizationType = MagicOptimizationType.DAMAGE,
+    target: Optional[MagicTargetStats] = None,
+    magic_burst: bool = True,
+    skillchain_steps: int = 2,
+    include_weapons: bool = False,
+    fixed_gear: Optional[Dict[str, Dict[str, Any]]] = None,
+    beam_width: int = 25,
+    num_sim_casts: int = 100,
+    job_gifts: Optional[JobGifts] = None,
+    buff_bonuses: Optional[Dict[str, int]] = None,
+    max_iterations: int = 3,
+    top_n_per_slot: int = 3,
+) -> List[Tuple[GearsetCandidate, float]]:
+    """
+    Iterative slow-mode magic optimizer using GAR-based pool refinement.
+
+    Each iteration:
+      1. Run two-phase beam search on the current item pools.
+      2. Evaluate all candidate sets with the magic simulation system.
+      3. For every slot, compute each item's average score delta
+         (GAR = mean score when present − mean score when absent).
+      4. Prune each slot's pool to the top ``top_n_per_slot`` items by GAR.
+      5. Repeat until the pool is stable or ``max_iterations`` is reached.
+
+    The first iteration is identical to the normal optimizer.  Subsequent
+    iterations work on a much smaller search space, so the beam search is far
+    more likely to explore globally optimal combinations.
+
+    Unlike the WS slow mode, this function never calls wsdist — evaluation is
+    handled entirely by the magic simulation system (MagicSimulator /
+    evaluate_magic_damage / evaluate_magic_accuracy / evaluate_magic_potency).
+
+    Parameters
+    ----------
+    max_iterations : int
+        Maximum number of beam-search / simulate / prune cycles.
+    top_n_per_slot : int
+        How many items to keep per slot after each GAR pass.
+        2–3 is usually sufficient; raise it if you suspect the right item
+        is being pruned (check the printed GAR rankings to verify).
+
+    All other parameters are identical to ``run_magic_optimization``.
+    """
+    from numba_beam_search_optimizer import PHASE1_SLOTS, PHASE2_SLOTS
+
+    # ── Setup ────────────────────────────────────────────────────────────────
+    # Reset debug counters
+    if hasattr(evaluate_magic_accuracy, '_debug_count'):
+        evaluate_magic_accuracy._debug_count = 0
+    if hasattr(evaluate_magic_potency, '_debug_count'):
+        evaluate_magic_potency._debug_count = 0
+
+    spell = get_spell(spell_name)
+    if spell is None:
+        raise ValueError(f"Unknown spell: {spell_name}")
+
+    base_preset = get_job_preset(job)
+    job_preset, job_gift_bonuses = apply_job_gifts_to_magic(base_preset, job_gifts)
+
+    if target is None:
+        target = MAGIC_TARGETS['apex_mob']
+
+    # Create optimization profile
+    if optimization_type == MagicOptimizationType.DAMAGE:
+        profile = create_magic_damage_profile(job, spell, magic_burst, include_weapons)
+    elif optimization_type == MagicOptimizationType.ACCURACY:
+        profile = create_magic_accuracy_profile(job, spell, include_weapons)
+    elif optimization_type == MagicOptimizationType.BURST_DAMAGE:
+        profile = create_magic_burst_profile(job, spell, include_weapons)
+    elif optimization_type == MagicOptimizationType.POTENCY:
+        profile = create_magic_potency_profile(job, spell, include_weapons)
+    else:
+        profile = create_magic_damage_profile(job, spell, magic_burst, include_weapons)
+
+    print(f"\n{'='*70}")
+    print(f"MAGIC SLOW MODE — {spell_name}")
+    print(f"{'='*70}")
+    print(f"  Job: {job.name}  |  Type: {optimization_type.value}  |  MB: {'Yes' if magic_burst else 'No'}")
+    print(f"  Max iterations: {max_iterations}  |  Top-N per slot: {top_n_per_slot}")
+
+    # ── Fixed gear / slot setup ────────────────────────────────────────────
+    if fixed_gear is None:
+        fixed_gear = {}
+
+    fixed_slots = set(fixed_gear.keys())
+    if not include_weapons:
+        fixed_slots |= {'main', 'sub', 'ranged'}
+
+    optimized_slots = [
+        s for s in (PHASE1_SLOTS + PHASE2_SLOTS)
+        if s not in fixed_slots
+    ]
+
+    # When include_weapons is True, weapon slots are searched by two_phase_search
+    # (prepended to Phase 1).  Include them in the GAR analysis list so the
+    # slow-mode pruning loop also covers weapon slot contributions.
+    if include_weapons:
+        from beam_search_optimizer import WEAPON_SLOTS
+        weapon_slots_for_gar = [s for s in WEAPON_SLOTS if s not in fixed_slots]
+        optimized_slots = weapon_slots_for_gar + optimized_slots
+
+    # ── Evaluation helper ─────────────────────────────────────────────────
+    def _evaluate_candidates(
+        candidates: List[GearsetCandidate],
+        eval_target: MagicTargetStats,
+    ) -> List[Tuple[GearsetCandidate, float]]:
+        """Evaluate candidates with the magic simulation, return (candidate, score)."""
+        scored = []
+        for candidate in candidates:
+            try:
+                # Build a per-candidate buff_bonuses dict that includes any
+                # reforged artifact set bonus (accuracy / ranged acc / magic acc).
+                _artifact_bonus = check_artifact_set_bonus(candidate, job)
+                candidate_buff_bonuses = dict(buff_bonuses) if buff_bonuses else {}
+                if _artifact_bonus > 0:
+                    candidate_buff_bonuses['accuracy'] = (
+                        candidate_buff_bonuses.get('accuracy', 0) + _artifact_bonus
+                    )
+                    candidate_buff_bonuses['ranged_accuracy'] = (
+                        candidate_buff_bonuses.get('ranged_accuracy', 0) + _artifact_bonus
+                    )
+                    candidate_buff_bonuses['magic_accuracy'] = (
+                        candidate_buff_bonuses.get('magic_accuracy', 0) + _artifact_bonus
+                    )
+
+                if optimization_type == MagicOptimizationType.ACCURACY:
+                    score = evaluate_magic_accuracy(
+                        candidate, spell, job_preset, eval_target,
+                        job_gift_bonuses=job_gift_bonuses,
+                        buff_bonuses=candidate_buff_bonuses,
+                    )
+                elif optimization_type == MagicOptimizationType.POTENCY:
+                    potency, potency_description = evaluate_magic_potency(
+                        candidate, spell, job_preset, eval_target,
+                        job_gift_bonuses=job_gift_bonuses,
+                        buff_bonuses=candidate_buff_bonuses,
+                    )
+                    hit_rate = evaluate_magic_accuracy(
+                        candidate, spell, job_preset, eval_target,
+                        job_gift_bonuses=job_gift_bonuses,
+                        buff_bonuses=candidate_buff_bonuses,
+                    )
+                    score = potency * hit_rate
+                    candidate._eval_potency  = potency
+                    candidate._eval_hit_rate = hit_rate
+                    candidate._eval_potency_description = potency_description
+                else:
+                    # DAMAGE / BURST_DAMAGE
+                    score = evaluate_magic_damage(
+                        candidate, spell, job_preset, eval_target,
+                        magic_burst=magic_burst,
+                        skillchain_steps=skillchain_steps,
+                        num_casts=num_sim_casts,
+                        job_gift_bonuses=job_gift_bonuses,
+                        buff_bonuses=candidate_buff_bonuses,
+                    )
+                    hit_rate = evaluate_magic_accuracy(
+                        candidate, spell, job_preset, eval_target,
+                        job_gift_bonuses=job_gift_bonuses,
+                        buff_bonuses=candidate_buff_bonuses,
+                    )
+                    candidate._eval_potency  = score
+                    candidate._eval_hit_rate = hit_rate
+
+                candidate._eval_target = eval_target
+                scored.append((candidate, score))
+            except Exception as e:
+                print(f"  Warning: evaluation failed — {e}")
+                scored.append((candidate, 0.0))
+        return scored
+
+    # ── Build optimizer (reused across iterations) ─────────────────────────
+    optimizer = NumbaBeamSearchOptimizer(
+        inventory=inventory,
+        profile=profile,
+        beam_width=beam_width,
+        job=job,
+        include_weapons=include_weapons,
+    )
+
+    prev_pool_signature = None
+    final_results: List[Tuple[GearsetCandidate, float]] = []
+
+    for iteration in range(max_iterations):
+        print(f"\n{'='*70}")
+        print(f"SLOW MODE — ITERATION {iteration + 1}/{max_iterations}")
+        print('='*70)
+
+        # ── Beam search ──────────────────────────────────────────────────
+        contenders = optimizer.two_phase_search(fixed_gear=fixed_gear)
+        item_pool  = optimizer.extract_item_pool(contenders=contenders)
+        print(f"\n✓ {len(contenders)} contenders from beam search")
+
+        # ── Simulate ─────────────────────────────────────────────────────
+        print(f"\n{'-'*70}")
+        print(f"Evaluating iteration {iteration + 1} with magic simulation...")
+        print(f"{'-'*70}")
+        results = _evaluate_candidates(contenders, target)
+        results.sort(key=lambda x: x[1], reverse=True)
+        final_results = results
+
+        best_score = results[0][1] if results else 0
+        print(f"\n  Best this iteration: {best_score:,.2f}")
+
+        # ── GAR analysis ─────────────────────────────────────────────────
+        # Use only the top half of results so GAR reflects competitive sets.
+        top_half = results[: max(1, len(results) // 2)]
+
+        gar_by_slot: Dict[str, Dict[str, float]] = {}
+        keep_items:  Dict[str, set]              = {}
+
+        for slot in optimized_slots:
+            gar = compute_item_gar(top_half, slot)
+            if not gar:
+                continue
+            gar_by_slot[slot] = gar
+            top_items = sorted(gar.items(), key=lambda x: x[1], reverse=True)
+            keep_items[slot] = {name for name, _ in top_items[:top_n_per_slot]}
+
+        print_magic_gar_rankings(gar_by_slot, top_n=top_n_per_slot + 2)
+
+        # ── Stability check ───────────────────────────────────────────────
+        pool_signature = frozenset(
+            (slot, frozenset(names))
+            for slot, names in keep_items.items()
+        )
+        if pool_signature == prev_pool_signature:
+            print(f"\n✓ Item pools stable after iteration {iteration + 1} — stopping early")
+            break
+        prev_pool_signature = pool_signature
+
+        # ── Prune for next iteration ──────────────────────────────────────
+        if iteration < max_iterations - 1:
+            # Merge paired-slot keep sets so neither ear/ring position loses
+            # items that are relevant to its partner slot.
+            for slot1, slot2 in [('ear1', 'ear2'), ('ring1', 'ring2')]:
+                s1_items = keep_items.get(slot1, set())
+                s2_items = keep_items.get(slot2, set())
+                if s1_items or s2_items:
+                    keep_items[slot1] = s1_items | s2_items
+
+            optimizer.prune_item_pools(keep_items)
+
+    # Attach stratification note placeholder for display compatibility
+    for candidate, _ in final_results:
+        if not hasattr(candidate, '_stratification_note'):
+            candidate._stratification_note = None
+
+    return final_results
 
 
 def display_magic_results(
@@ -1944,6 +2593,8 @@ def get_evaluation_details(candidate: GearsetCandidate) -> Dict[str, Any]:
     
     if hasattr(candidate, '_eval_potency'):
         details['potency'] = candidate._eval_potency
+    if hasattr(candidate, '_eval_potency_description'):
+        details['potency_description'] = candidate._eval_potency_description
     if hasattr(candidate, '_eval_hit_rate'):
         details['hit_rate'] = candidate._eval_hit_rate
     if hasattr(candidate, '_eval_target'):

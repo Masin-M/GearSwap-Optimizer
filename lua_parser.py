@@ -146,6 +146,33 @@ SLOT_TO_LUA = {
 
 
 # =============================================================================
+# Empyrean Earring Detection
+# =============================================================================
+
+# First word of each reforged (119+) empyrean armor set name.
+# Job-specific earrings share this naming pattern (e.g. "Ebers Earring +1",
+# "Fili Earring +1") and are right-ear only.  If the parser finds one in the
+# left-ear slot the earring pair was written in the wrong order in the Lua file
+# and we need to swap them.
+EMPYREAN_EARRING_PREFIXES: Set[str] = {
+    'boii', 'bhikku', 'ebers', 'wicce', 'lethargy',
+    "skulker's", "chevalier's", "heathen's", 'nukumi',
+    'fili', 'amini', 'kasuga', 'hattori', "peltast's",
+    "beckoner's", 'hashishin', "chasseur's", 'karagoz',
+    'maculele', 'arbatel', 'azimuth', 'erilaz',
+}
+
+
+def is_empyrean_earring(item_name: str) -> bool:
+    """Return True if the item name looks like a job-specific empyrean earring."""
+    lower = item_name.lower()
+    if 'earring' not in lower:
+        return False
+    first_word = lower.split()[0] if lower.split() else ''
+    return first_word in EMPYREAN_EARRING_PREFIXES
+
+
+# =============================================================================
 # Data Classes
 # =============================================================================
 
@@ -312,6 +339,14 @@ class LuaParser:
         
         # Parse all set definitions
         gsfile.sets = self._parse_all_sets(content)
+        
+        # Fix empyrean earring slot ordering in the raw content so that
+        # non-placeholder sets (whose text is passed through verbatim) are
+        # also corrected in the final output file.
+        fixed_content = self._fix_empyrean_ears_in_raw_content(content, gsfile.sets)
+        if fixed_content is not content:
+            gsfile.raw_content = fixed_content
+            gsfile.lines = fixed_content.splitlines(keepends=True)
         
         return gsfile
     
@@ -511,8 +546,147 @@ class LuaParser:
                 raw_text=match.group(0),
             )
         
+        self._fix_empyrean_ear_slot(items)
         return items
     
+    def _fix_empyrean_ear_slot(self, items: Dict[str, 'LuaItem']) -> None:
+        """
+        Swap ear slots if an empyrean job earring is in the wrong ear.
+
+        These earrings are right-ear only.  If one appears in ear1/left_ear
+        the Lua file had the pair reversed; swap them so downstream code
+        always finds the empyrean earring in ear2/right_ear.
+        Modifies *items* in place.
+        """
+        # Normalise to whichever key convention this set uses
+        left_key  = 'left_ear' if 'left_ear'  in items else 'ear1' if 'ear1'  in items else None
+        right_key = 'right_ear' if 'right_ear' in items else 'ear2' if 'ear2' in items else None
+
+        if left_key is None:
+            return  # No left ear entry at all — nothing to fix
+
+        left_item = items.get(left_key)
+        if left_item is None or not is_empyrean_earring(left_item.name):
+            return  # Left ear is empty or not an empyrean earring
+
+        # Empyrean earring is in the wrong slot — swap with whatever is in the right ear
+        right_item = items.get(right_key) if right_key else None
+
+        # Perform the swap (use consistent key names from whichever convention is present)
+        if right_key:
+            if right_item:
+                items[left_key]  = right_item
+                items[right_key] = left_item
+            else:
+                # Right ear slot is absent — move the earring there and clear left
+                items[right_key] = left_item
+                del items[left_key]
+        else:
+            # No right ear key at all — derive it from the left key convention
+            right_key = 'right_ear' if left_key == 'left_ear' else 'ear2'
+            items[right_key] = left_item
+            del items[left_key]
+    
+    # ------------------------------------------------------------------
+    # Pattern used by both text-level ear helpers below.
+    # Matches a GearSwap slot value — either a plain quoted string OR a
+    # table literal with up to one level of brace nesting (for augments).
+    # ------------------------------------------------------------------
+    _EAR_VALUE_RE = re.compile(
+        r'(?:"[^"]*"'                          # "Simple Name"
+        r'|\{(?:[^{}]|\{[^}]*\})*\})'          # { name="...", augments={...} }
+    )
+
+    def _swap_empyrean_ear_in_set_text(self, raw_text: str) -> str:
+        """
+        Return *raw_text* with ear slot values swapped if the left ear holds
+        an empyrean job earring.  Works purely on the text so non-placeholder
+        sets are corrected in the output file as well as in memory.
+        """
+        # Find left ear key + value
+        left_m = re.search(
+            r'(?:left_ear|ear1)\s*=\s*',
+            raw_text
+        )
+        if not left_m:
+            return raw_text
+
+        # Match the value that follows the key
+        val_start = left_m.end()
+        lv_m = self._EAR_VALUE_RE.match(raw_text, val_start)
+        if not lv_m:
+            return raw_text
+
+        left_val = lv_m.group(0)
+
+        # Extract item name from the value
+        if left_val.startswith('"'):
+            left_name = left_val[1:-1]          # strip surrounding quotes
+        else:
+            nm = re.search(r'name\s*=\s*"([^"]+)"', left_val)
+            left_name = nm.group(1) if nm else ''
+
+        if not is_empyrean_earring(left_name):
+            return raw_text                     # nothing to fix
+
+        # Find right ear key + value
+        right_m = re.search(
+            r'(?:right_ear|ear2)\s*=\s*',
+            raw_text
+        )
+        if not right_m:
+            return raw_text                     # no right ear to swap with
+
+        rv_start = right_m.end()
+        rv_m = self._EAR_VALUE_RE.match(raw_text, rv_start)
+        if not rv_m:
+            return raw_text
+
+        right_val = rv_m.group(0)
+
+        # Positions of the two values in the original text
+        l_start, l_end = lv_m.start(), lv_m.end()
+        r_start, r_end = rv_m.start(), rv_m.end()
+
+        # Swap values in place (left always appears before right in practice)
+        if l_start < r_start:
+            return (
+                raw_text[:l_start]
+                + right_val
+                + raw_text[l_end:r_start]
+                + left_val
+                + raw_text[r_end:]
+            )
+        else:
+            return (
+                raw_text[:r_start]
+                + left_val
+                + raw_text[r_end:l_start]
+                + right_val
+                + raw_text[l_end:]
+            )
+
+    def _fix_empyrean_ears_in_raw_content(
+        self,
+        content: str,
+        sets: Dict[str, 'LuaSetDefinition'],
+    ) -> str:
+        """
+        Walk every parsed set and, for any that have an empyrean earring in
+        the wrong ear, replace that set's substring in *content* with a
+        corrected version.  Also updates set_def.raw_text so the in-memory
+        representation stays consistent.
+
+        Returns the (possibly modified) content string.
+        """
+        for set_def in sets.values():
+            old_raw = set_def.raw_text
+            new_raw = self._swap_empyrean_ear_in_set_text(old_raw)
+            if new_raw != old_raw:
+                content = content.replace(old_raw, new_raw, 1)
+                set_def.raw_text = new_raw
+        return content
+
     def _check_placeholder(self, set_text: str) -> Tuple[bool, str]:
         """Check if set has a PLACEHOLDER comment."""
         match = self.PATTERN_PLACEHOLDER.search(set_text)
@@ -971,12 +1145,23 @@ def infer_profile_from_set(set_def: LuaSetDefinition,
                 exclude_slots={Slot.MAIN, Slot.SUB},
                 job=job,
             )
+        if 'refresh' in name_lower:
+            return OptimizationProfile(
+                name="Refresh (Spell Optimizer)",
+                weights={
+                    'refresh_potency': 20.0,
+                    'enhancing_duration': 1.0,
+                    'enhancing_magic_skill': 5.0,
+                },
+                exclude_slots={Slot.MAIN, Slot.SUB},
+                job=job,
+            )
         if 'enhanc' in name_lower or 'buff' in name_lower:
             return OptimizationProfile(
                 name=set_def.name,
                 weights={
                     'enhancing_magic_skill': 10.0,
-                    'enhancing_duration': 8.0,
+                    'enhancing_duration': .80,
                 },
                 exclude_slots={Slot.MAIN, Slot.SUB},
                 job=job,

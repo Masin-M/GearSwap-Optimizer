@@ -14,6 +14,7 @@ OPTIMIZED VERSION:
 
 import sys
 import os
+import traceback as _traceback
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -149,6 +150,99 @@ def strip_gear_metadata(gear_dict: Dict[str, Any]) -> Dict[str, Any]:
         A copy with underscore-prefixed keys removed
     """
     return {k: v for k, v in gear_dict.items() if not k.startswith('_')}
+
+
+def _apply_tp_bonus_slot_rules(
+    main_weapon:   Optional[Dict[str, Any]],
+    sub_weapon:    Optional[Dict[str, Any]],
+    ranged_weapon: Optional[Dict[str, Any]],
+    ammo:          Optional[Dict[str, Any]],
+    is_ranged_ws:  bool,
+) -> Tuple[
+    Optional[Dict[str, Any]],
+    Optional[Dict[str, Any]],
+    Optional[Dict[str, Any]],
+    Optional[Dict[str, Any]],
+]:
+    """
+    Enforce FFXI's TP Bonus slot rules for weapons and ammo before optimization.
+
+    TP Bonus on a weapon has two distinct sources with different applicability:
+
+    - Base / innate (white text, e.g. Heishi Shorinken, Aeonic weapons):
+        Only applies when that specific weapon is the one executing the WS.
+        Melee WS  -> only the MAIN-hand weapon's base TP Bonus counts.
+        Ranged WS -> only the RANGED-slot weapon's base TP Bonus counts.
+        SUB and AMMO slots never contribute base TP Bonus.
+
+    - Augmented (yellow text, e.g. Magian TP Bonus weapon):
+        Acts as a global buff — applies to ALL weaponskills regardless of slot.
+        Detected by the presence of a string containing "TP Bonus" in the
+        item's _augments list.
+
+    Path augments ("Path: A" in _augments) merge their stats globally via
+    to_wsdist_gear(), so path-granted TP Bonus is treated as base here
+    (no "TP Bonus" string appears in _augments for path items). This is the
+    correct conservative default — no currently-known path augment grants
+    TP Bonus.
+
+    Args:
+        main_weapon:   Main-hand weapon dict (may contain _augments).
+        sub_weapon:    Sub / off-hand weapon dict.
+        ranged_weapon: Ranged-slot weapon dict (bow / gun).
+        ammo:          Ammo-slot dict (arrow / bolt / bullet).
+        is_ranged_ws:  True for Archery / Marksmanship weaponskills.
+
+    Returns:
+        (main_weapon, sub_weapon, ranged_weapon, ammo) — originals returned
+        unchanged when no correction is needed; a shallow copy with
+        "TP Bonus" set to 0 is returned for any slot that would incorrectly
+        contribute base TP Bonus.
+    """
+
+    def _has_augmented_tp_bonus(item: Dict[str, Any]) -> bool:
+        """Return True if any augment string on this item grants TP Bonus."""
+        for aug in item.get('_augments') or []:
+            if isinstance(aug, str) and 'TP Bonus' in aug:
+                return True
+        return False
+
+    def _zero_base_tp_bonus(item: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """
+        If the item has a non-zero base TP Bonus (not from an augment),
+        return a shallow copy with TP Bonus zeroed out. Otherwise return
+        the original unchanged.
+        """
+        if item is None:
+            return None
+        if not item.get('TP Bonus'):
+            return item
+        if _has_augmented_tp_bonus(item):
+            # Augmented TP Bonus is global — leave it alone.
+            return item
+        # Base TP Bonus in an invalid slot — zero it on a copy.
+        corrected = dict(item)
+        corrected['TP Bonus'] = 0
+        name = item.get('Name2', item.get('Name', '?'))
+        print(f"  [TP Bonus] Zeroing base TP Bonus on '{name}' (invalid slot for this WS type)")
+        return corrected
+
+    if is_ranged_ws:
+        # Ranged WS: only the ranged slot carries base TP Bonus.
+        return (
+            _zero_base_tp_bonus(main_weapon),
+            _zero_base_tp_bonus(sub_weapon),
+            ranged_weapon,                     # valid slot — untouched
+            _zero_base_tp_bonus(ammo),
+        )
+    else:
+        # Melee / hybrid / magical WS: only the main slot carries base TP Bonus.
+        return (
+            main_weapon,                       # valid slot — untouched
+            _zero_base_tp_bonus(sub_weapon),
+            _zero_base_tp_bonus(ranged_weapon),
+            _zero_base_tp_bonus(ammo),
+        )
 
 
 def apply_custom_buffs_to_player(player: Any, custom_buffs: Optional[Dict[str, Any]]) -> None:
@@ -507,6 +601,30 @@ def get_offhand_from_inventory(inventory: Inventory, job: Job, main_weapon: Dict
     return offhands
 
 
+def get_ranged_weapons_from_inventory(inventory: Inventory, job: Job) -> List[Dict[str, Any]]:
+    """Get all ranged weapons (bows, guns, crossbows) from inventory that the job can equip."""
+    from models import SLOT_BITMASK
+    
+    weapons = []
+    range_mask = SLOT_BITMASK.get(Slot.RANGE, 0)
+    
+    for item in inventory.items:
+        # Check if it's equippable in range slot
+        if not (item.base.slots & range_mask):
+            continue
+        
+        # Check if job can equip
+        if not item.base.can_equip(job):
+            continue
+        
+        # Convert to wsdist format
+        wsdist_item = to_wsdist_gear(item)
+        if wsdist_item and wsdist_item.get("Type") in ("Bow", "Gun", "Crossbow"):
+            weapons.append(wsdist_item)
+    
+    return weapons
+
+
 def get_weaponskills_for_weapon(weapon: Dict[str, Any]) -> List[WeaponskillData]:
     """Get all weaponskills available for a weapon's skill type."""
     skill_type = weapon.get("Skill Type", "")
@@ -522,12 +640,24 @@ def get_weaponskills_for_weapon(weapon: Dict[str, Any]) -> List[WeaponskillData]
 # OPTIMIZATION PROFILES
 # =============================================================================
 
+RANGED_SKILL_TYPES = frozenset({"Archery", "Marksmanship"})
+
+
+def is_ranged_weaponskill(ws_data: WeaponskillData) -> bool:
+    """Return True if this WS fires from the ranged slot (Archery / Marksmanship)."""
+    return getattr(ws_data, 'skill_type', None) in RANGED_SKILL_TYPES or \
+           getattr(ws_data, 'weapon_type', None) in (WeaponType.ARCHERY, WeaponType.MARKSMANSHIP)
+
+
 def create_ws_profile_from_data(job: Job, ws_data: WeaponskillData) -> OptimizationProfile:
     """Create an optimization profile from weaponskill data."""
     
     # Get base weights from WS data
     weights = ws_data.get_stat_weights()
     print(weights)
+
+    is_ranged = is_ranged_weaponskill(ws_data)
+
     # Scale weights for our basis point system
     scaled_weights = {}
     for stat, weight in weights.items():
@@ -536,9 +666,11 @@ def create_ws_profile_from_data(job: Job, ws_data: WeaponskillData) -> Optimizat
         if stat_lower in ('str', 'dex', 'vit', 'agi', 'int', 'mnd', 'chr'):
             scaled_weights[stat.upper()] = weight
         elif stat_lower == 'attack':
-            scaled_weights['attack'] = weight
+            # Ranged WS uses Ranged Attack, not melee Attack
+            scaled_weights['ranged_attack' if is_ranged else 'attack'] = weight
         elif stat_lower == 'accuracy':
-            scaled_weights['accuracy'] = weight
+            # Ranged WS accuracy comes from Ranged Accuracy, not melee Accuracy
+            scaled_weights['ranged_accuracy' if is_ranged else 'accuracy'] = weight
         elif stat_lower == 'ws_damage':
             scaled_weights['ws_damage'] = weight * 20  # Scale for basis points
         elif stat_lower == 'double_attack':
@@ -553,6 +685,29 @@ def create_ws_profile_from_data(job: Job, ws_data: WeaponskillData) -> Optimizat
             scaled_weights['crit_damage'] = weight * 20
         elif stat_lower == 'magic_attack':
             scaled_weights['magic_attack'] = weight * 15
+        elif stat_lower == 'tp_bonus':
+            # TP Bonus is valued by how much it moves fTP at the 1000 TP tier.
+            # +N TP Bonus at 1000 TP → fires as (1000+N) TP, gaining
+            #   (ftp[1]-ftp[0]) * N/1000  extra fTP above base ftp[0].
+            # That gain as a % of base fTP = gain/ftp[0]*100, directly comparable
+            # to WSD%.  We calibrate the weight so that scoring 1 raw unit of
+            # tp_bonus equals the same score as an equivalent WSD% improvement,
+            # using the already-scaled ws_damage weight (raw_ws_damage_wt * 20).
+            #
+            # Formula: tp_bonus_weight = (ftp[1]-ftp[0]) * ws_damage_scaled / (10 * ftp[0])
+            #
+            # Example — Savage Blade (ftp 4.0→10.25→13.75), ws_damage_wt=10 (scaled 200):
+            #   (10.25-4.0) * 200 / (10 * 4.0) = 6.25*200/40 = 31.25
+            #   → Moonshade +250 scores 250*31.25 = 7812, matching ~39% WSD gain.
+            #
+            # For flat-fTP WS (ftp[1]==ftp[0]) the weight is 0: TP Bonus genuinely
+            # has no WS damage value when fTP doesn't scale with TP.
+            ws_damage_raw_wt = weights.get('ws_damage', 0.0)
+            ws_damage_scaled = ws_damage_raw_wt * 20.0
+            ftp_1k_slope = ws_data.ftp[1] - ws_data.ftp[0]
+            base_ftp = max(ws_data.ftp[0], 0.5)  # guard against zero-base WS
+            tp_bonus_weight = ftp_1k_slope * ws_damage_scaled / (10.0 * base_ftp)
+            scaled_weights['tp_bonus'] = max(tp_bonus_weight, 0.1)
         else:
             scaled_weights[stat] = weight
     
@@ -586,9 +741,21 @@ def create_tp_profile(job: Job, tp_type: TPSetType = TPSetType.PURE_TP,
     """
     
     if tp_type == TPSetType.PURE_TP:
-        # Pure TP: Maximum TP gain speed, minimal concern for other stats
+        # Pure TP: Maximum TP gain speed.
+        # DT weights are intentionally included even here: Malignance-family gear
+        # carries DT alongside strong physical stats and should win over items that
+        # only have equivalent accuracy/attack but no survivability benefit.
+        # Negative weights on magic-only stats (fast_cast, cure_potency, enhancing_duration)
+        # ensure items like Viti. Gloves or augmented-magic Amalric pieces score
+        # negative and get removed from the pool by the score > 0 filter.
+        #
+        # NOTE on store_tp scaling: store_tp is a raw integer (+1 STP = value 1),
+        # while multi-attack stats (double_attack etc.) are stored in basis points
+        # (+1% DA = value 100). Game mechanics show STP+1 ≈ DA+1% in TP/second
+        # for a dual-wield job, so store_tp weight must be ~100x the per-bp DA weight
+        # to be on the same scale. At double_attack=80.0/bp: store_tp = 80*100 = 8000.
         weights = {
-            'store_tp': 10.0,
+            'store_tp': 8000.0,
             'double_attack': 80.0,
             'triple_attack': 120.0,
             'quad_attack': 160.0,
@@ -596,13 +763,25 @@ def create_tp_profile(job: Job, tp_type: TPSetType = TPSetType.PURE_TP,
             'accuracy': 30.0,
             'attack': 1.0,
             'crit_rate': 2.0,
+            # DT: rewards survivability-focused gear (Malignance set, Nyame, etc.)
+            'damage_taken': -15.0,
+            'physical_dt': -12.0,
+            'magical_dt': -8.0,
+            # Magic-only stats: penalise items with no TP-relevant contribution.
+            # A piece with fast_cast+5% (500bp) gets -5*500 = -2500, which swamps
+            # any incidental physical-accuracy base stats it might have.
+            'fast_cast': -5.0,
+            'cure_potency': -5.0,
+            'enhancing_duration': -.30,
+            'magic_accuracy_skill': -2.0,
         }
         name = f"Pure TP ({job.name})"
         
     elif tp_type == TPSetType.HYBRID_TP:
         # Hybrid: Balance TP gain with TP phase damage
+        # store_tp scaled to match basis-point DA weight (see PURE_TP note above)
         weights = {
-            'store_tp': 8.0,
+            'store_tp': 7000.0,
             'double_attack': 70.0,
             'triple_attack': 100.0,
             'quad_attack': 140.0,
@@ -613,13 +792,23 @@ def create_tp_profile(job: Job, tp_type: TPSetType = TPSetType.PURE_TP,
             'crit_damage': 3.0,
             'STR': 0.5,
             'DEX': 0.3,
+            # DT: same rationale as PURE_TP
+            'damage_taken': -18.0,
+            'physical_dt': -14.0,
+            'magical_dt': -10.0,
+            # Magic-only penalties
+            'fast_cast': -5.0,
+            'cure_potency': -5.0,
+            'enhancing_duration': -.30,
+            'magic_accuracy_skill': -2.0,
         }
         name = f"Hybrid TP ({job.name})"
         
     elif tp_type == TPSetType.ACC_TP:
         # High Accuracy TP: For tough content where accuracy matters
+        # store_tp scaled to match basis-point DA weight (see PURE_TP note above)
         weights = {
-            'store_tp': 6.0,
+            'store_tp': 5000.0,
             'double_attack': 50.0,
             'triple_attack': 75.0,
             'quad_attack': 100.0,
@@ -634,8 +823,9 @@ def create_tp_profile(job: Job, tp_type: TPSetType = TPSetType.PURE_TP,
         
     elif tp_type == TPSetType.DT_TP:
         # DT TP: Survivability while building TP
+        # store_tp scaled to match basis-point DA weight (see PURE_TP note above)
         weights = {
-            'store_tp': 5.0,
+            'store_tp': 4000.0,
             'double_attack': 40.0,
             'triple_attack': 60.0,
             'quad_attack': 80.0,
@@ -655,9 +845,10 @@ def create_tp_profile(job: Job, tp_type: TPSetType = TPSetType.PURE_TP,
     elif tp_type == TPSetType.BALANCED_DT:
         # Balanced DT: Equal priority on offense and defense while engaged
         # For engaged.DT - not focused on STP, just balanced survivability + offense
+        # store_tp scaled to match basis-point DA weight (see PURE_TP note above)
         weights = {
             # Offensive stats - equal-ish weighting
-            'store_tp': 30.0,
+            'store_tp': 5000.0,
             'double_attack': 50.0,
             'triple_attack': 75.0,
             'quad_attack': 100.0,
@@ -677,8 +868,9 @@ def create_tp_profile(job: Job, tp_type: TPSetType = TPSetType.PURE_TP,
         
     elif tp_type == TPSetType.REFRESH_TP:
         # Refresh TP: MP sustain for mage jobs or subjob casting
+        # store_tp scaled to match basis-point DA weight (see PURE_TP note above)
         weights = {
-            'store_tp': 5.0,
+            'store_tp': 4000.0,
             'double_attack': 40.0,
             'triple_attack': 60.0,
             'quad_attack': 80.0,
@@ -694,8 +886,9 @@ def create_tp_profile(job: Job, tp_type: TPSetType = TPSetType.PURE_TP,
     
     else:
         # Default to pure TP
+        # store_tp scaled to match basis-point DA weight (see PURE_TP note above)
         weights = {
-            'store_tp': 10.0,
+            'store_tp': 8000.0,
             'double_attack': 80.0,
             'triple_attack': 120.0,
             'quad_attack': 160.0,
@@ -712,8 +905,9 @@ def create_tp_profile(job: Job, tp_type: TPSetType = TPSetType.PURE_TP,
     # Set caps
     hard_caps = {'gear_haste': 2500}  # 25% gear haste cap
     
-    # DT cap for DT sets
-    if tp_type in (TPSetType.DT_TP, TPSetType.BALANCED_DT):
+    # DT cap for any profile that has DT weights (prevents over-stacking)
+    if tp_type in (TPSetType.PURE_TP, TPSetType.HYBRID_TP,
+                   TPSetType.DT_TP, TPSetType.BALANCED_DT):
         hard_caps['damage_taken'] = -5000  # -50% DT cap
         hard_caps['physical_dt'] = -5000
         hard_caps['magical_dt'] = -5000
@@ -791,6 +985,8 @@ def simulate_ws(
         ws_type = "magic"
     elif ws_data.ws_type == WSType.HYBRID:
         ws_type = "hybrid"
+    elif is_ranged_weaponskill(ws_data):
+        ws_type = "ranged"
     else:
         ws_type = "melee"
     
@@ -937,7 +1133,8 @@ def _ws_simulation_worker(args: Tuple) -> Tuple[int, float, Any]:
         return (idx, damage, None)
         
     except Exception as e:
-        return (idx, 0.0, str(e))
+        tb = _traceback.format_exc()
+        return (idx, 0.0, f"{e}\n{tb}")
 
 
 def _tp_simulation_worker(args: Tuple) -> Tuple[int, Dict[str, float], Any]:
@@ -1016,6 +1213,8 @@ def run_ws_optimization(
     parallel: bool = True,
     max_workers: int = None,
     custom_buffs: Optional[Dict[str, Any]] = None,
+    ammo: Optional[Dict[str, Any]] = None,  # Locked ammo for ranged WSes; None = free slot (melee)
+    ranged_weapon: Optional[Dict[str, Any]] = None,  # Ranged weapon (bow/gun) for ranged WSes
 ) -> List[Tuple[Any, float]]:
     """
     Run the full WS optimization workflow.
@@ -1043,7 +1242,23 @@ def run_ws_optimization(
     print("\n" + "-" * 70)
     print("Running Beam Search...")
     print("-" * 70)
-    
+
+    # -------------------------------------------------------------------------
+    # TP BONUS SLOT RULES
+    # Apply before beam search so both scoring and simulation see correct values.
+    # Base TP Bonus (innate on the weapon) is only valid in the slot that
+    # executes the WS: main for melee, ranged for ranged WS.
+    # Augmented TP Bonus (string "TP Bonus" found in _augments) is global and
+    # is left untouched regardless of slot.
+    # -------------------------------------------------------------------------
+    main_weapon, sub_weapon, ranged_weapon, ammo = _apply_tp_bonus_slot_rules(
+        main_weapon=main_weapon,
+        sub_weapon=sub_weapon,
+        ranged_weapon=ranged_weapon,
+        ammo=ammo,
+        is_ranged_ws=is_ranged_weaponskill(ws_data),
+    )
+
     # Create optimization profile
     profile = create_ws_profile_from_data(job, ws_data)
     print(f"  Profile: {profile.name}")
@@ -1070,14 +1285,22 @@ def run_ws_optimization(
         job=job,
     )
     
-    # Set fixed weapons
+    # Lock the ranged slot whenever a ranged weapon is provided — it contributes
+    # stats even during a melee WS (e.g. COR with a gun equipped).
+    # When a ranged weapon is hard-set the ammo slot is also always locked:
+    #   - Ranged WS: lock to the specified ammo piece (arrows/bolts/bullets).
+    #   - Melee WS:  lock to the specified ammo piece, or None (= empty slot)
+    #     so the beam search cannot freely fill the slot with a stat piece.
     fixed_gear = {
         'main': main_weapon,
-        'sub': sub_weapon,
+        'sub':  sub_weapon,
     }
+    if ranged_weapon:
+        fixed_gear['ranged'] = ranged_weapon
+        fixed_gear['ammo'] = ammo  # None locks the slot to empty for melee WS
     
-    # Run beam search
-    contenders = optimizer.search(fixed_gear=fixed_gear)
+    # Run two-phase beam search
+    contenders = optimizer.two_phase_search(fixed_gear=fixed_gear)
     item_pool = optimizer.extract_item_pool(contenders=contenders)
 
     optimizer.print_item_pool(item_pool)
@@ -1112,113 +1335,804 @@ def run_ws_optimization(
     if abilities is None:
         abilities = {}
     
+    # Convert job_gifts to dict for pickling (needed by helper)
+    job_gifts_dict = None
+    if job_gifts:
+        job_gifts_dict = {
+            'job':      job_gifts.job,
+            'jp_spent': job_gifts.jp_spent,
+            'stats':    job_gifts.stats,
+        }
+
     # =========================================================================
-    # OPTIMIZED SIMULATION SECTION
+    # SIMULATION — delegated to shared helper
     # =========================================================================
-    
-    # Build pre-stripped gear cache from item_pool
-    print("  Building stripped gear cache...")
-    stripped_cache = build_stripped_gear_cache(item_pool)
-    
-    # Add fixed weapons to cache (they're not in item_pool)
-    for slot in ['main', 'sub']:
-        gear = main_weapon if slot == 'main' else sub_weapon
+    print("\n" + "-" * 70)
+    print("Simulating with wsdist...")
+    print("-" * 70)
+
+    return _simulate_ws_candidates(
+        contenders=contenders,
+        item_pool=item_pool,
+        main_weapon=main_weapon,
+        ranged_weapon=ranged_weapon,
+        sub_weapon=sub_weapon,
+        enemy_data=enemy_data,
+        ws_data=ws_data,
+        job=job,
+        sub_job=sub_job,
+        job_gifts=job_gifts,
+        job_gifts_dict=job_gifts_dict,
+        buffs=buffs,
+        abilities=abilities,
+        tp=tp,
+        master_level=master_level,
+        custom_buffs=custom_buffs,
+        parallel=parallel,
+        max_workers=max_workers,
+        ammo=ammo,
+    )
+# GAR (GEAR ABOVE REPLACEMENT) ANALYSIS
+# =============================================================================
+
+def compute_item_gar(
+    simulated_results: List[Tuple[Any, float]],
+    slot: str,
+    min_appearances: int = 2,
+) -> Dict[str, float]:
+    """
+    Compute the average score delta for every item seen in a given slot.
+
+    For each item I in ``slot``:
+
+        GAR(I) = mean(score | item I in slot) - mean(score | item I NOT in slot)
+
+    This is the mean marginal contribution of the item averaged across the
+    contexts in which other items were chosen by the beam search — directly
+    analogous to WAR in baseball.  Items that consistently appear in
+    high-scoring sets receive a high positive delta; items that are only
+    present in mediocre sets receive a low or negative delta.
+
+    Parameters
+    ----------
+    simulated_results : list of (GearsetCandidate, float)
+        Output of a run_*_optimization call, already sorted by score.
+    slot : str
+        wsdist slot name, e.g. 'head', 'ring1'.
+    min_appearances : int
+        Minimum number of sets the item must appear in to be ranked.
+        Items below this threshold are excluded (unreliable estimate).
+
+    Returns
+    -------
+    dict : name2 → gar_delta (float).  Higher is better.
+    """
+    # Collect scores split by item presence
+    with_scores:    Dict[str, List[float]] = {}   # name2 → scores when present
+    without_scores: Dict[str, List[float]] = {}   # name2 → scores when absent
+
+    # First pass: record which item each set uses
+    set_items: List[str] = []
+    for candidate, score in simulated_results:
+        if score <= 0:
+            set_items.append('Empty')
+            continue
+        gear = candidate.gear.get(slot)
         if gear:
-            name2 = gear.get('Name2', gear.get('Name', 'Unknown'))
-            stripped = {k: v for k, v in gear.items() if not k.startswith('_')}
-            stripped_cache[(slot, name2)] = stripped
-    
-    # Determine WS type string
+            name2 = gear.get('Name2', gear.get('Name', 'Empty'))
+        else:
+            name2 = 'Empty'
+        set_items.append(name2)
+
+    # Second pass: build with/without buckets for every item we've seen
+    all_item_names = {n for n in set_items if n != 'Empty'}
+
+    for item_name in all_item_names:
+        with_scores[item_name]    = []
+        without_scores[item_name] = []
+
+    for (candidate, score), item_in_slot in zip(simulated_results, set_items):
+        if score <= 0:
+            continue
+        for item_name in all_item_names:
+            if item_in_slot == item_name:
+                with_scores[item_name].append(score)
+            else:
+                without_scores[item_name].append(score)
+
+    # Compute delta for each item that clears the appearance threshold
+    gar: Dict[str, float] = {}
+    for item_name in all_item_names:
+        w = with_scores[item_name]
+        wo = without_scores[item_name]
+        if len(w) < min_appearances:
+            continue
+        mean_with    = sum(w)  / len(w)
+        mean_without = sum(wo) / len(wo) if wo else 0.0
+        gar[item_name] = mean_with - mean_without
+
+    return gar
+
+
+def print_gar_rankings(
+    gar_by_slot: Dict[str, Dict[str, float]],
+    top_n: int = 5,
+):
+    """Pretty-print GAR rankings for every slot."""
+    print("\n" + "=" * 70)
+    print("GAR RANKINGS (Gear Above Replacement — score delta)")
+    print("=" * 70)
+
+    for slot in WSDIST_SLOTS:
+        gar = gar_by_slot.get(slot)
+        if not gar:
+            continue
+        ranked = sorted(gar.items(), key=lambda x: x[1], reverse=True)
+        print(f"\n  {slot}:")
+        max_abs = max((abs(d) for _, d in ranked), default=0.0)
+        for rank, (name, delta) in enumerate(ranked[:top_n], 1):
+            bar = "█" * max(0, int(delta / max_abs * 20)) if max_abs > 0 else ""
+            sign = "+" if delta >= 0 else ""
+            print(f"    {rank}. {name:<35s}  {sign}{delta:,.0f}  {bar}")
+
+
+def _simulate_ws_candidates(
+    contenders: List[Any],
+    item_pool: Dict[str, List[Dict]],
+    main_weapon: Dict[str, Any],
+    sub_weapon: Dict[str, Any],
+    enemy_data: Dict,
+    ws_data: Any,
+    job: Any,
+    sub_job: str,
+    job_gifts: Optional[Any],
+    job_gifts_dict: Optional[Dict],
+    buffs: Dict,
+    abilities: Dict,
+    tp: int,
+    master_level: int,
+    custom_buffs: Optional[Dict],
+    parallel: bool,
+    max_workers: Optional[int],
+    ammo: Optional[Dict[str, Any]] = None,  # Locked ammo for ranged WSes; None = free slot (melee)
+    ranged_weapon: Optional[Dict[str, Any]] = None,  # Ranged weapon (bow/gun) for ranged WSes
+) -> List[Tuple[Any, float]]:
+    """
+    Shared helper: simulate a list of WS candidates and return scored pairs.
+
+    Extracted so both ``run_ws_optimization`` and ``run_ws_optimization_slow``
+    can call it without duplicating the parallel-dispatch boilerplate.
+    """
+    stripped_cache = build_stripped_gear_cache(item_pool)
+
+    # Seed the strip-cache for all fixed weapon slots.
+    if main_weapon:
+        name2    = main_weapon.get('Name2', main_weapon.get('Name', 'Unknown'))
+        stripped = {k: v for k, v in main_weapon.items() if not k.startswith('_')}
+        stripped_cache[('main', name2)] = stripped
+    if ranged_weapon:
+        name2    = ranged_weapon.get('Name2', ranged_weapon.get('Name', 'Unknown'))
+        stripped = {k: v for k, v in ranged_weapon.items() if not k.startswith('_')}
+        stripped_cache[('ranged', name2)] = stripped
+    if sub_weapon:
+        name2    = sub_weapon.get('Name2', sub_weapon.get('Name', 'Unknown'))
+        stripped = {k: v for k, v in sub_weapon.items() if not k.startswith('_')}
+        stripped_cache[('sub', name2)] = stripped
+
+    # For ranged WSes, seed the stripped cache with the locked ammo so that
+    # build_gearset_fast resolves it correctly. Melee WSes leave ammo free.
+    if ammo and is_ranged_weaponskill(ws_data):
+        name2    = ammo.get('Name2', ammo.get('Name', 'Unknown'))
+        stripped = {k: v for k, v in ammo.items() if not k.startswith('_')}
+        stripped_cache[('ammo', name2)] = stripped
+
     if ws_data.ws_type == WSType.MAGICAL:
         ws_type_str = "magic"
     elif ws_data.ws_type == WSType.HYBRID:
         ws_type_str = "hybrid"
+    elif is_ranged_weaponskill(ws_data):
+        ws_type_str = "ranged"
     else:
         ws_type_str = "melee"
-    
-    # Convert job_gifts to dict for pickling
-    job_gifts_dict = None
-    if job_gifts:
-        job_gifts_dict = {
-            'job': job_gifts.job,
-            'jp_spent': job_gifts.jp_spent,
-            'stats': job_gifts.stats,
-        }
-    
-    # Build all gearsets upfront using cache
+
+    # ── Diagnostic: log what we're about to simulate ─────────────────────────
+    print(f"\n[DEBUG] _simulate_ws_candidates diagnostics:")
+    print(f"  ws_name     = {ws_data.name}")
+    print(f"  ws_type_str = {ws_type_str}")
+    print(f"  candidates  = {len(contenders)}")
+    print(f"  main_weapon = {main_weapon.get('Name2', main_weapon.get('Name', 'None')) if main_weapon else 'None'}")
+    print(f"  sub_weapon  = {sub_weapon.get('Name2', sub_weapon.get('Name', 'None')) if sub_weapon else 'None'}")
+    print(f"  ammo        = {ammo.get('Name2', ammo.get('Name', 'None')) if ammo else 'None'}")
+    print(f"  tp          = {tp}")
+    print(f"  job         = {job.name.lower()}, sub_job = {sub_job}")
+    print(f"  master_lvl  = {master_level}")
+    # Log first candidate's gear slot keys and weapon/ammo presence
+    if contenders:
+        first_gear = contenders[0].gear
+        print(f"  [first candidate gear slots]: {sorted(first_gear.keys())}")
+        for chk in ('main', 'ranged', 'sub', 'ammo'):
+            item = first_gear.get(chk)
+            name = item.get('Name2', item.get('Name', 'Empty')) if item else 'MISSING'
+            print(f"    [{chk}] = {name}")
+
     print(f"  Building {len(contenders)} gearsets...")
-    gearsets = []
-    for candidate in contenders:
-        gearset = build_gearset_fast(candidate.gear, stripped_cache, Empty.copy(), WSDIST_SLOTS)
-        gearsets.append(gearset)
-    
+    gearsets = [
+        build_gearset_fast(c.gear, stripped_cache, Empty.copy(), WSDIST_SLOTS)
+        for c in contenders
+    ]
+
+    # Defensive: ensure the ranged weapon is present in every gearset.
+    # For melee WSes the beam search locks the ranged slot, but if it was
+    # missing from a candidate (e.g. slow-mode didn't lock the slot) then
+    # build_gearset_fast would silently insert an empty dict.
+    # wsdist needs the actual ranged weapon to account for its stat contributions.
+    if ranged_weapon:
+        rw_name2    = ranged_weapon.get('Name2', ranged_weapon.get('Name', 'Unknown'))
+        rw_stripped = stripped_cache.get(('ranged', rw_name2)) or {
+            k: v for k, v in ranged_weapon.items() if not k.startswith('_')
+        }
+        _injected = 0
+        for gs in gearsets:
+            existing = gs.get('ranged', {})
+            if not existing or not existing.get('Name2') or existing.get('Name2') == 'Empty':
+                gs['ranged'] = rw_stripped
+                _injected += 1
+        if _injected:
+            print(f"  [ranged] Injected locked ranged weapon into {_injected} gearsets (was missing/empty)")
+
+    # Log first gearset's weapon/ammo slots after build to confirm resolution
+    if gearsets:
+        for chk in ('main', 'ranged', 'sub', 'ammo'):
+            slot_data = gearsets[0].get(chk, {})
+            name = slot_data.get('Name2', slot_data.get('Name', 'Empty'))
+            print(f"  [gearset[0] {chk}] = {name}")
+
     if parallel and PARALLEL_AVAILABLE and len(contenders) > 1:
-        # PARALLEL SIMULATION
         if max_workers is None:
             max_workers = max(1, multiprocessing.cpu_count() - 4)
-        
         print(f"  Simulating {len(contenders)} sets with {max_workers} workers...")
-        
+
         work_items = [
             (idx, gearsets[idx], enemy_data, ws_data.name, ws_type_str,
-             tp, buffs, abilities, job.name.lower(), sub_job.lower(), 
+             tp, buffs, abilities, job.name.lower(), sub_job.lower(),
              job_gifts_dict, master_level, custom_buffs)
             for idx in range(len(contenders))
         ]
-        
-        results = [None] * len(contenders)
-        errors = []
-        
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(_ws_simulation_worker, args): args[0] for args in work_items}
-            
-            completed = 0
+        raw = [None] * len(contenders)
+        errors: List[str] = []
+
+        # Use 'spawn' context to avoid fork-safety crashes with Numba/LLVM.
+        # Forking a process that has Numba's JIT compiler or LLVM thread pools
+        # already initialised causes memory corruption (free(): invalid pointer)
+        # in child processes, especially on the first run of a new code path
+        # (e.g. ranged WS) that hasn't been JIT-compiled in the parent yet.
+        # 'spawn' starts a fresh interpreter per worker, sidestepping this entirely.
+        _spawn_ctx = multiprocessing.get_context('spawn')
+        with ProcessPoolExecutor(max_workers=max_workers, mp_context=_spawn_ctx) as executor:
+            futures = {executor.submit(_ws_simulation_worker, a): a[0] for a in work_items}
             for future in as_completed(futures):
-                idx, damage, error = future.result()
-                if error:
-                    errors.append(f"Contender #{idx+1}: {error}")
-                    results[idx] = (contenders[idx], 0.0)
+                idx, damage, err = future.result()
+                if err:
+                    errors.append(f"#{idx+1}: {err}")
+                    raw[idx] = (contenders[idx], 0.0)
                 else:
-                    results[idx] = (contenders[idx], damage)
-                
-                completed += 1
-                # if completed % 5 == 0 or completed == len(contenders):
-                #     print(f"    Completed {completed}/{len(contenders)}")
-        
-        for err in errors:
-            print(f"  Error: {err}")
-    
+                    raw[idx] = (contenders[idx], damage)
+
+        for e in errors:
+            print(f"  [WORKER ERROR] {e}")
+        results = raw
+
     else:
-        # SEQUENTIAL SIMULATION (fallback)
         print(f"  Simulating {len(contenders)} sets sequentially...")
         results = []
         enemy = create_enemy(enemy_data)
-        
         for i, candidate in enumerate(contenders):
             try:
                 damage, _ = simulate_ws(
-                    gearset=gearsets[i],
-                    enemy=enemy,
-                    ws_name=ws_data.name,
-                    ws_data=ws_data,
-                    tp=tp,
-                    buffs=buffs,
-                    abilities=abilities,
-                    main_job=job.name.lower(),
-                    sub_job=sub_job.lower(),
-                    job_gifts=job_gifts,
-                    master_level=master_level,
+                    gearset=gearsets[i], enemy=enemy,
+                    ws_name=ws_data.name, ws_data=ws_data,
+                    tp=tp, buffs=buffs, abilities=abilities,
+                    main_job=job.name.lower(), sub_job=sub_job.lower(),
+                    job_gifts=job_gifts, master_level=master_level,
                     custom_buffs=custom_buffs,
                 )
                 results.append((candidate, damage))
             except Exception as e:
-                print(f"  Error simulating contender #{i+1}: {e}")
+                tb = _traceback.format_exc()
+                print(f"  [SIM ERROR #{i+1}] {e}\n{tb}")
                 results.append((candidate, 0.0))
-    
-    # Sort by damage
+
     results.sort(key=lambda x: x[1], reverse=True)
-    
     return results
+
+
+def _simulate_tp_candidates(
+    contenders: List[Any],
+    item_pool: Dict[str, List[Dict]],
+    main_weapon: Dict[str, Any],
+    sub_weapon: Dict[str, Any],
+    enemy_data: Dict,
+    job: Any,
+    sub_job: str,
+    job_gifts: Optional[Any],
+    job_gifts_dict: Optional[Dict],
+    buffs: Dict,
+    abilities: Dict,
+    master_level: int,
+    custom_buffs: Optional[Dict],
+    parallel: bool,
+    max_workers: Optional[int],
+    ranged_weapon: Optional[Dict[str, Any]] = None,
+) -> List[Tuple[Any, Dict]]:
+    """Shared helper: simulate a list of TP candidates and return scored pairs."""
+    stripped_cache = build_stripped_gear_cache(item_pool)
+    for slot_name, gear in (('main', main_weapon), ('sub', sub_weapon), ('ranged', ranged_weapon)):
+        if gear:
+            name2    = gear.get('Name2', gear.get('Name', 'Unknown'))
+            stripped = {k: v for k, v in gear.items() if not k.startswith('_')}
+            stripped_cache[(slot_name, name2)] = stripped
+
+    print(f"  Building {len(contenders)} gearsets...")
+    gearsets = [
+        build_gearset_fast(c.gear, stripped_cache, Empty.copy(), WSDIST_SLOTS)
+        for c in contenders
+    ]
+
+    if parallel and PARALLEL_AVAILABLE and len(contenders) > 1:
+        if max_workers is None:
+            max_workers = max(1, multiprocessing.cpu_count() - 4)
+        print(f"  Simulating {len(contenders)} sets with {max_workers} workers...")
+
+        work_items = [
+            (idx, gearsets[idx], enemy_data, job.name.lower(), sub_job.lower(),
+             1000, buffs, abilities, job_gifts_dict, master_level, custom_buffs)
+            for idx in range(len(contenders))
+        ]
+        raw = [None] * len(contenders)
+        errors: List[str] = []
+
+        # Use 'spawn' context — same fork-safety rationale as _simulate_ws_candidates.
+        _spawn_ctx = multiprocessing.get_context('spawn')
+        with ProcessPoolExecutor(max_workers=max_workers, mp_context=_spawn_ctx) as executor:
+            futures = {executor.submit(_tp_simulation_worker, a): a[0] for a in work_items}
+            for future in as_completed(futures):
+                idx, metrics, err = future.result()
+                if err:
+                    errors.append(f"#{idx+1}: {err}")
+                    raw[idx] = (contenders[idx], {})
+                else:
+                    raw[idx] = (contenders[idx], metrics)
+
+        for e in errors:
+            print(f"  Error: {e}")
+        results = raw
+
+    else:
+        print(f"  Simulating {len(contenders)} sets sequentially...")
+        results = []
+        enemy = create_enemy(enemy_data)
+        for i, candidate in enumerate(contenders):
+            try:
+                metrics = simulate_tp_set(
+                    gearset=gearsets[i], enemy=enemy,
+                    main_job=job.name.lower(), sub_job=sub_job.lower(),
+                    buffs=buffs, abilities=abilities,
+                    job_gifts=job_gifts, master_level=master_level,
+                    custom_buffs=custom_buffs,
+                )
+                results.append((candidate, metrics))
+            except Exception as e:
+                print(f"  Error #{i+1}: {e}")
+                results.append((candidate, {}))
+
+    # Sort by time_to_ws ascending (lower is better)
+    results.sort(key=lambda x: x[1].get('time_to_ws', float('inf')))
+    return results
+
+
+# =============================================================================
+# SLOW MODE — ITERATIVE GAR REFINEMENT
+# =============================================================================
+
+def run_ws_optimization_slow(
+    inventory,
+    job: Job,
+    main_weapon: Dict[str, Any],
+    sub_weapon: Dict[str, Any],
+    ws_data: Any,
+    beam_width: int = 25,
+    job_gifts=None,
+    buffs: Optional[Dict] = None,
+    abilities: Optional[Dict] = None,
+    target_data: Optional[Dict] = None,
+    tp: int = 2000,
+    master_level: int = 50,
+    sub_job: str = "war",
+    parallel: bool = True,
+    max_workers: Optional[int] = None,
+    custom_buffs: Optional[Dict[str, Any]] = None,
+    max_iterations: int = 3,
+    top_n_per_slot: int = 3,
+    ammo: Optional[Dict[str, Any]] = None,  # Locked ammo for ranged WSes; None = free slot (melee)
+    ranged_weapon: Optional[Dict[str, Any]] = None,  # Ranged weapon (bow/gun) for ranged WSes
+) -> List[Tuple[Any, float]]:
+    """
+    Iterative slow-mode WS optimizer using GAR-based pool refinement.
+
+    Each iteration:
+      1. Run two-phase beam search on the current item pools.
+      2. Simulate all candidate sets with wsdist → true scores.
+      3. For every slot, compute each item's average score delta
+         (GAR = mean score when present − mean score when absent).
+      4. Prune each slot's pool to the top ``top_n_per_slot`` items by GAR.
+      5. Repeat until the pool is stable or ``max_iterations`` is reached.
+
+    The first iteration is identical to the normal optimizer.  Subsequent
+    iterations work on a dramatically smaller search space, so the beam
+    search is much more likely to explore the globally optimal combinations
+    rather than being forced to guess across a large accessory space.
+
+    Parameters
+    ----------
+    max_iterations : int
+        Maximum number of beam-search/simulate/prune cycles.
+    top_n_per_slot : int
+        How many items to keep per slot after each GAR pass.
+        2-3 is usually sufficient; raise it if you suspect the right item
+        is being pruned (check the printed GAR rankings to verify).
+    """
+    if buffs     is None: buffs     = {}
+    if abilities is None: abilities = {}
+
+    # -------------------------------------------------------------------------
+    # TP BONUS SLOT RULES
+    # Apply before beam search so both scoring and simulation see correct values.
+    # Base TP Bonus (innate on the weapon) is only valid in the slot that
+    # executes the WS: main for melee, ranged for ranged WS.
+    # Augmented TP Bonus (string "TP Bonus" found in _augments) is global and
+    # is left untouched regardless of slot.
+    # -------------------------------------------------------------------------
+    main_weapon, sub_weapon, ranged_weapon, ammo = _apply_tp_bonus_slot_rules(
+        main_weapon=main_weapon,
+        sub_weapon=sub_weapon,
+        ranged_weapon=ranged_weapon,
+        ammo=ammo,
+        is_ranged_ws=is_ranged_weaponskill(ws_data),
+    )
+
+    profile = create_ws_profile_from_data(job, ws_data)
+
+    # Enemy setup (shared across all iterations)
+    if target_data:
+        enemy_data = target_data.copy()
+        if "Base Defense" not in enemy_data:
+            enemy_data["Base Defense"] = enemy_data.get("Defense", 1550)
+    else:
+        enemy_data = preset_enemies.get("Apex Toad", {
+            "Name": "Apex Toad", "Level": 135,
+            "Defense": 1550, "Evasion": 1350,
+            "VIT": 350, "AGI": 300,
+        }).copy()
+        enemy_data["Base Defense"] = enemy_data.get("Defense", 1550)
+
+    job_gifts_dict = None
+    if job_gifts:
+        job_gifts_dict = {
+            'job':      job_gifts.job,
+            'jp_spent': job_gifts.jp_spent,
+            'stats':    job_gifts.stats,
+        }
+
+    fixed_gear = {'main': main_weapon, 'sub': sub_weapon}
+
+    # For ranged WSes the weapon fires from the 'ranged' slot, not 'main'.
+    # For melee WSes, a ranged weapon (e.g. COR's gun) is still locked because
+    # it contributes stats; ammo is left free so the beam search can pick the
+    # best piece.
+    if is_ranged_weaponskill(ws_data):
+        fixed_gear = {
+            'main':   main_weapon,    # melee weapon (e.g. Naegling) — stat contributor
+            'ranged': ranged_weapon,  # bow/gun — provides Ranged DMG/Delay/SkillType
+            'sub':    sub_weapon,
+        }
+        if ammo:
+            fixed_gear['ammo'] = ammo
+    elif ranged_weapon:
+        # Melee WS with a ranged weapon equipped (e.g. COR) — lock the slot so
+        # the beam search preserves its stats and candidates carry it through to
+        # wsdist simulation. Also lock ammo so the optimizer cannot freely fill
+        # the slot with a stat piece.
+        fixed_gear['ranged'] = ranged_weapon
+        fixed_gear['ammo'] = ammo  # None locks the slot to empty
+
+    # Build the optimizer once — we'll prune its internal pools each iteration
+    optimizer = NumbaBeamSearchOptimizer(
+        inventory=inventory,
+        profile=profile,
+        beam_width=beam_width,
+        job=job,
+    )
+
+    prev_pool_signature = None
+    final_results: List[Tuple[Any, float]] = []
+
+    for iteration in range(max_iterations):
+        print(f"\n{'='*70}")
+        print(f"SLOW MODE — ITERATION {iteration + 1}/{max_iterations}")
+        print('='*70)
+
+        # ── Beam search ──────────────────────────────────────────────────────
+        contenders   = optimizer.two_phase_search(fixed_gear=fixed_gear)
+        item_pool    = optimizer.extract_item_pool(contenders=contenders)
+        print(f"\n✓ {len(contenders)} contenders from beam search")
+
+        if not WSDIST_AVAILABLE:
+            print("⚠ wsdist not available — returning beam search results")
+            return [(c, c.score) for c in contenders]
+
+        # ── Simulate ─────────────────────────────────────────────────────────
+        print("\n" + "-" * 70)
+        print(f"Simulating iteration {iteration + 1}...")
+        print("-" * 70)
+        results = _simulate_ws_candidates(
+            contenders=contenders,
+            item_pool=item_pool,
+            main_weapon=main_weapon,
+            sub_weapon=sub_weapon,
+            enemy_data=enemy_data,
+            ws_data=ws_data,
+            job=job,
+            sub_job=sub_job,
+            job_gifts=job_gifts,
+            job_gifts_dict=job_gifts_dict,
+            buffs=buffs,
+            abilities=abilities,
+            tp=tp,
+            master_level=master_level,
+            custom_buffs=custom_buffs,
+            parallel=parallel,
+            max_workers=max_workers,
+            ammo=ammo,
+            ranged_weapon=ranged_weapon,
+        )
+        final_results = results
+
+        best_score = results[0][1] if results else 0
+        print(f"\n  Best this iteration: {best_score:,.0f}")
+
+        # ── GAR analysis ─────────────────────────────────────────────────────
+        # Use only the top half of results to anchor GAR on competitive sets,
+        # not the long tail of weak candidates.
+        top_half = results[: max(1, len(results) // 2)]
+
+        gar_by_slot: Dict[str, Dict[str, float]] = {}
+        keep_items:  Dict[str, set] = {}
+
+        # Slots that are fixed (weapons) should never be pruned
+        fixed_slots = set(fixed_gear.keys())
+
+        from numba_beam_search_optimizer import PHASE1_SLOTS, PHASE2_SLOTS
+        optimized_slots = [
+            s for s in (PHASE1_SLOTS + PHASE2_SLOTS)
+            if s not in fixed_slots
+        ]
+
+        for slot in optimized_slots:
+            gar = compute_item_gar(top_half, slot)
+            if not gar:
+                continue
+            gar_by_slot[slot] = gar
+            top_items = sorted(gar.items(), key=lambda x: x[1], reverse=True)
+            keep_items[slot] = {name for name, _ in top_items[:top_n_per_slot]}
+
+        print_gar_rankings(gar_by_slot, top_n=top_n_per_slot + 2)
+
+        # ── Stability check ───────────────────────────────────────────────────
+        pool_signature = frozenset(
+            (slot, frozenset(names))
+            for slot, names in keep_items.items()
+        )
+        if pool_signature == prev_pool_signature:
+            print(f"\n✓ Item pools stable after iteration {iteration + 1} — stopping early")
+            break
+        prev_pool_signature = pool_signature
+
+        # ── Prune for next iteration ──────────────────────────────────────────
+        if iteration < max_iterations - 1:
+            # Paired slots (ear1/ear2, ring1/ring2) share a single item pool in
+            # the optimizer. prune_item_pools skips ear2/ring2 and mirrors ear1/
+            # ring1's pool onto the partner. If we naively pass each slot's
+            # individual GAR top-N, the second slot's best items get silently
+            # dropped. Fix: merge both slots' keep sets into the *first* slot key
+            # so the shared pool retains items that matter for either position.
+            for slot1, slot2 in [('ear1', 'ear2'), ('ring1', 'ring2')]:
+                s1_items = keep_items.get(slot1, set())
+                s2_items = keep_items.get(slot2, set())
+                if s1_items or s2_items:
+                    keep_items[slot1] = s1_items | s2_items
+                # slot2 entry is ignored by prune_item_pools; leave it for
+                # pool_signature stability tracking only.
+
+            optimizer.prune_item_pools(keep_items)
+
+    return final_results
+
+
+def run_tp_optimization_slow(
+    inventory,
+    job: Job,
+    main_weapon: Dict[str, Any],
+    sub_weapon: Dict[str, Any],
+    tp_type: 'TPSetType' = None,
+    beam_width: int = 25,
+    job_gifts=None,
+    buffs: Optional[Dict] = None,
+    abilities: Optional[Dict] = None,
+    target_data: Optional[Dict] = None,
+    master_level: int = 50,
+    sub_job: str = "war",
+    parallel: bool = True,
+    max_workers: Optional[int] = None,
+    custom_buffs: Optional[Dict[str, Any]] = None,
+    max_iterations: int = 3,
+    top_n_per_slot: int = 3,
+    ranged_weapon: Optional[Dict[str, Any]] = None,
+    ammo: Optional[Dict[str, Any]] = None,
+) -> List[Tuple[Any, Dict]]:
+    """
+    Iterative slow-mode TP optimizer using GAR-based pool refinement.
+
+    Mirrors ``run_ws_optimization_slow`` but scores sets by ``time_to_ws``
+    (lower is better).  GAR for TP is computed as:
+
+        GAR(I) = mean(time_to_ws | I absent) − mean(time_to_ws | I present)
+
+    So a positive delta still means "this item is good" — it reduces time.
+
+    Parameters
+    ----------
+    max_iterations : int
+        Maximum beam-search/simulate/prune cycles.
+    top_n_per_slot : int
+        Items to keep per slot after each GAR pass.
+    """
+    if tp_type is None:
+        tp_type = TPSetType.PURE_TP
+    if buffs     is None: buffs     = {}
+    if abilities is None: abilities = {}
+
+    is_dual_wield = (sub_weapon.get("Type") == "Weapon" and
+                     sub_weapon.get("Name") != "Empty")
+    profile = create_tp_profile(job, tp_type, is_dual_wield)
+
+    if target_data:
+        enemy_data = target_data.copy()
+        if "Base Defense" not in enemy_data:
+            enemy_data["Base Defense"] = enemy_data.get("Defense", 1550)
+    else:
+        enemy_data = preset_enemies.get("Apex Toad", {
+            "Name": "Apex Toad", "Level": 135,
+            "Defense": 1550, "Evasion": 1350,
+            "VIT": 350, "AGI": 300,
+        }).copy()
+        enemy_data["Base Defense"] = enemy_data.get("Defense", 1550)
+
+    job_gifts_dict = None
+    if job_gifts:
+        job_gifts_dict = {
+            'job':      job_gifts.job,
+            'jp_spent': job_gifts.jp_spent,
+            'stats':    job_gifts.stats,
+        }
+
+    fixed_gear = {'main': main_weapon, 'sub': sub_weapon}
+
+    # Lock ranged/ammo slots when a ranged weapon is provided so the beam search
+    # cannot overwrite them. Delay is always sourced from melee weapon(s) only.
+    if ranged_weapon:
+        fixed_gear['ranged'] = ranged_weapon
+        fixed_gear['ammo'] = ammo  # None locks the slot to empty
+
+    optimizer = NumbaBeamSearchOptimizer(
+        inventory=inventory,
+        profile=profile,
+        beam_width=beam_width,
+        job=job,
+    )
+
+    prev_pool_signature = None
+    final_results: List[Tuple[Any, Dict]] = []
+
+    for iteration in range(max_iterations):
+        print(f"\n{'='*70}")
+        print(f"SLOW MODE (TP) — ITERATION {iteration + 1}/{max_iterations}")
+        print('='*70)
+
+        contenders = optimizer.two_phase_search(fixed_gear=fixed_gear)
+        item_pool  = optimizer.extract_item_pool(contenders=contenders)
+        print(f"\n✓ {len(contenders)} contenders from beam search")
+
+        if not WSDIST_AVAILABLE:
+            return [(c, {'time_to_ws': 0, 'tp_per_round': 0, 'dps': 0, 'score': c.score})
+                    for c in contenders]
+
+        print("\n" + "-" * 70)
+        print(f"Simulating iteration {iteration + 1}...")
+        print("-" * 70)
+        results = _simulate_tp_candidates(
+            contenders=contenders,
+            item_pool=item_pool,
+            main_weapon=main_weapon,
+            sub_weapon=sub_weapon,
+            ranged_weapon=ranged_weapon,
+            enemy_data=enemy_data,
+            job=job,
+            sub_job=sub_job,
+            job_gifts=job_gifts,
+            job_gifts_dict=job_gifts_dict,
+            buffs=buffs,
+            abilities=abilities,
+            master_level=master_level,
+            custom_buffs=custom_buffs,
+            parallel=parallel,
+            max_workers=max_workers,
+        )
+        final_results = results
+
+        best_time = results[0][1].get('time_to_ws', 0) if results else 0
+        print(f"\n  Best time_to_ws this iteration: {best_time:.2f}s")
+
+        # For TP, GAR = reduction in time_to_ws when item is present.
+        # Convert to pseudo-scores so compute_item_gar works unchanged:
+        # score = -time_to_ws  (lower time → higher pseudo-score = better GAR).
+        tp_pseudo = [
+            (candidate, -metrics.get('time_to_ws', 0))
+            for candidate, metrics in results
+            if metrics
+        ]
+        top_half = tp_pseudo[: max(1, len(tp_pseudo) // 2)]
+
+        gar_by_slot: Dict[str, Dict[str, float]] = {}
+        keep_items:  Dict[str, set] = {}
+        fixed_slots = set(fixed_gear.keys())
+
+        from numba_beam_search_optimizer import PHASE1_SLOTS, PHASE2_SLOTS
+        optimized_slots = [
+            s for s in (PHASE1_SLOTS + PHASE2_SLOTS)
+            if s not in fixed_slots
+        ]
+
+        for slot in optimized_slots:
+            gar = compute_item_gar(top_half, slot)
+            if not gar:
+                continue
+            gar_by_slot[slot] = gar
+            top_items = sorted(gar.items(), key=lambda x: x[1], reverse=True)
+            keep_items[slot] = {name for name, _ in top_items[:top_n_per_slot]}
+
+        print_gar_rankings(gar_by_slot, top_n=top_n_per_slot + 2)
+
+        pool_signature = frozenset(
+            (slot, frozenset(names))
+            for slot, names in keep_items.items()
+        )
+        if pool_signature == prev_pool_signature:
+            print(f"\n✓ Item pools stable after iteration {iteration + 1} — stopping early")
+            break
+        prev_pool_signature = pool_signature
+
+        if iteration < max_iterations - 1:
+            # Same paired-slot union fix as run_ws_optimization_slow — see
+            # comment there for full explanation.
+            for slot1, slot2 in [('ear1', 'ear2'), ('ring1', 'ring2')]:
+                s1_items = keep_items.get(slot1, set())
+                s2_items = keep_items.get(slot2, set())
+                if s1_items or s2_items:
+                    keep_items[slot1] = s1_items | s2_items
+
+            optimizer.prune_item_pools(keep_items)
+
+    return final_results
 
 
 def display_results(results: List[Tuple[Any, float]], ws_name: str):
@@ -1261,6 +2175,8 @@ def run_tp_optimization(
     parallel: bool = True,
     max_workers: int = None,
     custom_buffs: Optional[Dict[str, Any]] = None,
+    ranged_weapon: Optional[Dict[str, Any]] = None,
+    ammo: Optional[Dict[str, Any]] = None,
 ) -> List[Tuple[Any, Dict]]:
     """
     Run the full TP optimization workflow.
@@ -1280,6 +2196,8 @@ def run_tp_optimization(
         parallel: Enable parallel simulation (default True)
         max_workers: Max parallel workers (default: CPU count - 1)
         custom_buffs: Optional custom buff stats to apply to player
+        ranged_weapon: Ranged weapon to lock (stats only; delay never used for TP)
+        ammo: Ammo piece to lock alongside ranged weapon (None = empty slot)
     
     Returns:
         List of (candidate, metrics_dict) tuples sorted by time_to_ws.
@@ -1319,30 +2237,38 @@ def run_tp_optimization(
         job=job,
     )
     
-    # Set fixed weapons
+    # Lock main and sub for melee TP calculations.
+    # If a ranged weapon is provided, lock that slot too so the beam search
+    # cannot overwrite it with a stat piece — the ranged weapon contributes
+    # its stats to every set (e.g. COR with a gun). Its delay is NEVER used
+    # here; TP gain is always calculated from the melee weapon(s) only.
+    # Locking ammo alongside the ranged weapon follows the same rule as WS.
     fixed_gear = {
         'main': main_weapon,
-        'sub': sub_weapon,
+        'sub':  sub_weapon,
     }
-    
-    # Run beam search
-    contenders = optimizer.search(fixed_gear=fixed_gear)
+    if ranged_weapon:
+        fixed_gear['ranged'] = ranged_weapon
+        fixed_gear['ammo'] = ammo  # None locks the slot to empty
+
+    # Run two-phase beam search
+    contenders = optimizer.two_phase_search(fixed_gear=fixed_gear)
     item_pool = optimizer.extract_item_pool(contenders=contenders)
 
     optimizer.print_item_pool(item_pool)
     print(f"\n✓ Found {len(contenders)} contender sets")
-    
+
     if not WSDIST_AVAILABLE:
         print("\n⚠ wsdist not available - showing beam search results only")
-        return [(c, {'time_to_ws': 0, 'tp_per_round': 0, 'dps': 0, 'score': c.score}) 
+        return [(c, {'time_to_ws': 0, 'tp_per_round': 0, 'dps': 0, 'score': c.score})
                 for c in contenders]
-    
+
     # Simulate with wsdist
     print("\n" + "-" * 70)
     print("Simulating with wsdist...")
     print("-" * 70)
-    
-    # Set up enemy from target_data or use default
+
+    # Set up enemy
     if target_data:
         enemy_data = target_data.copy()
         if "Base Defense" not in enemy_data:
@@ -1354,113 +2280,42 @@ def run_tp_optimization(
             "VIT": 350, "AGI": 300,
         }).copy()
         enemy_data["Base Defense"] = enemy_data.get("Defense", 1550)
-    
-    # Use provided buffs or empty dict (no default buffs to get accurate baseline)
-    if buffs is None:
-        buffs = {}
-    
-    if abilities is None:
-        abilities = {}
-    
-    # =========================================================================
-    # OPTIMIZED SIMULATION SECTION
-    # =========================================================================
-    
-    # Build pre-stripped gear cache from item_pool
-    print("  Building stripped gear cache...")
-    stripped_cache = build_stripped_gear_cache(item_pool)
-    
-    # Add fixed weapons to cache
-    for slot in ['main', 'sub']:
-        gear = main_weapon if slot == 'main' else sub_weapon
-        if gear:
-            name2 = gear.get('Name2', gear.get('Name', 'Unknown'))
-            stripped = {k: v for k, v in gear.items() if not k.startswith('_')}
-            stripped_cache[(slot, name2)] = stripped
-    
-    # Convert job_gifts to dict for pickling
+
+    if buffs     is None: buffs     = {}
+    if abilities is None: abilities = {}
+
     job_gifts_dict = None
     if job_gifts:
         job_gifts_dict = {
-            'job': job_gifts.job,
+            'job':      job_gifts.job,
             'jp_spent': job_gifts.jp_spent,
-            'stats': job_gifts.stats,
+            'stats':    job_gifts.stats,
         }
-    
-    # Build all gearsets upfront using cache
-    print(f"  Building {len(contenders)} gearsets...")
-    gearsets = []
-    for candidate in contenders:
-        gearset = build_gearset_fast(candidate.gear, stripped_cache, Empty.copy(), WSDIST_SLOTS)
-        gearsets.append(gearset)
-    
-    if parallel and PARALLEL_AVAILABLE and len(contenders) > 1:
-        # PARALLEL SIMULATION
-        if max_workers is None:
-            max_workers = max(1, multiprocessing.cpu_count() - 4)
-        
-        print(f"  Simulating {len(contenders)} sets with {max_workers} workers...")
-        
-        work_items = [
-            (idx, gearsets[idx], enemy_data, job.name.lower(), sub_job.lower(),
-             1000, buffs, abilities, job_gifts_dict, master_level, custom_buffs)
-            for idx in range(len(contenders))
-        ]
-        
-        results = [None] * len(contenders)
-        errors = []
-        
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(_tp_simulation_worker, args): args[0] for args in work_items}
-            
-            completed = 0
-            for future in as_completed(futures):
-                idx, metrics, error = future.result()
-                if error:
-                    errors.append(f"Contender #{idx+1}: {error}")
-                    metrics = {'time_to_ws': float('inf'), 'tp_per_round': 0, 
-                               'dps': 0, 'damage_per_round': 0, 'time_per_round': 0}
-                
-                metrics['score'] = contenders[idx].score
-                results[idx] = (contenders[idx], metrics)
-                
-                completed += 1
-                # if completed % 5 == 0 or completed == len(contenders):
-                #     print(f"    Completed {completed}/{len(contenders)}")
-        
-        for err in errors:
-            print(f"  Error: {err}")
-    
-    else:
-        # SEQUENTIAL SIMULATION (fallback)
-        print(f"  Simulating {len(contenders)} sets sequentially...")
-        results = []
-        enemy = create_enemy(enemy_data)
-        
-        for i, candidate in enumerate(contenders):
-            try:
-                metrics = simulate_tp_set(
-                    gearset=gearsets[i],
-                    enemy=enemy,
-                    main_job=job.name.lower(),
-                    sub_job=sub_job.lower(),
-                    ws_threshold=1000,
-                    buffs=buffs,
-                    abilities=abilities,
-                    job_gifts=job_gifts,
-                    master_level=master_level,
-                    custom_buffs=custom_buffs,
-                )
-                metrics['score'] = candidate.score
-                results.append((candidate, metrics))
-            except Exception as e:
-                print(f"  Error simulating contender #{i+1}: {e}")
-                results.append((candidate, {'time_to_ws': float('inf'), 'tp_per_round': 0, 
-                                            'dps': 0, 'score': candidate.score}))
-    
-    # Sort by time_to_ws (lower is better)
-    results.sort(key=lambda x: x[1]['time_to_ws'])
-    
+
+    results = _simulate_tp_candidates(
+        contenders=contenders,
+        item_pool=item_pool,
+        main_weapon=main_weapon,
+        sub_weapon=sub_weapon,
+        ranged_weapon=ranged_weapon,
+        enemy_data=enemy_data,
+        job=job,
+        sub_job=sub_job,
+        job_gifts=job_gifts,
+        job_gifts_dict=job_gifts_dict,
+        buffs=buffs,
+        abilities=abilities,
+        master_level=master_level,
+        custom_buffs=custom_buffs,
+        parallel=parallel,
+        max_workers=max_workers,
+    )
+
+    # Attach beam score for display
+    for candidate, metrics in results:
+        if isinstance(metrics, dict):
+            metrics.setdefault('score', candidate.score)
+
     return results
 
 

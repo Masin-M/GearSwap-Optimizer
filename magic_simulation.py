@@ -28,6 +28,8 @@ try:
         roll_resist_state, get_resist_state_average, calculate_base_damage,
         calculate_mb_multiplier, calculate_mbb_multiplier,
         calculate_mab_mdb_ratio, calculate_mtdr,
+        calculate_elemental_meva, get_elemental_meva_multiplier,
+        FORCED_HALF_RESIST_THRESHOLD, FULL_RESIST_THRESHOLD, HIT_RATE_FLOOR_THRESHOLD,
         # Enfeebling formulas
         calculate_slow_potency, calculate_paralyze_potency, calculate_blind_potency,
         # Dark magic formulas
@@ -51,6 +53,8 @@ except ImportError:
         roll_resist_state, get_resist_state_average, calculate_base_damage,
         calculate_mb_multiplier, calculate_mbb_multiplier,
         calculate_mab_mdb_ratio, calculate_mtdr,
+        calculate_elemental_meva, get_elemental_meva_multiplier,
+        FORCED_HALF_RESIST_THRESHOLD, FULL_RESIST_THRESHOLD, HIT_RATE_FLOOR_THRESHOLD,
         # Enfeebling formulas
         calculate_slow_potency, calculate_paralyze_potency, calculate_blind_potency,
         # Dark magic formulas
@@ -80,6 +84,7 @@ class CasterStats:
     # Primary stats
     int_stat: int = 300
     mnd_stat: int = 250
+    vit_stat: int = 0               # VIT — used by Cure/Curaga healing formula
     
     # Magic offense
     mab: int = 200                    # Magic Attack Bonus
@@ -112,10 +117,21 @@ class CasterStats:
     cure_potency: int = 0             # Cure potency bonus (caps at 5000)
     enfeebling_effect: int = 0        # Enfeebling effect bonus
     enhancing_duration: int = 0       # Enhancing duration bonus
+    enfeebling_duration: int = 0
     
     # Enspell damage bonuses (RDM)
     sword_enhancement_flat: int = 0   # "Sword enhancement spell damage +N"
     sword_enhancement_percent: int = 0 # "Sword enhancement spell dmg. +N%"
+    
+    # Regen/Refresh spell stats
+    # These affect SPELLS you cast, not passive gear regen/refresh ticks
+    regen_potency: int = 0            # Flat HP/tick added to Regen spells (e.g. Bookworm's Cape)
+    refresh_potency: int = 0          # Flat MP/tick added to Refresh spells (rare)
+    regen_effect_duration: int = 0    # Flat seconds added to Regen duration (e.g. Telchine aug)
+    refresh_effect_duration: int = 0  # Flat seconds added to Refresh duration
+    enhancing_duration_augment: int = 0  # Augmented enhancing duration +% (basis points)
+                                         # Applies as a SEPARATE multiplicative step from
+                                         # non-augmented enhancing_duration gear (per BG-Wiki)
     
     def get_skill_for_type(self, magic_type: MagicType) -> int:
         """Get the appropriate magic skill for spell type."""
@@ -152,8 +168,26 @@ class MagicTargetStats:
     magic_defense_bonus: int = 0      # MDB (can be negative with debuffs)
     magic_damage_taken: int = 0       # MDT reduction (basis points, negative = less damage)
     
-    # Elemental resistance
+    # Elemental resistance from gear/buffs (players): each point = +1 elemental MEVA.
+    # e.g., Barfire gives +elemental resist to Fire → adds to Fire MEVA.
     element_resist: Dict[Element, int] = field(default_factory=dict)
+    
+    # Elemental resistance ranks (monsters/summons): percentage values like 100, 85, 50, 5.
+    # These multiply base_meva for the matching element and trigger special resist behaviours
+    # at rank <= 50% (forced 1/2), rank <= 10% (5% hit rate floor), rank 5% (1/16 forced).
+    # Defaults to 100 (neutral) for any element not specified.
+    # Reference: https://www.bg-wiki.com/ffxi/Resist#Elemental_Resistance_Ranks
+    #
+    # NOTE ON ABSORB ELEMENTS: Absorbed elements have rank 150% in the game engine
+    # (lowest possible MEVA — spells "land" easily, but the mob is healed instead of damaged).
+    # Absorbed elements are stored in `absorbs_elements` below. Their rank is set to 150
+    # in elemental_resistance_ranks so the MEVA calculation is mechanically correct.
+    # The optimizer checks `absorbs_elements` and never recommends casting those elements.
+    elemental_resistance_ranks: Dict[Element, int] = field(default_factory=dict)
+    
+    # Elements this target absorbs (healed instead of damaged).
+    # The optimizer treats these as forbidden — never recommend casting absorbed elements.
+    absorbs_elements: set = field(default_factory=set)
     
     def get_stat_for_type(self, magic_type: MagicType) -> int:
         """Get the relevant stat for comparison."""
@@ -162,13 +196,101 @@ class MagicTargetStats:
             return self.int_stat
         else:
             return self.mnd_stat
+    
+    def get_elemental_meva(self, element: Optional['Element'], base_meva: Optional[int] = None) -> int:
+        """
+        Calculate effective magic evasion for a specific element.
+
+        Combines the resistance rank MEVA multiplier (for monsters) with any
+        gear-based elemental resistance (for players).  If element is None (no
+        element), returns base_meva unchanged.
+
+        Args:
+            element: Spell element (None for non-elemental spells).
+            base_meva: Override for base MEVA; uses self.magic_evasion if not given.
+
+        Returns:
+            Effective elemental MEVA.
+        """
+        from magic_formulas import calculate_elemental_meva
+        if base_meva is None:
+            base_meva = self.magic_evasion
+        if element is None:
+            return base_meva
+        rank = self.elemental_resistance_ranks.get(element, 100)
+        gear = self.element_resist.get(element, 0)
+        return calculate_elemental_meva(base_meva, rank, gear)
 
 
 # =============================================================================
 # Predefined Targets (similar to physical simulation)
 # =============================================================================
 
-MAGIC_TARGETS = {
+# =============================================================================
+# Notes on elemental_resistance_ranks data sources:
+#
+# All Sortie boss resistance tables sourced from bg-wiki.com bestiary panels
+# (verified March 2026).  Values are resistance RANKS — lower % = harder to hit.
+# 100% = neutral, 85/70% = mild-moderate resist, 50% = forced ½ resist wall,
+# 5% = near-immune (1/16 forced resist), A = Absorbs (heals the mob).
+#
+# *** Absorb handling: the simulation does not model mob-heal-on-absorb. ***
+# Absorbed elements are coded as rank 5 (near-immune) to prevent the optimizer
+# from ever recommending them.  A code comment "# ABSORBS" marks each such cell.
+#
+# Generic difficulty tiers (apex_mob, odyssey_nm, etc.) represent abstract
+# endgame archetypes drawn from mixed monster populations. No single family's
+# resistance profile dominates, so all elements default to rank 100% (neutral).
+#
+# Sortie bosses — confirmed from bg-wiki bestiary panels (March 2026):
+#
+#   Ghatjot (A) / Dhartok (E)
+#               — Plovid family (Amorph).
+#                 Fire/Wind/Thunder/Light 70%, Ice 50%, Earth 85%,
+#                 Water ABSORBS (rank 150 — lowest MEVA, but heals mob),
+#                 Dark 5%.
+#
+#   Leshonn (B) / Gartell (F)
+#               — Macuil family (Elemental).
+#                 Wind ABSORBS, Thunder ABSORBS (rank 150 each).
+#                 Fire/Light/Water/Dark 5% (hard resist always).
+#                 Ice/Earth mode-dependent: 70% when that element is the
+#                 active weakness (opposite hand), 5% otherwise.
+#                 Static profile below uses the baseline (non-weakness) state.
+#
+#   Skomora (C) / Triboulex (G)
+#               — Defiant family (Undead). NOT Corse.
+#                 Fire 60%, Wind 50%, Thunder 60%, Light 70%,
+#                 Ice 30%, Earth 40%, Water 50%, Dark ABSORBS (rank 150).
+#
+#   Degei (D) / Aita (H)
+#               — Humanoid/Tartarian family. NOT Fomor.
+#                 Light/Dark always 5%.  All other elements 5% baseline,
+#                 rising to 70% when that element is the current weakness
+#                 (set by last TP move used; changes each move).
+#                 Static profile below uses the baseline (all-5%) state.
+#
+# Absorbed elements use rank 150 (mechanically correct per BG-wiki — absorb
+# means lowest MEVA, i.e. spell "lands" easily but heals mob).
+# The optimizer checks `absorbs_elements` to block these from recommendations.
+#
+# Floor bosses (A-D, 2000 gal): MEVA 1100 / MDB 40.
+# Basement bosses (E-H, 10000 gal): MEVA 1300 / MDB 50.
+# =============================================================================
+
+MAGIC_TARGETS: Dict[str, MagicTargetStats] = {
+    # ------------------------------------------------------------------
+    # Generic difficulty tiers — no family-specific resistance profile.
+    # All elements neutral (rank 100%) — resistance ranks left as default.
+    # ------------------------------------------------------------------
+    'training_dummy': MagicTargetStats(
+        int_stat=100, mnd_stat=100,
+        magic_evasion=300, magic_defense_bonus=0,
+    ),
+    'ambuscade_vd': MagicTargetStats(
+        int_stat=220, mnd_stat=220,
+        magic_evasion=650, magic_defense_bonus=25,
+    ),
     'apex_mob': MagicTargetStats(
         int_stat=200, mnd_stat=200,
         magic_evasion=600, magic_defense_bonus=30,
@@ -177,34 +299,201 @@ MAGIC_TARGETS = {
         int_stat=250, mnd_stat=250,
         magic_evasion=750, magic_defense_bonus=50,
     ),
-    'sortie_boss': MagicTargetStats(
-        int_stat=280, mnd_stat=280,
-        magic_evasion=800, magic_defense_bonus=40,
-    ),
-    'ambuscade_vd': MagicTargetStats(
-        int_stat=220, mnd_stat=220,
-        magic_evasion=650, magic_defense_bonus=25,
-    ),
-    'training_dummy': MagicTargetStats(
-        int_stat=100, mnd_stat=100,
-        magic_evasion=300, magic_defense_bonus=0,
-    ),
     'high_resist': MagicTargetStats(
         int_stat=300, mnd_stat=300,
         magic_evasion=900, magic_defense_bonus=60,
     ),
-    # New high-difficulty targets for realistic endgame testing
-    'odyssey_v25': MagicTargetStats(
-        int_stat=350, mnd_stat=350,
-        magic_evasion=1200, magic_defense_bonus=80,
+    'odyssey_v15': MagicTargetStats(
+        int_stat=290, mnd_stat=290,
+        magic_evasion=1000, magic_defense_bonus=60,
     ),
     'odyssey_v20': MagicTargetStats(
         int_stat=320, mnd_stat=320,
         magic_evasion=1100, magic_defense_bonus=70,
     ),
-    'odyssey_v15': MagicTargetStats(
-        int_stat=290, mnd_stat=290,
-        magic_evasion=1000, magic_defense_bonus=60,
+    'odyssey_v25': MagicTargetStats(
+        int_stat=350, mnd_stat=350,
+        magic_evasion=1200, magic_defense_bonus=80,
+    ),
+
+    # ------------------------------------------------------------------
+    # Sortie bosses — correct NMs per sector.
+    # Floor bosses (A–D, 2000 gil) use MEVA 1100 / MDB 40.
+    # Basement bosses (E–H, 10000 gil) use MEVA 1300 / MDB 50.
+    #
+    # All resistance ranks verified from bg-wiki.com (March 2026).
+    # See block comment at top of file for absorption/mode-change notes.
+    # ------------------------------------------------------------------
+
+    # --- Floor Bosses (Sectors A–D, 2000 gallimaufry) ---
+
+    # Ghatjot — Sector A boss, Plovid family (Amorph).
+    # Source: bg-wiki.com/ffxi/Ghatjot (confirmed from user-supplied wiki panel).
+    # Water ABSORBS: rank 150 (lowest MEVA — spell lands but heals mob).
+    # Optimizer never recommends Water or Darkness SCs via absorbs_elements.
+    'sortie_ghatjot': MagicTargetStats(
+        int_stat=260, mnd_stat=260,
+        magic_evasion=1100, magic_defense_bonus=40,
+        absorbs_elements={Element.WATER},
+        elemental_resistance_ranks={
+            Element.FIRE:    70,
+            Element.WIND:    70,
+            Element.THUNDER: 70,
+            Element.LIGHT:   70,
+            Element.ICE:     50,
+            Element.EARTH:   85,
+            Element.WATER:  150,  # ABSORBS — heals mob; optimizer blocks this element
+            Element.DARK:     5,
+        },
+    ),
+
+    # Leshonn — Sector B boss, Macuil family (Elemental).
+    # Source: bg-wiki.com/ffxi/Leshonn (March 2026).
+    # Wind and Thunder ABSORB always: rank 150 (heals mob).
+    # Ice/Earth are mode-dependent: 70% when that element is the active weakness, else 5%.
+    # Static profile reflects the baseline (non-weakness) state — worst-case nuke resistance.
+    # Light/Dark always 5% (hard resist — do not cast).
+    'sortie_leshonn': MagicTargetStats(
+        int_stat=260, mnd_stat=260,
+        magic_evasion=1100, magic_defense_bonus=40,
+        absorbs_elements={Element.WIND, Element.THUNDER},
+        elemental_resistance_ranks={
+            Element.FIRE:     5,
+            Element.WIND:   150,   # ABSORBS — heals mob; optimizer blocks this element
+            Element.THUNDER:150,   # ABSORBS — heals mob; optimizer blocks this element
+            Element.LIGHT:    5,
+            Element.ICE:     70,   # 70% when Wind-hands weakness active, else 5%
+            Element.EARTH:   70,   # 70% when Thunder-hands weakness active, else 5%
+            Element.WATER:    5,
+            Element.DARK:     5,
+        },
+    ),
+
+    # Skomora — Sector C boss, Defiant family (Undead). NOT Corse family.
+    # Source: bg-wiki.com/ffxi/Skomora (March 2026).
+    # Dark ABSORBS: rank 150 (heals mob). Do not cast Dark or Darkness SCs.
+    # Wind and Ice ≤50%: guaranteed resist wall active.
+    'sortie_skomora': MagicTargetStats(
+        int_stat=260, mnd_stat=260,
+        magic_evasion=1100, magic_defense_bonus=40,
+        absorbs_elements={Element.DARK},
+        elemental_resistance_ranks={
+            Element.FIRE:    60,
+            Element.WIND:    50,
+            Element.THUNDER: 60,
+            Element.LIGHT:   70,
+            Element.ICE:     30,
+            Element.EARTH:   40,
+            Element.WATER:   50,
+            Element.DARK:   150,  # ABSORBS — heals mob; optimizer blocks this element
+        },
+    ),
+
+    # Degei — Sector D boss, Humanoid family. NOT Fomor.
+    # Source: bg-wiki.com/ffxi/Degei (March 2026).
+    # Light/Dark always 5%.  All other elements are mode-dependent:
+    # 5% baseline → 70% when that element is the current weakness.
+    # Weakness rotates with each TP move used (Fire→Water→Thunder→Earth→Wind→
+    # Ice→Fire cycle per ability chain).  Static profile uses all-5% baseline.
+    'sortie_degei': MagicTargetStats(
+        int_stat=260, mnd_stat=260,
+        magic_evasion=1100, magic_defense_bonus=40,
+        elemental_resistance_ranks={
+            Element.FIRE:     5,   # 70% when current weakness
+            Element.WIND:     5,   # 70% when current weakness
+            Element.THUNDER:  5,   # 70% when current weakness
+            Element.LIGHT:    5,
+            Element.ICE:      5,   # 70% when current weakness
+            Element.EARTH:    5,   # 70% when current weakness
+            Element.WATER:    5,   # 70% when current weakness
+            Element.DARK:     5,
+        },
+    ),
+
+    # --- Basement Bosses (Sectors E–H, 10000 gallimaufry) ---
+
+    # Dhartok — Sector E boss, Plovid family (Amorph). Powered-up Ghatjot.
+    # Source: bg-wiki.com/ffxi/Dhartok (March 2026). Identical ranks to Ghatjot.
+    # Water ABSORBS: rank 150 (heals mob). Optimizer blocks Water and Darkness SCs.
+    'sortie_dhartok': MagicTargetStats(
+        int_stat=363, mnd_stat=338,
+        magic_evasion=1300, magic_defense_bonus=50,
+        absorbs_elements={Element.WATER},
+        elemental_resistance_ranks={
+            Element.FIRE:    70,
+            Element.WIND:    70,
+            Element.THUNDER: 70,
+            Element.LIGHT:   70,
+            Element.ICE:     50,
+            Element.EARTH:   85,
+            Element.WATER:  150,  # ABSORBS — heals mob; optimizer blocks this element
+            Element.DARK:     5,
+        },
+    ),
+
+    # Gartell — Sector F boss, Macuil family (Elemental). Powered-up Leshonn.
+    # Source: bg-wiki.com/ffxi/Gartell (March 2026). Same family/mechanics as Leshonn.
+    # Wind and Thunder ABSORB always: rank 150 (heals mob).
+    # Ice/Earth mode-dependent (70% active weakness, 5% otherwise).
+    'sortie_gartell': MagicTargetStats(
+        int_stat=300, mnd_stat=300,
+        magic_evasion=1300, magic_defense_bonus=50,
+        absorbs_elements={Element.WIND, Element.THUNDER},
+        elemental_resistance_ranks={
+            Element.FIRE:     5,
+            Element.WIND:   150,   # ABSORBS — heals mob; optimizer blocks this element
+            Element.THUNDER:150,   # ABSORBS — heals mob; optimizer blocks this element
+            Element.LIGHT:    5,
+            Element.ICE:     70,   # 70% when Wind-hands weakness active, else 5%
+            Element.EARTH:   70,   # 70% when Thunder-hands weakness active, else 5%
+            Element.WATER:    5,
+            Element.DARK:     5,
+        },
+    ),
+
+    # Triboulex — Sector G boss, Defiant family (Undead). NOT Fomor.
+    # Source: bg-wiki.com/ffxi/Triboulex (March 2026). Identical ranks to Skomora.
+    # Dark ABSORBS: rank 150 (heals mob). Do not cast Dark or Darkness SCs.
+    'sortie_triboulex': MagicTargetStats(
+        int_stat=300, mnd_stat=300,
+        magic_evasion=1300, magic_defense_bonus=50,
+        absorbs_elements={Element.DARK},
+        elemental_resistance_ranks={
+            Element.FIRE:    60,
+            Element.WIND:    50,
+            Element.THUNDER: 60,
+            Element.LIGHT:   70,
+            Element.ICE:     30,
+            Element.EARTH:   40,
+            Element.WATER:   50,
+            Element.DARK:   150,  # ABSORBS — heals mob; optimizer blocks this element
+        },
+    ),
+
+    # Aita — Sector H boss, Tartarian family. NOT Fomor.
+    # Source: ffxiclopedia (March 2026) + mechanical match to Degei.
+    # "Takes 95% less damage from all elemental types except current weakness."
+    # Current weakness = 70%; all others = 5%.  Light/Dark always 5%.
+    # Static profile uses all-5% baseline (worst-case nuke scenario).
+    'sortie_aita': MagicTargetStats(
+        int_stat=300, mnd_stat=300,
+        magic_evasion=1300, magic_defense_bonus=50,
+        elemental_resistance_ranks={
+            Element.FIRE:     5,   # 70% when current weakness
+            Element.WIND:     5,   # 70% when current weakness
+            Element.THUNDER:  5,   # 70% when current weakness
+            Element.LIGHT:    5,
+            Element.ICE:      5,   # 70% when current weakness
+            Element.EARTH:    5,   # 70% when current weakness
+            Element.WATER:    5,   # 70% when current weakness
+            Element.DARK:     5,
+        },
+    ),
+
+    # Legacy alias — no resistance profile, kept for backward compatibility.
+    'sortie_boss': MagicTargetStats(
+        int_stat=280, mnd_stat=280,
+        magic_evasion=850, magic_defense_bonus=45,
     ),
 }
 
@@ -403,14 +692,37 @@ class MagicSimulator:
             magic_burst=magic_burst,
         )
         
-        # Calculate hit rate
-        hit_rate = calculate_magic_hit_rate(total_macc, target.magic_evasion)
-        
-        # Roll for resist (or force unresisted)
+        # Elemental resistance rank for this spell's element.
+        # Resistance ranks raise effective MEVA for a matched element, making the
+        # spell harder to land AND forcing resist state tiers on a hit.
+        spell_element = spell.element  # May be None for non-elemental spells
+        resistance_rank = (
+            target.elemental_resistance_ranks.get(spell_element, 100)
+            if spell_element is not None else 100
+        )
+
+        # Calculate effective MEVA for this element (rank multiplier + gear resist).
+        # For non-elemental spells, this returns the base magic_evasion unchanged.
+        effective_meva = target.get_elemental_meva(spell_element)
+
+        # Calculate hit rate against the element-adjusted MEVA.
+        hit_rate = calculate_magic_hit_rate(total_macc, effective_meva)
+
+        # Apply rank-based hit rate overrides:
+        #   rank <= 5%  (ABSORBS / near-immune): treated as 5% for display; roll_resist_state
+        #               will return SIXTEENTH regardless of hit rate.
+        #   rank <= 10%: hard 5% hit rate floor (even a capped caster can only land 5%).
+        if resistance_rank <= FULL_RESIST_THRESHOLD:
+            hit_rate = 0.05  # Near-immune; roll_resist_state will force SIXTEENTH
+        elif resistance_rank <= HIT_RATE_FLOOR_THRESHOLD:
+            hit_rate = min(hit_rate, 0.05)
+
+        # Roll for resist state using the resistance rank (this IS where rank matters).
+        # force_unresisted bypasses the roll for breakdown/display purposes.
         if force_unresisted:
             resist_state = ResistState.UNRESISTED
         else:
-            resist_state = roll_resist_state(hit_rate)
+            resist_state = roll_resist_state(hit_rate, resistance_rank)
         
         # Calculate base damage D
         dint = caster_stat - target_stat
@@ -626,6 +938,8 @@ class MagicSimulator:
             )
             # Add enfeebling effect bonus (approximate: each point = +0.1% potency)
             potency_value = potency_value + caster.enfeebling_effect * 10
+            # if caster.enfeebling_effect > 0:
+            #     print(caster.enfeebling_effect)
             potency_unit = 'basis points'
             potency_description = f"{potency_value/100:.1f}% Slow"
             
@@ -689,7 +1003,7 @@ class MagicSimulator:
         
         # Calculate duration
         base_duration = spell.properties.get('base_duration', 120.0)
-        duration_bonus = caster.enhancing_duration / 10000  # Convert basis points
+        duration_bonus = caster.enfeebling_duration / 10000  # Convert basis points
         # Note: Enfeebling duration is separate stat, but uses same logic
         enhanced_duration = base_duration * (1 + duration_bonus)
         
@@ -749,7 +1063,7 @@ class MagicSimulator:
             hp_healed = calculate_cure_amount(
                 spell_tier=tier,
                 caster_mnd=caster.mnd_stat,
-                caster_vit=0,  # VIT contribution is minimal
+                caster_vit=caster.vit_stat,
                 healing_skill=caster.healing_magic_skill,
                 cure_potency=caster.cure_potency,
             )
@@ -874,14 +1188,21 @@ class MagicSimulator:
             
         elif 'refresh' in spell_lower:
             tier = 3 if 'iii' in spell_lower else (2 if 'ii' in spell_lower else 1)
-            potency_value = calculate_refresh_potency(skill, tier, composure_active=composure_active)
+            potency_value = calculate_refresh_potency(
+                skill, tier,
+                refresh_potency_gear=caster.refresh_potency,
+                composure_active=composure_active,
+            )
             potency_unit = 'MP/tick'
             potency_description = f"{int(potency_value)} MP/tick"
             base_duration = 150.0  # 2.5 minutes
             
         elif 'regen' in spell_lower:
             tier = min(5, max(1, spell.tier))
-            potency_value = calculate_regen_potency(skill, tier)
+            potency_value = calculate_regen_potency(
+                skill, tier,
+                regen_potency_flat=caster.regen_potency,
+            )
             potency_unit = 'HP/tick'
             potency_description = f"{int(potency_value)} HP/tick"
             base_duration = 60.0 + tier * 15  # Scales with tier
@@ -906,11 +1227,26 @@ class MagicSimulator:
             potency_unit = 'skill'
             potency_description = f"Skill {skill}"
         
-        # Calculate final duration
+        # Calculate final duration.
+        # Spell-specific flat duration bonuses (regen/refresh effect dur.) are additive seconds
+        # that stack on top of the percentage-based enhancing duration gear.
+        # Augmented duration gear (Telchine etc.) applies as its own separate multiplier.
+        if 'regen' in spell_lower:
+            spell_duration_flat = caster.regen_effect_duration
+        elif 'refresh' in spell_lower:
+            spell_duration_flat = caster.refresh_effect_duration
+        else:
+            spell_duration_flat = 0
+
+        # if caster.enhancing_duration > 0:
+        #     print(caster.enhancing_duration)
+        
         final_duration = calculate_enhancing_duration(
             base_duration=base_duration,
             enhancing_skill=skill,
             duration_gear=caster.enhancing_duration,
+            duration_gear_augment=caster.enhancing_duration_augment,
+            spell_duration_flat=spell_duration_flat,
             composure_active=composure_active,
             perpetuance_active=perpetuance_active,
         )

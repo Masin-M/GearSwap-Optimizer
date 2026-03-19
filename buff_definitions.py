@@ -1139,6 +1139,14 @@ MAGIC_TARGETS = {
         "magic_evasion": 1200,
         "magic_defense_bonus": 80,
     },
+    "basement_dweller": {
+        "name": "Sortie Basement",
+        "level": 150,
+        "int_stat": 425,
+        "mnd_stat": 425,
+        "magic_evasion": 1425,
+        "magic_defense_bonus": 80,
+    },
     "high_resist": {
         "name": "High Resist Target",
         "level": 150,

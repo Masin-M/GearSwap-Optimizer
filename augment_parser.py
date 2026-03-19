@@ -231,17 +231,23 @@ STAT_LOOKUP = {
     'Fast Cast': ('fast_cast', 100),
     'FC': ('fast_cast', 100),
     
+    'Spell interruption rate down': ('spell_interruption_rate_down', 1),
+    '\\"Spell interruption rate down\\"': ('spell_interruption_rate_down', 1),
+    '"Spell interruption rate down"': ('spell_interruption_rate_down', 1),
+    'Spell Interruption Rate Down': ('spell_interruption_rate_down', 1),
+    
     '\\"Magic Burst Bonus\\"': ('magic_burst_bonus', 100),
     '"Magic Burst Bonus"': ('magic_burst_bonus', 100),
     'Magic burst dmg.': ('magic_burst_bonus', 100),
     'MB': ('magic_burst_bonus', 100),
     
-    '\\"Cure potency\\"': ('cure_potency', 100),
-    '"Cure potency"': ('cure_potency', 100),
+    # In-game format is "Cure" potency — quotes wrap only "Cure", not the whole phrase
+    '\\"Cure\\" potency': ('cure_potency', 100),
+    '"Cure" potency': ('cure_potency', 100),
     'Cure potency': ('cure_potency', 100),
     
-    '\\"Cure Potency II\\"': ('cure_potency_ii', 100),
-    '"Cure Potency II"': ('cure_potency_ii', 100),
+    '\\"Cure\\" potency II': ('cure_potency_ii', 100),
+    '"Cure" potency II': ('cure_potency_ii', 100),
     'Cure received': ('cure_potency_ii', 100),
     
     # -------------------------------------------------------------------------
@@ -254,7 +260,20 @@ STAT_LOOKUP = {
     'Divine magic skill': 'divine_magic_skill',
     'Dark magic skill': 'dark_magic_skill',
     
+    # Enfeebling magic effect potency (flat bonus, no duration component)
     'Enfeebling magic effect': 'enfeebling_effect',
+    'Enfeebling Magic effect': 'enfeebling_effect',
+    # Full-form duration text — e.g. "Enfeebling magic effect duration+15%"
+    # These are exact-match keys so there is no overlap risk with the effect entries above.
+    'Enfeebling magic effect duration': ('enfeebling_duration', 100),
+    'Enfeebling Magic effect duration': ('enfeebling_duration', 100),
+    # Short-form duration (omits "effect") — e.g. "Enfeebling magic duration+15%"
+    'Enfeebling magic duration': ('enfeebling_duration', 100),
+    'Enfeebling Magic duration': ('enfeebling_duration', 100),
+    # Enhancing full-form — non-augmented base items (Embla Sash etc.)
+    # NOTE: augmented form "Enh. Mag. eff. dur." → enhancing_duration_augment (see below)
+    'Enhancing magic effect duration': ('enhancing_duration', 100),
+    'Enhancing Magic effect duration': ('enhancing_duration', 100),
     'Enhancing magic duration': ('enhancing_duration', 100),
     
     # -------------------------------------------------------------------------
@@ -328,6 +347,15 @@ STAT_LOOKUP = {
     'Regain': 'regain',
     
     # =========================================================================
+    # ENMITY
+    # =========================================================================
+    # Positive enmity = more hate generated (tank/PLD/RUN gear)
+    # Negative enmity = less hate generated (mage/support gear)
+    '\\"Enmity\\"': 'enmity',
+    '"Enmity"': 'enmity',
+    'Enmity': 'enmity',
+    
+    # =========================================================================
     # PASSIVE GEAR REGEN/REFRESH (for DT/Idle sets)
     # =========================================================================
     # These give passive MP/HP per tick from wearing the gear
@@ -380,6 +408,13 @@ STAT_LOOKUP = {
     'Enh. mag. eff. dur.': ('enhancing_duration_augment', 100),
     '\\"Enh. Mag. eff. dur.\\"': ('enhancing_duration_augment', 100),
     '"Enh. Mag. eff. dur."': ('enhancing_duration_augment', 100),
+    
+    # Enfeebling magic effect duration (augment form, e.g., Duelist's Torque)
+    # Everything folds into a single enfeebling_duration field (no augment/non-augment split needed)
+    'Enf. Mag. eff. dur.': ('enfeebling_duration', 100),
+    'Enf. mag. eff. dur.': ('enfeebling_duration', 100),
+    '\\"Enf. Mag. eff. dur.\\"': ('enfeebling_duration', 100),
+    '"Enf. Mag. eff. dur."': ('enfeebling_duration', 100),
     
     # =========================================================================
     # OCCASIONAL ATTACKS
@@ -649,27 +684,42 @@ class AugmentParser:
         # =================================================================
         # Pre-Phase: Special patterns that the main regex doesn't handle well
         # =================================================================
-        # Handle "Regen" potency+X and similar patterns with quoted prefix
+        # These stats use a format like "Regen" potency+8 where the quoted word
+        # is a qualifier, not the full stat name. The main NUMERIC_AUGMENT_PATTERN
+        # captures the quoted word as the stat name and then fails to find a sign,
+        # OR strips the qualifier and captures only "potency" (which has no lookup
+        # entry), silently discarding the stat. These patterns intercept them first.
+        #
+        # Format: (compiled_regex, stat_attr, multiplier)
+        # multiplier=1 for flat values, 100 for percentage stats stored as basis points
         special_patterns = [
-            # Regen potency: "Regen" potency+8 or \"Regen\" potency+8
-            (re.compile(r'(?:\\"|")?Regen(?:\\"|")?\s+potency\s*[+]?\s*(\d+)', re.IGNORECASE), 'regen_potency'),
-            # Refresh potency: "Refresh" potency+X
-            (re.compile(r'(?:\\"|")?Refresh(?:\\"|")?\s+potency\s*[+]?\s*(\d+)', re.IGNORECASE), 'refresh_potency'),
-            # Pet Regen: Pet: "Regen"+3 (for SMN/BST/PUP)
-            (re.compile(r'Pet:\s*(?:\\"|")?Regen(?:\\"|")?\s*[+]\s*(\d+)', re.IGNORECASE), 'pet_regen'),
+            # "Regen" potency+X — flat HP/tick added to Regen spells
+            (re.compile(r'(?:\\"|")?Regen(?:\\"|")?\s+potency\s*[+]?\s*(\d+)', re.IGNORECASE), 'regen_potency', 1),
+            # "Refresh" potency+X — flat MP/tick added (rare)
+            (re.compile(r'(?:\\"|")?Refresh(?:\\"|")?\s+potency\s*[+]?\s*(\d+)', re.IGNORECASE), 'refresh_potency', 1),
+            # "Cure" potency+X — percentage stored as basis points (×100)
+            (re.compile(r'(?:\\"|")?Cure(?:\\"|")?\s+potency\s*[+]?\s*(\d+)', re.IGNORECASE), 'cure_potency', 100),
+            # "Drain" and "Aspir" potency+X — the two spells always appear together on gear
+            # This MUST be a special pattern because the main regex captures "Drain" as the
+            # stat name, then fails to find +/- (it finds " and"), dropping the stat silently.
+            (re.compile(r'(?:\\"|")?Drain(?:\\"|")?\s+and\s+(?:\\"|")?Aspir(?:\\"|")?\s+potency\s*[+]?\s*(\d+)', re.IGNORECASE), 'drain_aspir_potency', 100),
+            # Pet: "Regen"+X
+            (re.compile(r'Pet:\s*(?:\\"|")?Regen(?:\\"|")?\s*[+]\s*(\d+)', re.IGNORECASE), 'pet_regen', 1),
+            # Spell interruption rate down X% — multi-word phrase with no +/- sign
+            (re.compile(r'Spell\s+interruption\s+rate\s+down\s+(\d+)%?', re.IGNORECASE), 'spell_interruption_rate_down', 1),
         ]
         
-        for pattern, stat_attr in special_patterns:
+        for pattern, stat_attr, multiplier in special_patterns:
             match = pattern.search(text)
             if match:
                 try:
-                    value = int(match.group(1))
+                    value = int(match.group(1)) * multiplier
                     if hasattr(stats, stat_attr):
                         current = getattr(stats, stat_attr)
                         setattr(stats, stat_attr, current + value)
                     elif stat_attr == 'pet_regen':
                         # Store pet stats separately for now
-                        stats.special_effects.append(f'Pet: Regen+{value}')
+                        stats.special_effects.append(f'Pet: Regen+{match.group(1)}')
                     # Remove matched portion to avoid double-counting in main regex
                     processed_text = pattern.sub('', processed_text)
                 except (ValueError, IndexError):
@@ -816,6 +866,60 @@ class AugmentParser:
                 stats.elemental_magic_skill += value
                 stats.divine_magic_skill += value
                 stats.dark_magic_skill += value
+            except ValueError:
+                pass
+        
+        # Handle "Combat skills +X" - fans out to all weapon/combat skills
+        combat_skills_match = re.search(r'Combat skills?\s*[+]?\s*(\d+)', text, re.IGNORECASE)
+        if combat_skills_match:
+            try:
+                value = int(combat_skills_match.group(1))
+                stats.hand_to_hand_skill += value
+                stats.dagger_skill += value
+                stats.sword_skill += value
+                stats.great_sword_skill += value
+                stats.axe_skill += value
+                stats.great_axe_skill += value
+                stats.scythe_skill += value
+                stats.polearm_skill += value
+                stats.katana_skill += value
+                stats.great_katana_skill += value
+                stats.club_skill += value
+                stats.staff_skill += value
+                stats.archery_skill += value
+                stats.marksmanship_skill += value
+                stats.throwing_skill += value
+                stats.evasion_skill += value
+                stats.shield_skill += value
+                stats.parrying_skill += value
+                stats.guard_skill += value
+            except ValueError:
+                pass
+        
+        # Handle "Combat skills +X" - fans out to all weapon/combat skills
+        combat_skills_match = re.search(r'Combat skills?\s*[+]?\s*(\d+)', text, re.IGNORECASE)
+        if combat_skills_match:
+            try:
+                value = int(combat_skills_match.group(1))
+                stats.hand_to_hand_skill += value
+                stats.dagger_skill += value
+                stats.sword_skill += value
+                stats.great_sword_skill += value
+                stats.axe_skill += value
+                stats.great_axe_skill += value
+                stats.scythe_skill += value
+                stats.polearm_skill += value
+                stats.katana_skill += value
+                stats.great_katana_skill += value
+                stats.club_skill += value
+                stats.staff_skill += value
+                stats.archery_skill += value
+                stats.marksmanship_skill += value
+                stats.throwing_skill += value
+                stats.evasion_skill += value
+                stats.shield_skill += value
+                stats.parrying_skill += value
+                stats.guard_skill += value
             except ValueError:
                 pass
     

@@ -13,6 +13,7 @@ This module handles the conversion and format differences.
 
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
+import re
 
 
 # Weapon skill type ID to name mapping (from FFXI)
@@ -61,6 +62,58 @@ def get_skill_type_name(skill_id: int) -> str:
     return SKILL_TYPE_NAMES.get(skill_id, "None")
 
 
+def _extract_path_letter_from_item(item) -> Optional[str]:
+    """
+    Extract the path letter (A/B/C/D) from an item's augments_raw list.
+
+    Returns the uppercase path letter, or None if no path augment is found.
+    """
+    augments_raw = getattr(item, 'augments_raw', None)
+    if not augments_raw:
+        return None
+    for aug in augments_raw:
+        if not isinstance(aug, str):
+            continue
+        # Matches "Path: B", "Path:A", "Path A", etc.
+        match = re.search(r'Path[:\s]+([A-Da-d])', aug)
+        if match:
+            return match.group(1).upper()
+    return None
+
+
+def _merge_stats(base_stats, extra_stats) -> Any:
+    """
+    Return a new Stats object that is the element-wise sum of base_stats and
+    extra_stats.
+
+    Both arguments must be Stats dataclass instances.  Scalar int/float fields
+    are summed directly; the ``special_effects`` list is concatenated.
+    ``skill_bonuses`` (if present) is taken from base_stats unchanged because
+    path augments do not affect weapon-skill bonus entries.
+    """
+    # Lazy import to avoid circular dependencies at module load time.
+    from models import Stats
+
+    merged = Stats()
+    for field_name in Stats.__dataclass_fields__:
+        if field_name in ('skill_bonuses', 'special_effects'):
+            continue
+        base_val = getattr(base_stats, field_name, 0) or 0
+        extra_val = getattr(extra_stats, field_name, 0) or 0
+        setattr(merged, field_name, base_val + extra_val)
+
+    # Preserve skill_bonuses from base (path augments never change these)
+    if hasattr(base_stats, 'skill_bonuses'):
+        merged.skill_bonuses = base_stats.skill_bonuses
+
+    # Concatenate special-effect strings from both sides
+    base_fx = list(getattr(base_stats, 'special_effects', None) or [])
+    extra_fx = list(getattr(extra_stats, 'special_effects', None) or [])
+    merged.special_effects = base_fx + extra_fx
+
+    return merged
+
+
 def to_wsdist_gear(item, augment_string: str = "") -> Dict[str, Any]:
     """
     Convert a parsed item (ItemInstance or ItemBase) to wsdist-compatible gear dict.
@@ -84,6 +137,36 @@ def to_wsdist_gear(item, augment_string: str = "") -> Dict[str, Any]:
         name = item.name
         # Get raw augments for Lua output
         augments_raw = getattr(item, 'augments_raw', None)
+
+        # ------------------------------------------------------------------
+        # Path augment stat injection
+        # ------------------------------------------------------------------
+        # Path-augmented items (e.g. Nyame Helm Path B) carry extra stats
+        # that are NOT parsed from the item's text description — they live
+        # in the path augment database (augment_tables.json).
+        # If the item is a path item with a non-zero rank, look up the bonus
+        # Stats from the database and merge them into our working stats object
+        # so that every downstream consumer (wsdist dict, beam-search scorer)
+        # sees the full stat picture.
+        if getattr(item, 'has_path_augment', False) and getattr(item, 'rank', 0) > 0:
+            path_letter = _extract_path_letter_from_item(item)
+            item_base_id = getattr(base, 'id', None)
+            if path_letter and item_base_id is not None:
+                try:
+                    # Lazy import keeps the module loadable even when the DB
+                    # file is absent (non-fatal warning already handled inside
+                    # PathAugmentDatabase.load()).
+                    from path_augment_db import get_path_augment_db
+                    db = get_path_augment_db()
+                    if db.is_loaded:
+                        path_stats = db.get_path_stats(
+                            item_base_id, path_letter, item.rank
+                        )
+                        if path_stats is not None:
+                            stats = _merge_stats(stats, path_stats)
+                except Exception:
+                    # Never let a DB miss crash the conversion pipeline.
+                    pass
     elif hasattr(item, 'base_stats'):
         # ItemBase
         stats = item.base_stats
@@ -287,14 +370,39 @@ def to_wsdist_gear(item, augment_string: str = "") -> Dict[str, Any]:
     # WEAPON-SPECIFIC FIELDS
     # =========================================================================
     if stats.damage > 0 or stats.delay > 0:
-        gear["Type"] = "Weapon"
         gear["DMG"] = stats.damage
         gear["Delay"] = stats.delay
-        
-        # Get skill type from base item
-        if hasattr(base, 'skill') and base.skill > 0:
-            skill_name = get_skill_type_name(base.skill)
-            gear["Skill Type"] = skill_name
+
+        # Determine the correct Type string using slot bitmask.
+        # create_player checks:
+        #   gearset["ranged"].get("Type") in ["Gun","Bow","Crossbow"]
+        #   gearset["ammo"].get("Type")   in ["Bullet","Arrow","Bolt","Shuriken"]
+        # Getting this wrong zeroes out Ranged Attack and Ranged Accuracy.
+        #
+        # FFXI slot bitmasks: MAIN=1, SUB=2, RANGE=4, AMMO=8
+        slots = base.slots if hasattr(base, 'slots') else 0
+        skill_id = base.skill if hasattr(base, 'skill') else 0
+        is_range_slot = bool(slots & 4)   # equips in RANGE slot → bow/gun
+        is_ammo_slot  = bool(slots & 8)   # equips in AMMO slot  → arrow/bolt/shuriken
+
+        if is_ammo_slot:
+            if skill_id == 27:   # Throwing
+                gear["Type"] = "Shuriken"
+            elif skill_id == 26: # Marksmanship
+                gear["Type"] = "Bolt"
+            else:                # Archery (25) or fallback
+                gear["Type"] = "Arrow"
+        elif is_range_slot:
+            if skill_id == 26:   # Marksmanship → Gun (covers Crossbow)
+                gear["Type"] = "Gun"
+            else:                # Archery (25) or fallback
+                gear["Type"] = "Bow"
+        else:
+            gear["Type"] = "Weapon"  # Melee weapon in MAIN or SUB slot
+
+        # Skill Type string used by create_player for Attack/Accuracy
+        if skill_id > 0:
+            gear["Skill Type"] = get_skill_type_name(skill_id)
     else:
         # Determine Type for non-weapons based on slot and item_type
         slots = base.slots if hasattr(base, 'slots') else 0

@@ -87,6 +87,13 @@ from beam_search_optimizer import (
 )
 
 from numba_beam_search_optimizer import NumbaBeamSearchOptimizer
+from greedy_optimizer import (
+    run_enmity_optimization,
+    run_passive_refresh_optimization,
+    run_passive_regen_optimization,
+    run_sird_optimization,
+    run_ehp_optimization,
+)
 from lua_parser import (
     LuaParser,
     GearSwapFile,
@@ -140,12 +147,15 @@ from optimizer_ui import (
     SKILL_TO_WEAPON_TYPE,
     get_weapons_from_inventory,
     get_offhand_from_inventory,
+    get_ranged_weapons_from_inventory,
     get_weaponskills_for_weapon,
     create_ws_profile_from_data,
     create_tp_profile,
     get_tp_profile_description,
     run_ws_optimization,
     run_tp_optimization,
+    run_ws_optimization_slow,
+    run_tp_optimization_slow,
     simulate_tp_set,
 )
 
@@ -195,8 +205,21 @@ except ImportError:
 
 # Magic optimization imports
 try:
+    from regen_refresh_optimizer import (
+        optimize_regen_refresh,
+        SpellType as RegenRefreshSpellType,
+        OptimizationMode as RegenRefreshMode,
+        extract_gear_stats,
+        format_optimization_result as format_regen_refresh_result,
+    )
+    REGEN_REFRESH_AVAILABLE = True
+except ImportError:
+    REGEN_REFRESH_AVAILABLE = False
+
+try:
     from magic_optimizer import (
         run_magic_optimization,
+        run_magic_optimization_slow,
         MagicOptimizationType,
         get_valid_optimization_types,
         is_burst_relevant,
@@ -239,8 +262,17 @@ class DTSetType(Enum):
     DT_REGEN = "DT + Regen (HP Recovery)"
     PDT_ONLY = "PDT Only (Physical Focus)"
     MDT_ONLY = "MDT Only (Magical Focus)"
+    PDT_EVA  = "PDT + Evasion (Physical Avoidance)"
+    MDT_MEVA = "MDT + Magic Evasion (Magical Avoidance)"
     FAST_CAST = "Fast Cast (Precast Set)"
     GENERIC_WS = "Generic WS (WS Damage + PDL)"
+    # Greedy stat + DT fill sets
+    ENMITY = "Enmity (Greedy Enmity + DT Fill)"
+    PASSIVE_REFRESH = "Passive Refresh (Greedy Refresh + DT Fill)"
+    PASSIVE_REGEN = "Passive Regen (Greedy Regen + DT Fill)"
+    SIRD = "Spell Interruption Rate Down (Greedy SIRD)"
+    # EHP integer DP
+    HP_EHP = "Effective HP (EHP-maximising DP)"
     # NOTE: Enhancing Skill, Enhancing Duration, and Cure Potency are now handled
     # through the Magic tab using MagicOptimizationType.POTENCY with spell-specific profiles
 
@@ -254,8 +286,15 @@ def get_dt_profile_description(dt_type: DTSetType) -> str:
         DTSetType.DT_REGEN: "HP recovery set. Caps DT, then prioritizes Regen and HP for downtime.",
         DTSetType.PDT_ONLY: "Physical damage focus. Maximizes PDT and DT for physical-heavy content.",
         DTSetType.MDT_ONLY: "Magical damage focus. Maximizes MDT and DT for magical-heavy content.",
+        DTSetType.PDT_EVA:  "Physical avoidance. Jointly maximizes PDT/DT and Evasion/AGI to reduce physical hits taken and their damage.",
+        DTSetType.MDT_MEVA: "Magical avoidance. Jointly maximizes MDT/DT and Magic Evasion/MND to reduce magic hits taken and their damage.",
         DTSetType.FAST_CAST: "Precast set. Maximizes Fast Cast (caps at 80%). Secondary: HP for survivability.",
         DTSetType.GENERIC_WS: "Generic weaponskill set. Maximizes WS Damage % and Physical Damage Limit+. For precast.WS without specific WS.",
+        DTSetType.ENMITY: "Greedy enmity set. Locks highest-enmity item per slot, fills the rest with DT. Combine with your DT set for a balanced hate set.",
+        DTSetType.PASSIVE_REFRESH: "Greedy passive refresh set. Locks highest gear-refresh item per slot, fills the rest with DT. Combine with your DT set.",
+        DTSetType.PASSIVE_REGEN: "Greedy passive regen set. Locks highest gear-regen item per slot, fills the rest with DT. Combine with your DT set.",
+        DTSetType.SIRD: "Greedy Spell Interruption Rate Down set. Finds the best SIRD item per slot, maximizing toward the 102% cap.",
+        DTSetType.HP_EHP: "EHP-maximising DP. Jointly optimises HP and DT/PDT/MDT using an integer DP over all reachable (DT, PDT, MDT) combinations. Scores by min(physical EHP, magical EHP).",
     }
     return descriptions.get(dt_type, "DT optimization set")
 
@@ -453,6 +492,56 @@ def create_dt_profile(
             job=job,
         )
     
+    elif dt_type == DTSetType.PDT_EVA:
+        # Physical avoidance — PDT/DT cap + maximise evasion
+        return OptimizationProfile(
+            name="PDT + Evasion",
+            weights={
+                # Tier 1: Physical damage reduction
+                'physical_dt':   -120.0,
+                'damage_taken':  -100.0,
+                # Tier 2: Avoidance stats
+                'evasion':         40.0,
+                'AGI':             10.0,
+                # Tier 3: Secondary
+                'HP':               3.0,
+                'defense':          2.0,
+                'VIT':              1.0,
+            },
+            hard_caps={
+                'damage_taken': -5000,
+                'physical_dt':  -2500,
+                'magical_dt':   -2500,
+            },
+            exclude_slots=exclude,
+            job=job,
+        )
+
+    elif dt_type == DTSetType.MDT_MEVA:
+        # Magical avoidance — MDT/DT cap + maximise magic evasion
+        return OptimizationProfile(
+            name="MDT + Magic Evasion",
+            weights={
+                # Tier 1: Magical damage reduction
+                'magical_dt':    -120.0,
+                'damage_taken':  -100.0,
+                # Tier 2: Magic avoidance stats
+                'magic_evasion':   40.0,
+                'MND':             10.0,
+                # Tier 3: Secondary
+                'HP':               3.0,
+                'magic_defense':    2.0,
+                'physical_dt':    -20.0,
+            },
+            hard_caps={
+                'damage_taken': -5000,
+                'physical_dt':  -2500,
+                'magical_dt':   -2500,
+            },
+            exclude_slots=exclude,
+            job=job,
+        )
+
     elif dt_type == DTSetType.FAST_CAST:
         # Fast Cast precast set
         # Fast Cast caps at 80% (8000 basis points)
@@ -828,6 +917,8 @@ class OptimizeRequest(BaseModel):
     sub_job: str = "war"
     main_weapon: Dict[str, Any]
     sub_weapon: Dict[str, Any]
+    ranged_weapon: Optional[Dict[str, Any]] = None  # Ranged weapon for ranged WS
+    ammo: Optional[Dict[str, Any]] = None           # Ammo for ranged WS (locked; free slot for melee)
     weaponskill: Optional[str] = None
     tp_type: Optional[str] = None
     target: str = "apex_toad"
@@ -839,6 +930,10 @@ class OptimizeRequest(BaseModel):
     beam_width: int = 100  # Default to 100 for better coverage
     master_level: int = 0
     min_tp: int = 1000
+    # Slow mode — iterative GAR refinement
+    slow_mode: bool = False          # Enable iterative GAR pool refinement
+    slow_max_iterations: int = 3     # Max beam-search/simulate/prune cycles
+    slow_top_n_per_slot: int = 3     # Items to keep per slot after each GAR pass
 
 class GearsetResult(BaseModel):
     rank: int
@@ -909,12 +1004,18 @@ class MagicOptimizeRequest(BaseModel):
     skillchain_steps: int = 2
     target: str = "apex_mob"
     include_weapons: bool = False
-    main_weapon: Optional[Dict[str, Any]] = None  # Fixed main weapon when not optimizing weapons
-    sub_weapon: Optional[Dict[str, Any]] = None   # Fixed sub weapon when not optimizing weapons
+    main_weapon: Optional[Dict[str, Any]] = None     # Fixed main weapon when not optimizing weapons
+    sub_weapon: Optional[Dict[str, Any]] = None      # Fixed sub weapon when not optimizing weapons
+    ranged_weapon: Optional[Dict[str, Any]] = None   # Fixed ranged weapon (always locked when provided)
+    ammo: Optional[Dict[str, Any]] = None            # Fixed ammo (locked whenever ranged weapon is set)
     beam_width: int = 100  # Default to 100 for better results
     buffs: Dict[str, Any] = {}
     debuffs: List[str] = []
     master_level: int = 0
+    # Slow mode — iterative GAR refinement
+    slow_mode: bool = False
+    slow_max_iterations: int = 3
+    slow_top_n_per_slot: int = 3
 
 
 class MagicGearsetResult(BaseModel):
@@ -925,6 +1026,7 @@ class MagicGearsetResult(BaseModel):
     hit_rate: Optional[float] = None
     potency_score: Optional[float] = None
     raw_potency: Optional[float] = None  # For POTENCY: the potency before hit_rate multiplication
+    potency_description: Optional[str] = None  # Human-readable potency label e.g. "1,247 HP healed", "12 HP/tick"
     gear: Dict[str, Dict[str, Any]]
     stats: Dict[str, Any] = {}
 
@@ -1276,6 +1378,27 @@ def format_gear_dict(candidate, include_full_stats: bool = True) -> Dict[str, Di
     return gear_dict
 
 
+def format_plain_gear_dict(gear: Dict[str, Any]) -> Dict[str, Dict]:
+    """
+    Format a plain wsdist gear dict (slot -> item dict) into API response
+    format.  Used by the greedy stat+DT optimizer which returns a raw dict
+    rather than a beam-search candidate object.
+    """
+    gear_dict = {}
+    for slot in WSDIST_SLOTS:
+        if slot not in gear:
+            continue
+        item = gear[slot]
+        if item is None or item.get("Name", "Empty") == "Empty":
+            continue
+        gear_dict[slot] = {
+            "name":      item.get("Name",  "Empty"),
+            "name2":     item.get("Name2", item.get("Name", "Empty")),
+            "_augments": item.get("_augments"),
+            **{k: v for k, v in item.items() if k not in ("Name", "Name2", "_augments")},
+        }
+    return gear_dict
+
 # =============================================================================
 # Target/Enemy Presets
 # =============================================================================
@@ -1473,6 +1596,42 @@ SPELL_CATEGORIES = {
                    "Enfire II", "Enblizzard II", "Enaero II", "Enstone II", "Enthunder II", "Enwater II",
                    "Enlight", "Enlight II", "Endark", "Endark II"],
     },
+    "healing_cure": {
+        "id": "healing_cure",
+        "name": "Healing (Cure)",
+        "spells": ["Cure", "Cure II", "Cure III", "Cure IV", "Cure V", "Cure VI",
+                   "Curaga", "Curaga II", "Curaga III", "Curaga IV", "Curaga V"],
+    },
+    "enhancing_regen": {
+        "id": "enhancing_regen",
+        "name": "Enhancing (Regen)",
+        "spells": ["Regen", "Regen II", "Regen III", "Regen IV", "Regen V"],
+    },
+    "enhancing_refresh": {
+        "id": "enhancing_refresh",
+        "name": "Enhancing (Refresh)",
+        "spells": ["Refresh", "Refresh II", "Refresh III"],
+    },
+    "enhancing_haste": {
+        "id": "enhancing_haste",
+        "name": "Enhancing (Haste)",
+        "spells": ["Haste", "Haste II"],
+    },
+    "enhancing_phalanx": {
+        "id": "enhancing_phalanx",
+        "name": "Enhancing (Phalanx)",
+        "spells": ["Phalanx", "Phalanx II"],
+    },
+    "enhancing_gain": {
+        "id": "enhancing_gain",
+        "name": "Enhancing (Gain)",
+        "spells": ["Gain-STR", "Gain-DEX", "Gain-VIT", "Gain-AGI", "Gain-INT", "Gain-MND", "Gain-CHR"],
+    },
+    "enhancing_temper": {
+        "id": "enhancing_temper",
+        "name": "Enhancing (Temper)",
+        "spells": ["Temper", "Temper II"],
+    },
 }
 
 # Quick access list for popular nukes (for UI quick-select)
@@ -1534,12 +1693,86 @@ MAGIC_TARGET_PRESETS = {
     },
     "sortie_boss": {
         "id": "sortie_boss",
-        "name": "Sortie Boss",
+        "name": "Sortie Boss (Legacy)",
         "level": 145,
         "int_stat": 280,
         "mnd_stat": 280,
         "magic_evasion": 800,
         "magic_defense_bonus": 40,
+    },
+    # --- Sortie Floor Bosses (Sectors A–D, 2000 gallimaufry) ---
+    "sortie_ghatjot": {
+        "id": "sortie_ghatjot",
+        "name": "Sortie A: Ghatjot (Plovid)",
+        "level": 145,
+        "int_stat": 260,
+        "mnd_stat": 260,
+        "magic_evasion": 1100,
+        "magic_defense_bonus": 40,
+    },
+    "sortie_leshonn": {
+        "id": "sortie_leshonn",
+        "name": "Sortie B: Leshonn (Macuil)",
+        "level": 145,
+        "int_stat": 260,
+        "mnd_stat": 260,
+        "magic_evasion": 1100,
+        "magic_defense_bonus": 40,
+    },
+    "sortie_skomora": {
+        "id": "sortie_skomora",
+        "name": "Sortie C: Skomora (Defiant)",
+        "level": 145,
+        "int_stat": 260,
+        "mnd_stat": 260,
+        "magic_evasion": 1100,
+        "magic_defense_bonus": 40,
+    },
+    "sortie_degei": {
+        "id": "sortie_degei",
+        "name": "Sortie D: Degei (Humanoid)",
+        "level": 145,
+        "int_stat": 260,
+        "mnd_stat": 260,
+        "magic_evasion": 1100,
+        "magic_defense_bonus": 40,
+    },
+    # --- Sortie Basement Bosses (Sectors E–H, 10000 gallimaufry) ---
+    "sortie_dhartok": {
+        "id": "sortie_dhartok",
+        "name": "Sortie E: Dhartok (Plovid)",
+        "level": 150,
+        "int_stat": 300,
+        "mnd_stat": 300,
+        "magic_evasion": 1300,
+        "magic_defense_bonus": 50,
+    },
+    "sortie_gartell": {
+        "id": "sortie_gartell",
+        "name": "Sortie F: Gartell (Macuil)",
+        "level": 150,
+        "int_stat": 300,
+        "mnd_stat": 300,
+        "magic_evasion": 1300,
+        "magic_defense_bonus": 50,
+    },
+    "sortie_triboulex": {
+        "id": "sortie_triboulex",
+        "name": "Sortie G: Triboulex (Defiant)",
+        "level": 150,
+        "int_stat": 300,
+        "mnd_stat": 300,
+        "magic_evasion": 1300,
+        "magic_defense_bonus": 50,
+    },
+    "sortie_aita": {
+        "id": "sortie_aita",
+        "name": "Sortie H: Aita (Tartarian)",
+        "level": 150,
+        "int_stat": 300,
+        "mnd_stat": 300,
+        "magic_evasion": 1300,
+        "magic_defense_bonus": 50,
     },
     "ambuscade_vd": {
         "id": "ambuscade_vd",
@@ -1932,6 +2165,39 @@ async def get_offhand(job: str, main_weapon: str = None, main_skill: str = None)
     return {"offhand": result}
 
 
+@app.get("/api/ranged-weapons/{job}")
+async def get_ranged_weapons(job: str):
+    """Get ranged weapons (bows, guns, crossbows) available for a job."""
+    if not state.inventory:
+        raise HTTPException(status_code=400, detail="No inventory loaded")
+    
+    if job not in JOB_ENUM_MAP:
+        raise HTTPException(status_code=400, detail=f"Invalid job: {job}")
+    
+    job_enum = JOB_ENUM_MAP[job]
+    weapons = get_ranged_weapons_from_inventory(state.inventory, job_enum)
+    
+    # Format weapon data for frontend (same shape as main weapons)
+    result = []
+    for w in weapons:
+        result.append({
+            "name": w.get("Name", "Unknown"),
+            "name2": w.get("Name2", w.get("Name", "Unknown")),
+            "skill_type": w.get("Skill Type", "Unknown"),
+            "damage": w.get("DMG", 0),
+            "delay": w.get("Delay", 0),
+            "item_level": w.get("Item Level", 0),
+            "jobs": w.get("Jobs", []),
+            "stats": {k: v for k, v in w.items() if k not in ["Name", "Name2", "Jobs", "Type", "Skill Type"]},
+            "_raw": w,
+        })
+    
+    # Sort by item level descending, then by name
+    result.sort(key=lambda x: (-x["item_level"], x["name"]))
+    
+    return {"ranged_weapons": result}
+
+
 @app.get("/api/weaponskills")
 async def get_weaponskills(skill_type: str):
     """Get weaponskills for a weapon skill type."""
@@ -2009,6 +2275,10 @@ async def get_tp_types():
 @app.post("/api/optimize/ws", response_model=OptimizeResponse)
 async def optimize_ws(request: OptimizeRequest):
     """Run weaponskill optimization."""
+    print(f"\n[DEBUG] optimize_ws RAW REQUEST FIELDS:")
+    print(f"  request.ranged_weapon = {request.ranged_weapon}")
+    print(f"  request.ammo          = {request.ammo}")
+    print(f"  full request keys     = {list(request.model_dump().keys())}")
     if not state.inventory:
         return OptimizeResponse(
             success=False,
@@ -2043,25 +2313,77 @@ async def optimize_ws(request: OptimizeRequest):
         )
         target_data = prepare_target_with_debuffs(request.target, debuffs_info)
         
-        # Run optimization
-        results = run_ws_optimization(
-            inventory=state.inventory,
-            job=job_enum,
-            main_weapon=request.main_weapon,
-            sub_weapon=request.sub_weapon,
-            ws_data=ws_data,
-            beam_width=10000,
-            job_gifts=job_gifts,
-            buffs=buffs_dict,
-            abilities=abilities_dict,
-            target_data=target_data,
-            tp=request.min_tp,
-            master_level=request.master_level,
-            sub_job=request.sub_job,
-            custom_buffs=custom_buffs if custom_buffs else None,
-        )
+        # Determine the effective weapon and ammo for this WS.
+        # The ranged weapon is always locked when provided — it contributes stats
+        # to every WS (e.g. COR with a gun equipped during a melee WS).
+        # When a ranged weapon is hard-set the ammo slot is also always locked:
+        #   - Ranged WS: lock to the specified ammo piece (arrows/bolts/bullets).
+        #   - Melee WS:  lock to the specified ammo piece, or None (= empty slot)
+        #     so the optimizer cannot freely fill the slot with a stat piece.
+        effective_main_weapon = request.main_weapon
+        effective_ranged_weapon = request.ranged_weapon  # always lock if provided
+        effective_ammo = None
+        if request.ranged_weapon:
+            effective_ammo = request.ammo  # lock ammo slot whenever ranged weapon is hard-set
+
+        print(f"\n[DEBUG] optimize_ws dispatch:")
+        print(f"  weaponskill       = {request.weaponskill}")
+        print(f"  ws_type           = {ws_data.weapon_type.value}")
+        print(f"  slow_mode         = {request.slow_mode}")
+        print(f"  job               = {request.job} / sub_job = {request.sub_job}")
+        print(f"  main_weapon       = {effective_main_weapon.get('Name2', effective_main_weapon.get('Name', 'None')) if effective_main_weapon else 'None'}")
+        print(f"  ranged_weapon     = {effective_ranged_weapon.get('Name2', effective_ranged_weapon.get('Name', 'None')) if effective_ranged_weapon else 'None'}")
+        print(f"  request.ammo      = {request.ammo.get('Name2', request.ammo.get('Name', 'None')) if request.ammo else 'None'}")
+        print(f"  eff_ammo          = {effective_ammo.get('Name2', effective_ammo.get('Name', 'None')) if effective_ammo else 'None'}")
+        print(f"  min_tp            = {request.min_tp}")
+        print(f"  master_level      = {request.master_level}")
+        if request.slow_mode:
+            results = run_ws_optimization_slow(
+                inventory=state.inventory,
+                job=job_enum,
+                main_weapon=effective_main_weapon,
+                ranged_weapon=effective_ranged_weapon,
+                sub_weapon=request.sub_weapon,
+                ammo=effective_ammo,
+                ws_data=ws_data,
+                beam_width=10000,
+                job_gifts=job_gifts,
+                buffs=buffs_dict,
+                abilities=abilities_dict,
+                target_data=target_data,
+                tp=request.min_tp,
+                master_level=request.master_level,
+                sub_job=request.sub_job,
+                custom_buffs=custom_buffs if custom_buffs else None,
+                max_iterations=request.slow_max_iterations,
+                top_n_per_slot=request.slow_top_n_per_slot,
+            )
+        else:
+            results = run_ws_optimization(
+                inventory=state.inventory,
+                job=job_enum,
+                main_weapon=effective_main_weapon,
+                ranged_weapon=effective_ranged_weapon,
+                sub_weapon=request.sub_weapon,
+                ammo=effective_ammo,
+                ws_data=ws_data,
+                beam_width=10000,
+                job_gifts=job_gifts,
+                buffs=buffs_dict,
+                abilities=abilities_dict,
+                target_data=target_data,
+                tp=request.min_tp,
+                master_level=request.master_level,
+                sub_job=request.sub_job,
+                custom_buffs=custom_buffs if custom_buffs else None,
+            )
         
-        # Format results
+        # Format results; also surface any sets where simulation returned 0
+        # (worker errors) as a warning so the frontend can show them.
+        sim_errors = [
+            f"Set #{r+1}: damage=0 (simulation error — check server log)"
+            for r, (_, dmg) in enumerate(results[:10]) if dmg == 0.0
+        ]
         formatted_results = []
         for rank, (candidate, damage) in enumerate(results[:10], 1):
             formatted_results.append(GearsetResult(
@@ -2070,11 +2392,13 @@ async def optimize_ws(request: OptimizeRequest):
                 damage=damage,
                 gear=format_gear_dict(candidate),
             ))
-        
+
+        warning_str = "; ".join(sim_errors) if sim_errors else None
         return OptimizeResponse(
             success=True,
             optimization_type="ws",
             results=formatted_results,
+            error=warning_str,
         )
     
     except Exception as e:
@@ -2123,22 +2447,45 @@ async def optimize_tp(request: OptimizeRequest):
         )
         target_data = prepare_target_with_debuffs(request.target, debuffs_info)
         
-        # Run optimization
-        results = run_tp_optimization(
-            inventory=state.inventory,
-            job=job_enum,
-            main_weapon=request.main_weapon,
-            sub_weapon=request.sub_weapon,
-            tp_type=tp_type,
-            beam_width=10000,
-            job_gifts=job_gifts,
-            buffs=buffs_dict,
-            abilities=abilities_dict,
-            target_data=target_data,
-            master_level=request.master_level,
-            sub_job=request.sub_job,
-            custom_buffs=custom_buffs if custom_buffs else None,
-        )
+        # Run optimization (normal or slow mode)
+        if request.slow_mode:
+            results = run_tp_optimization_slow(
+                inventory=state.inventory,
+                job=job_enum,
+                main_weapon=request.main_weapon,
+                sub_weapon=request.sub_weapon,
+                ranged_weapon=request.ranged_weapon or None,
+                ammo=request.ammo or None,
+                tp_type=tp_type,
+                beam_width=10000,
+                job_gifts=job_gifts,
+                buffs=buffs_dict,
+                abilities=abilities_dict,
+                target_data=target_data,
+                master_level=request.master_level,
+                sub_job=request.sub_job,
+                custom_buffs=custom_buffs if custom_buffs else None,
+                max_iterations=request.slow_max_iterations,
+                top_n_per_slot=request.slow_top_n_per_slot,
+            )
+        else:
+            results = run_tp_optimization(
+                inventory=state.inventory,
+                job=job_enum,
+                main_weapon=request.main_weapon,
+                sub_weapon=request.sub_weapon,
+                ranged_weapon=request.ranged_weapon or None,
+                ammo=request.ammo or None,
+                tp_type=tp_type,
+                beam_width=10000,
+                job_gifts=job_gifts,
+                buffs=buffs_dict,
+                abilities=abilities_dict,
+                target_data=target_data,
+                master_level=request.master_level,
+                sub_job=request.sub_job,
+                custom_buffs=custom_buffs if custom_buffs else None,
+            )
         
         # Format results
         formatted_results = []
@@ -2217,6 +2564,9 @@ class DTGearsetResult(BaseModel):
     magic_evasion: int
     refresh: int
     regen: int
+    enmity: int = 0         # Enmity (for greedy enmity sets)
+    spell_interruption_rate_down: int = 0  # SIRD % (for greedy SIRD sets)
+    ehp: Optional[float] = None  # Effective HP score (for HP_EHP sets)
     gear: Dict[str, Any]
     # TP metrics (calculated for all DT sets)
     time_to_ws: Optional[float] = None
@@ -2263,19 +2613,73 @@ async def optimize_dt(request: DTOptimizeRequest):
         
         # Map DT type
         dt_type_map = {
-            "pure_dt": DTSetType.PURE_DT,
-            "dt_tp": DTSetType.DT_TP,
-            "dt_refresh": DTSetType.DT_REFRESH,
-            "dt_regen": DTSetType.DT_REGEN,
-            "pdt_only": DTSetType.PDT_ONLY,
-            "mdt_only": DTSetType.MDT_ONLY,
-            "fast_cast": DTSetType.FAST_CAST,
-            "generic_ws": DTSetType.GENERIC_WS,
+            "pure_dt":        DTSetType.PURE_DT,
+            "dt_tp":          DTSetType.DT_TP,
+            "dt_refresh":     DTSetType.DT_REFRESH,
+            "dt_regen":       DTSetType.DT_REGEN,
+            "pdt_only":       DTSetType.PDT_ONLY,
+            "mdt_only":       DTSetType.MDT_ONLY,
+            "pdt_eva":        DTSetType.PDT_EVA,
+            "mdt_meva":       DTSetType.MDT_MEVA,
+            "fast_cast":      DTSetType.FAST_CAST,
+            "generic_ws":     DTSetType.GENERIC_WS,
+            "enmity":         DTSetType.ENMITY,
+            "passive_refresh": DTSetType.PASSIVE_REFRESH,
+            "passive_regen":  DTSetType.PASSIVE_REGEN,
+            "sird":           DTSetType.SIRD,
+            "hp_ehp":         DTSetType.HP_EHP,
         }
         dt_type = dt_type_map.get(request.dt_type.lower(), DTSetType.PURE_DT)
         
         # Get job gifts
         job_gifts = get_job_gifts_for_job(request.job)
+
+        # ── Greedy stat + DT fill branch ─────────────────────────────────────
+        # These types use a different optimizer that returns
+        # (plain_gear_dict, metrics_dict) instead of (candidate, metrics_dict).
+        GREEDY_TYPES = {
+            DTSetType.ENMITY:          run_enmity_optimization,
+            DTSetType.PASSIVE_REFRESH: run_passive_refresh_optimization,
+            DTSetType.PASSIVE_REGEN:   run_passive_regen_optimization,
+            DTSetType.SIRD:            run_sird_optimization,
+            DTSetType.HP_EHP:          run_ehp_optimization,
+        }
+        if dt_type in GREEDY_TYPES:
+            greedy_fn = GREEDY_TYPES[dt_type]
+            greedy_results = greedy_fn(
+                inventory=state.inventory,
+                job=job_enum,
+                main_weapon=request.main_weapon,
+                sub_weapon=request.sub_weapon,
+                beam_width=request.beam_width,
+                job_gifts=job_gifts,
+            )
+            formatted_results = []
+            for rank, (plain_gear, metrics) in enumerate(greedy_results[:10], 1):
+                formatted_results.append(DTGearsetResult(
+                    rank=rank,
+                    score=metrics.get("score", 0),
+                    dt_pct=metrics.get("dt_pct", 0),
+                    pdt_pct=metrics.get("pdt_pct", 0),
+                    mdt_pct=metrics.get("mdt_pct", 0),
+                    physical_reduction=metrics.get("physical_reduction", 0),
+                    magical_reduction=metrics.get("magical_reduction", 0),
+                    hp=int(metrics.get("hp", 0)),
+                    defense=int(metrics.get("defense", 0)),
+                    evasion=int(metrics.get("evasion", 0)),
+                    magic_evasion=int(metrics.get("magic_evasion", 0)),
+                    refresh=int(metrics.get("refresh", 0)),
+                    regen=int(metrics.get("regen", 0)),
+                    enmity=int(metrics.get("enmity", 0)),
+                    spell_interruption_rate_down=int(metrics.get("spell_interruption_rate_down", 0)),
+                    ehp=metrics.get("ehp"),
+                    gear=format_plain_gear_dict(plain_gear),
+                    dt_capped=metrics.get("dt_capped", False),
+                    fast_cast=0,
+                    fast_cast_capped=False,
+                ))
+            return DTOptimizeResponse(success=True, results=formatted_results)
+        # ─────────────────────────────────────────────────────────────────────
         
         # Convert UI buffs to wsdist format for TP calculation
         buffs_dict = {}
@@ -2332,6 +2736,7 @@ async def optimize_dt(request: DTOptimizeRequest):
                 magic_evasion=int(metrics.get("magic_evasion", 0)),
                 refresh=int(metrics.get("refresh", 0)),
                 regen=int(metrics.get("regen", 0)),
+                enmity=0,
                 gear=format_gear_dict(candidate),
                 # TP metrics
                 time_to_ws=metrics.get("time_to_ws"),
@@ -2798,6 +3203,506 @@ async def calculate_stats(request: StatsRequest):
         return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
+class TPSimulateRequest(BaseModel):
+    """Request to simulate TP speed for two manually-built gearsets."""
+    job: str
+    sub_job: str = "war"
+    master_level: int = 0
+    set_a: Dict[str, Dict[str, Any]]
+    set_b: Dict[str, Dict[str, Any]]
+    set_a_label: str = "Set A"
+    set_b_label: str = "Set B"
+    set_a_custom_stats: Optional[Dict[str, Any]] = None
+    set_b_custom_stats: Optional[Dict[str, Any]] = None
+
+
+class WSSimulateRequest(BaseModel):
+    """Request to simulate WS damage for two manually-built gearsets under two buff conditions."""
+    job: str
+    sub_job: str = "war"
+    master_level: int = 0
+    weaponskill: str
+    tp: int = 2000
+    set_a: Dict[str, Dict[str, Any]]
+    set_b: Dict[str, Dict[str, Any]]
+    set_a_label: str = "Set A"
+    set_b_label: str = "Set B"
+    set_a_custom_stats: Optional[Dict[str, Any]] = None
+    set_b_custom_stats: Optional[Dict[str, Any]] = None
+
+
+# ---------------------------------------------------------------------------
+# Shared normalisation helpers used by both simulate endpoints
+# ---------------------------------------------------------------------------
+
+def _normalize_frontend_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Convert a frontend inventory item (with a 'stats' sub-dict) into the flat
+    wsdist gear dict expected by create_player / simulate_tp_set / average_ws.
+    """
+    if not item:
+        return {"Name": "Empty", "Name2": "Empty", "Type": "None", "Jobs": []}
+    stats = item.get("stats") or {}
+    normalized = dict(stats)
+    normalized["Name"]  = item.get("name",  normalized.get("Name",  "Empty"))
+    normalized["Name2"] = item.get("name2", normalized.get("Name2", normalized["Name"]))
+    normalized["Type"]  = item.get("type",  normalized.get("Type",  "None"))
+    if "Jobs" not in normalized:
+        normalized["Jobs"] = all_jobs
+    return normalized
+
+
+_FRONTEND_TO_WSDIST_SLOT = {
+    "main": "main", "sub": "sub",
+    "range": "ranged", "ranged": "ranged",
+    "ammo": "ammo", "head": "head", "neck": "neck",
+    "ear1": "ear1", "ear2": "ear2", "body": "body",
+    "hands": "hands", "ring1": "ring1", "ring2": "ring2",
+    "back": "back", "waist": "waist", "legs": "legs", "feet": "feet",
+}
+_REQUIRED_WSDIST_SLOTS = list(set(_FRONTEND_TO_WSDIST_SLOT.values()))
+
+
+def _build_wsdist_gearset(raw_set: Dict[str, Dict]) -> Dict[str, Dict]:
+    """Build a complete wsdist-format gearset from a frontend set payload."""
+    empty = {"Name": "Empty", "Name2": "Empty", "Type": "None", "Jobs": all_jobs}
+    gearset: Dict[str, Dict] = {}
+    for src_slot, wsdist_slot in _FRONTEND_TO_WSDIST_SLOT.items():
+        item = raw_set.get(src_slot)
+        if item and item.get("name") and item["name"] != "Empty":
+            gearset[wsdist_slot] = strip_gear_metadata(_normalize_frontend_item(item))
+        elif wsdist_slot not in gearset:
+            gearset[wsdist_slot] = empty.copy()
+    for slot in _REQUIRED_WSDIST_SLOTS:
+        if slot not in gearset:
+            gearset[slot] = empty.copy()
+    return gearset
+
+
+def _apply_tp_bonus_to_raw_set(
+    raw_set: Dict[str, Dict],
+    is_ranged_ws: bool,
+) -> Dict[str, Dict]:
+    """
+    Enforce FFXI's TP Bonus slot rules on a raw frontend request set, before
+    it is passed to _build_wsdist_gearset().
+
+    The frontend payload has the structure:
+        raw_set[slot] = {
+            "name": ..., "name2": ..., "type": ...,
+            "stats": {
+                "TP Bonus": 500,
+                "_augments": ["TP Bonus +1000"],   # present if augmented
+                ...
+            },
+        }
+
+    TP Bonus and _augments both live inside item["stats"], so we check and
+    correct them there — before strip_gear_metadata() removes _augments.
+
+    Rules (mirrors _apply_tp_bonus_slot_rules in optimizer_ui.py):
+      - Base / innate TP Bonus: only valid in the slot that executes the WS.
+          Melee WS  -> main slot only.
+          Ranged WS -> ranged/range slot only.
+          sub and ammo slots never contribute base TP Bonus.
+      - Augmented TP Bonus ("TP Bonus" appears in stats._augments): global, untouched.
+
+    Args:
+        raw_set:      Frontend payload dict (slot -> item dict).
+        is_ranged_ws: True for Archery / Marksmanship weaponskills.
+
+    Returns:
+        A copy of raw_set with TP Bonus zeroed in invalid slots where the
+        bonus is base (not augment-sourced). Only affected items are copied;
+        unaffected items keep their original references.
+    """
+    # Weapon/ammo slots to check — armor slots are excluded because TP Bonus
+    # on armor always applies globally per FFXI mechanics.
+    # The frontend may use "range" or "ranged" for the ranged slot.
+    WEAPON_AMMO_SLOTS = ("main", "sub", "ranged", "range", "ammo")
+
+    # The slot that is valid for base TP Bonus application
+    valid_slots = {"ranged", "range"} if is_ranged_ws else {"main"}
+
+    def _has_augmented_tp_bonus(stats: Dict) -> bool:
+        """Return True if any _augments string in stats grants TP Bonus."""
+        for aug in stats.get("_augments") or []:
+            if isinstance(aug, str) and "TP Bonus" in aug:
+                return True
+        return False
+
+    result = dict(raw_set)  # shallow copy of the outer dict
+
+    for slot in WEAPON_AMMO_SLOTS:
+        if slot in valid_slots:
+            continue  # this slot is allowed to carry base TP Bonus
+        item = raw_set.get(slot)
+        if not item:
+            continue
+        stats = item.get("stats") or {}
+        if not stats.get("TP Bonus"):
+            continue  # nothing to do
+        if _has_augmented_tp_bonus(stats):
+            continue  # augmented TP Bonus is global — leave it alone
+        # Base TP Bonus in an invalid slot — zero it on a copy
+        corrected_stats = dict(stats)
+        corrected_stats["TP Bonus"] = 0
+        corrected_item = dict(item)
+        corrected_item["stats"] = corrected_stats
+        name = item.get("name2", item.get("name", "?"))
+        print(f"  [TP Bonus] Zeroing base TP Bonus on '{name}' in slot '{slot}' (invalid slot for this WS type)")
+        result[slot] = corrected_item
+
+    return result
+
+
+def _has_valid_main(gearset: Dict) -> bool:
+    main = gearset.get("main", {})
+    return (
+        main.get("Name", "Empty") != "Empty"
+        and main.get("Type", "None") not in ("None", "")
+    )
+
+
+def _has_valid_ranged(gearset: Dict) -> bool:
+    ranged = gearset.get("ranged", {})
+    return (
+        ranged.get("Name", "Empty") != "Empty"
+        and ranged.get("Type", "None") not in ("None", "")
+    )
+
+
+def _has_valid_ammo(gearset: Dict) -> bool:
+    ammo = gearset.get("ammo", {})
+    return (
+        ammo.get("Name", "Empty") != "Empty"
+        and ammo.get("Type", "None") not in ("None", "")
+    )
+
+
+def _weapon_display_name(gearset: Dict) -> str:
+    main = gearset.get("main", {})
+    return main.get("Name2", main.get("Name", "No weapon"))
+
+
+def _ranged_weapon_display_name(gearset: Dict) -> str:
+    ranged = gearset.get("ranged", {})
+    return ranged.get("Name2", ranged.get("Name", "No ranged weapon"))
+
+
+# ---------------------------------------------------------------------------
+# High-buff preset (all the stops — used for WS simulation)
+# ---------------------------------------------------------------------------
+
+# BRD songs: Minuet V + Minuet IV (max attack) + Blade Madrigal (accuracy)
+_HIGH_BUFF_UI = {
+    "brd": ["Minuet V", "Minuet IV", "Blade Madrigal"],
+    "cor": ["Chaos Roll (XI)", "Hunter's Roll (XI)"],
+    "geo": ["Geo-Fury"],
+    "whm": [],
+}
+_HIGH_BUFF_ABILITIES  = ["Berserk", "Warcry"]
+_HIGH_BUFF_DEBUFFS    = ["Dia III", "Geo-Frailty"]
+_HIGH_BUFF_FOOD       = "Grape Daifuku"
+
+# Summary strings surfaced to the frontend
+_HIGH_BUFF_STACK_SUMMARY  = ["Minuet V", "Minuet IV", "Blade Madrigal",
+                              "Chaos Roll (XI)", "Hunter's Roll (XI)",
+                              "Geo-Fury", "Berserk", "Warcry",
+                              "Grape Daifuku"]
+_HIGH_BUFF_DEBUFF_SUMMARY = ["Dia III", "Geo-Frailty"]
+
+
+@app.post("/api/simulate/tp")
+async def simulate_tp_comparison(request: TPSimulateRequest):
+    """
+    Simulate TP speed for two manually-built gearsets (perfect conditions).
+
+    Assumptions:
+    - Target:       Training Dummy (Defense 100, Evasion 100)
+    - Magic Haste:  43.75% (capped) injected as external buff
+    - JA Haste:     none
+    - WS threshold: 1000 TP
+    """
+    if not WSDIST_AVAILABLE:
+        return {"success": False, "error": "wsdist not available"}
+    try:
+        if request.job.upper() not in JOB_ENUM_MAP:
+            return {"success": False, "error": f"Unknown job: {request.job}"}
+
+        gearset_a = _build_wsdist_gearset(request.set_a)
+        gearset_b = _build_wsdist_gearset(request.set_b)
+
+        if not _has_valid_main(gearset_a) and not _has_valid_main(gearset_b):
+            return {"success": False,
+                    "error": "Neither set has a weapon in the main slot."}
+
+        MAGIC_HASTE_CAP = 448 / 1024  # 43.75%
+        buffs_dict  = {"Haste": {"Magic Haste": MAGIC_HASTE_CAP}}
+        abilities   = {}
+
+        dummy_data = TARGET_PRESETS["training_dummy"].copy()
+        dummy_data["Base Defense"] = dummy_data.get("Defense", 100)
+        enemy = create_enemy(dummy_data)
+
+        job_gifts = get_job_gifts_for_job(request.job)
+
+        def simulate_set(gs: Dict, label: str, custom_stats: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+            if not _has_valid_main(gs):
+                return {"label": label, "weapon": "No weapon", "skipped": True,
+                        "error": "No weapon in main slot"}
+            # Build custom_buffs from per-set custom stats for simulate_tp_set
+            _CUSTOM_STAT_KEYS = [
+                "store_tp", "double_attack", "triple_attack", "quad_attack",
+                "crit_rate", "crit_damage", "ws_damage", "ws_accuracy", "pdl",
+            ]
+            player_custom_buffs = {}
+            for key in _CUSTOM_STAT_KEYS:
+                val = (custom_stats or {}).get(key, 0)
+                if val:
+                    player_custom_buffs[key] = val
+            # tp_bonus shifts the WS threshold
+            tp_bonus = int((custom_stats or {}).get("tp_bonus", 0))
+            try:
+                metrics = simulate_tp_set(
+                    gearset=gs, enemy=enemy,
+                    main_job=request.job.lower(), sub_job=request.sub_job.lower(),
+                    ws_threshold=1000 + tp_bonus, buffs=buffs_dict, abilities=abilities,
+                    job_gifts=job_gifts, master_level=request.master_level,
+                    custom_buffs=player_custom_buffs if player_custom_buffs else None,
+                )
+                return {
+                    "label":        label,
+                    "weapon":       _weapon_display_name(gs),
+                    "time_to_ws":   round(metrics.get("time_to_ws",  0.0), 3),
+                    "tp_per_round": round(metrics.get("tp_per_round", 0.0), 2),
+                    "dps":          round(metrics.get("dps",          0.0), 1),
+                    "skipped":      False,
+                }
+            except Exception as exc:
+                import traceback as tb
+                return {"label": label, "weapon": _weapon_display_name(gs),
+                        "skipped": True, "error": str(exc), "trace": tb.format_exc()}
+
+        return {
+            "success": True,
+            "set_a":   simulate_set(gearset_a, request.set_a_label, request.set_a_custom_stats),
+            "set_b":   simulate_set(gearset_b, request.set_b_label, request.set_b_custom_stats),
+            "conditions": {
+                "target":       "Training Dummy",
+                "magic_haste":  "43.75% (capped)",
+                "ja_haste":     "none",
+                "ws_threshold": 1000,
+            },
+        }
+    except Exception as e:
+        import traceback as tb
+        return {"success": False, "error": str(e), "traceback": tb.format_exc()}
+
+
+@app.post("/api/simulate/ws")
+async def simulate_ws_comparison(request: WSSimulateRequest):
+    """
+    Simulate WS damage for two manually-built gearsets under two buff conditions.
+
+    Low buff:  No buffs, no abilities, no food, no debuffs.  vs Apex Toad (ilvl 132).
+    High buff: BRD Minuet V+IV + Blade Madrigal, COR Chaos Roll XI + Hunter's Roll XI,
+               GEO Geo-Fury, Berserk + Warcry, Dia III + Geo-Frailty.  Same target.
+    """
+    if not WSDIST_AVAILABLE:
+        return {"success": False, "error": "wsdist not available"}
+    try:
+        if request.job.upper() not in JOB_ENUM_MAP:
+            return {"success": False, "error": f"Unknown job: {request.job}"}
+
+        ws_data = get_weaponskill(request.weaponskill)
+        if not ws_data:
+            return {"success": False,
+                    "error": f"Weaponskill not found: {request.weaponskill}"}
+
+        # Determine whether this is a ranged WS (Archery / Marksmanship)
+        _RANGED_WS_WEAPON_TYPES = {"Archery", "Marksmanship"}
+        is_ranged_ws = ws_data.weapon_type.value in _RANGED_WS_WEAPON_TYPES
+
+        # -------------------------------------------------------------------------
+        # TP BONUS SLOT RULES
+        # Correct base TP Bonus on weapon/ammo slots BEFORE building gearsets so
+        # the fix applies while _augments is still present in the raw item stats.
+        # -------------------------------------------------------------------------
+        set_a_corrected = _apply_tp_bonus_to_raw_set(request.set_a, is_ranged_ws)
+        set_b_corrected = _apply_tp_bonus_to_raw_set(request.set_b, is_ranged_ws)
+
+        gearset_a = _build_wsdist_gearset(set_a_corrected)
+        gearset_b = _build_wsdist_gearset(set_b_corrected)
+
+        if is_ranged_ws:
+            if not _has_valid_ranged(gearset_a) and not _has_valid_ranged(gearset_b):
+                return {"success": False,
+                        "error": "Neither set has a ranged weapon equipped."}
+            if not _has_valid_ammo(gearset_a) and not _has_valid_ammo(gearset_b):
+                return {"success": False,
+                        "error": "Neither set has ammo equipped. Ranged weaponskills require ammo (bullets, arrows, bolts, etc.)."}
+        else:
+            if not _has_valid_main(gearset_a) and not _has_valid_main(gearset_b):
+                return {"success": False,
+                        "error": "Neither set has a weapon in the main slot."}
+
+        # --- Target: Apex Toad (ilvl 132 proxy) ---
+        toad = TARGET_PRESETS["apex_toad"].copy()
+        toad["Base Defense"] = toad.get("Defense", 1239)
+
+        # --- Buff sets ---
+        low_buffs_dict: Dict[str, Any]  = {}
+        low_abilities:  Dict[str, bool] = {}
+
+        high_buffs_raw, high_abilities_raw, high_debuffs_info, _ = convert_ui_buffs_to_wsdist(
+            ui_buffs=_HIGH_BUFF_UI,
+            abilities=_HIGH_BUFF_ABILITIES,
+            food=_HIGH_BUFF_FOOD,
+            debuffs=_HIGH_BUFF_DEBUFFS,
+        )
+
+        # Apply debuffs to target for high-buff scenario
+        toad_high = toad.copy()
+        def_down = high_debuffs_info.get("defense_down_pct", 0)
+        eva_down = high_debuffs_info.get("evasion_down", 0)
+        toad_high["Defense"] = int(toad_high["Defense"] * (1 - min(def_down, 0.5)))
+        toad_high["Evasion"] = toad_high["Evasion"] - eva_down
+        toad_high["Base Defense"] = toad_high["Defense"]
+
+        enemy_low  = create_enemy(toad)
+        enemy_high = create_enemy(toad_high)
+
+        job_gifts = get_job_gifts_for_job(request.job)
+
+        def simulate_ws_set(gs: Dict, label: str, custom_stats: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+            """Run both buff modes for one gearset."""
+            if is_ranged_ws:
+                if not _has_valid_ranged(gs):
+                    return {
+                        "label": label, "weapon": "No ranged weapon",
+                        "skipped": True, "error": "No ranged weapon in range slot",
+                    }
+                if not _has_valid_ammo(gs):
+                    return {
+                        "label": label, "weapon": "No ammo",
+                        "skipped": True, "error": "No ammo equipped (required for ranged weaponskill)",
+                    }
+                weapon = _ranged_weapon_display_name(gs)
+            else:
+                if not _has_valid_main(gs):
+                    return {
+                        "label": label, "weapon": "No weapon",
+                        "skipped": True, "error": "No weapon in main slot",
+                    }
+                weapon = _weapon_display_name(gs)
+
+            # tp_bonus adds to the TP at which the WS fires (per-set)
+            tp_bonus = int((custom_stats or {}).get("tp_bonus", 0))
+            effective_tp = request.tp + tp_bonus
+
+            # Build a custom_buffs dict for apply_custom_buffs_to_player from
+            # the remaining per-set custom stats (store_tp, DA, TA, QA, crit, etc.)
+            _CUSTOM_STAT_KEYS = [
+                "store_tp", "double_attack", "triple_attack", "quad_attack",
+                "crit_rate", "crit_damage", "ws_damage", "ws_accuracy", "pdl",
+            ]
+            player_custom_buffs = {}
+            for key in _CUSTOM_STAT_KEYS:
+                val = (custom_stats or {}).get(key, 0)
+                if val:
+                    player_custom_buffs[key] = val
+
+            def run_one(buffs_dict, abilities_dict, enemy, tp):
+                player = create_player(
+                    main_job=request.job.lower(),
+                    sub_job=request.sub_job.lower(),
+                    master_level=request.master_level,
+                    gearset=gs,
+                    buffs=buffs_dict,
+                    abilities=abilities_dict,
+                )
+                if job_gifts:
+                    apply_job_gifts_to_player(player, job_gifts)
+
+                # Apply per-set custom stats (store_tp, DA, TA, etc.) to the player
+                if player_custom_buffs:
+                    from optimizer_ui import apply_custom_buffs_to_player
+                    apply_custom_buffs_to_player(player, player_custom_buffs)
+
+                if ws_data.ws_type == WSType.MAGICAL:
+                    ws_type = "magic"
+                elif ws_data.ws_type == WSType.HYBRID:
+                    ws_type = "hybrid"
+                elif is_ranged_ws:
+                    ws_type = "ranged"
+                else:
+                    ws_type = "melee"
+
+                damage, _ = average_ws(
+                                player=player,
+                                enemy=enemy,
+                                ws_name=ws_data.name,
+                                input_tp=tp,
+                                ws_type=ws_type,
+                                input_metric="Damage",
+                                simulation=False,
+                            )
+
+                # Derive hit rate from player accuracy vs enemy evasion
+                acc    = player.stats.get("Accuracy1", 0)
+                evasion = enemy.stats.get("Evasion", 1043) if hasattr(enemy, "stats") else 1043
+                acc_diff = acc - evasion
+                if acc_diff >= 200:
+                    hit_rate = 0.95
+                elif acc_diff <= -200:
+                    hit_rate = 0.20
+                else:
+                    hit_rate = max(0.20, min(0.95, 0.75 + acc_diff * 0.001))
+
+                return {"damage": round(float(damage), 1), "hit_rate": round(hit_rate, 4)}
+
+            try:
+                low  = run_one(low_buffs_dict,  low_abilities,         enemy_low,  effective_tp)
+                high = run_one(high_buffs_raw,  high_abilities_raw,    enemy_high, effective_tp)
+                return {
+                    "label":    label,
+                    "weapon":   weapon,
+                    "skipped":  False,
+                    "low_buff": low,
+                    "high_buff": high,
+                }
+            except Exception as exc:
+                import traceback as tb
+                return {"label": label, "weapon": weapon, "skipped": True,
+                        "error": str(exc), "trace": tb.format_exc()}
+
+        result_a = simulate_ws_set(gearset_a, request.set_a_label, request.set_a_custom_stats)
+        result_b = simulate_ws_set(gearset_b, request.set_b_label, request.set_b_custom_stats)
+
+        return {
+            "success": True,
+            "set_a":   result_a,
+            "set_b":   result_b,
+            "conditions": {
+                "low_buff": {
+                    "target":          "Apex Toad (ilvl 132)",
+                    "buffs_summary":   [],
+                    "debuffs_summary": [],
+                },
+                "high_buff": {
+                    "target":          "Apex Toad (ilvl 132)",
+                    "buffs_summary":   _HIGH_BUFF_STACK_SUMMARY,
+                    "debuffs_summary": _HIGH_BUFF_DEBUFF_SUMMARY,
+                },
+            },
+        }
+
+    except Exception as e:
+        import traceback as tb
+        return {"success": False, "error": str(e), "traceback": tb.format_exc()}
+
+
 @app.get("/api/inventory")
 async def get_inventory(slot: str = None, job: str = None, show_all: bool = False, search: str = None, effect: str = None):
     """Get inventory items, optionally filtered by slot and job.
@@ -2839,10 +3744,16 @@ async def get_inventory(slot: str = None, job: str = None, show_all: bool = Fals
             if type_key in type_lower:
                 return slot_name
         
-        # Check for weapon types
-        weapon_types = ['sword', 'axe', 'club', 'staff', 'dagger', 'katana', 
-                       'scythe', 'polearm', 'bow', 'gun', 'instrument', 'hand-to-hand']
-        for wtype in weapon_types:
+        # Check for ranged weapon types first (these equip in the Range slot, not Main)
+        ranged_weapon_types = ['bow', 'gun', 'crossbow', 'instrument']
+        for wtype in ranged_weapon_types:
+            if wtype in type_lower:
+                return 'Range'
+
+        # Check for melee weapon types (equip in the Main slot)
+        melee_weapon_types = ['sword', 'axe', 'club', 'staff', 'dagger', 'katana',
+                              'scythe', 'polearm', 'hand-to-hand']
+        for wtype in melee_weapon_types:
             if wtype in type_lower:
                 return 'Main'
         
@@ -2969,8 +3880,20 @@ async def get_inventory(slot: str = None, job: str = None, show_all: bool = Fals
                         "slot": slot_name,
                         "item_level": wsdist_item.get("Item Level", 0),
                         "jobs": wsdist_item.get("Jobs", []),
-                        "stats": {k: v for k, v in wsdist_item.items() 
-                                 if k not in ["Name", "Name2", "Jobs", "Type", "Slot"]},
+                        "stats": {
+                            **{k: v for k, v in wsdist_item.items()
+                               if k not in ["Name", "Name2", "Jobs", "Type", "Slot"]},
+                            # Stats not carried through wsdist conversion - pulled directly from base_stats
+                            **{k: getattr(item_base.base_stats, k)
+                               for k in ('enmity', 'refresh', 'regen',
+                                         'refresh_potency', 'regen_potency',
+                                         'cure_potency', 'cure_potency_ii',
+                                         'drain_aspir_potency',
+                                         'spell_interruption_rate_down',
+                                         'enfeebling_effect', 'enfeebling_duration',
+                                         'enhancing_duration')
+                               if getattr(item_base.base_stats, k, 0) != 0},
+                        },
                         "effects": db.get_item_effects(item_base),  # Include effects in response
                     })
                 except Exception:
@@ -3029,8 +3952,22 @@ async def get_inventory(slot: str = None, job: str = None, show_all: bool = Fals
                 "slot": slot_name,
                 "item_level": wsdist_item.get("Item Level", 0),
                 "jobs": wsdist_item.get("Jobs", []),
-                "stats": {k: v for k, v in wsdist_item.items() 
-                         if k not in ["Name", "Name2", "Jobs", "Type", "Slot"]},
+                "stats": {
+                    **{k: v for k, v in wsdist_item.items()
+                       if k not in ["Name", "Name2", "Jobs", "Type", "Slot"]},
+                    # Stats not carried through wsdist conversion.
+                    # Use total_stats (base + augments) so augment-sourced values
+                    # (e.g. "Regen" potency on Bookworm's Cape) are included.
+                    **{k: getattr(item.total_stats, k)
+                       for k in ('enmity', 'refresh', 'regen',
+                                 'refresh_potency', 'regen_potency',
+                                 'cure_potency', 'cure_potency_ii',
+                                 'drain_aspir_potency',
+                                 'spell_interruption_rate_down',
+                                 'enfeebling_effect', 'enfeebling_duration',
+                                 'enhancing_duration')
+                       if getattr(item.total_stats, k, 0) != 0},
+                },
                 "effects": item_effects,  # Include effects in response
             })
     
@@ -3475,6 +4412,7 @@ async def optimize_magic(request: MagicOptimizeRequest):
                 mnd_stat=target.mnd_stat,
                 magic_evasion=max(0, target.magic_evasion - total_meva_down),
                 magic_defense_bonus=max(0, target.magic_defense_bonus - total_mdef_down),
+                elemental_resistance_ranks=dict(target.elemental_resistance_ranks),
             )
         
         # Get job gifts if available
@@ -3482,14 +4420,31 @@ async def optimize_magic(request: MagicOptimizeRequest):
         if state.job_gifts and request.job.upper() in state.job_gifts.gifts:
             job_gifts = state.job_gifts.gifts[request.job.upper()]
         
-        # Build fixed_gear from weapons when not optimizing weapons
+        # Build fixed_gear from weapons when not optimizing weapons.
+        # Mirrors the WS endpoint: ranged_weapon is always locked when provided
+        # (it contributes stats even for magic sets, e.g. COR with a gun equipped).
+        # When ranged_weapon is set the ammo slot is also locked so the optimizer
+        # cannot freely fill it with a stat piece.
         fixed_gear = None
-        if not request.include_weapons and (request.main_weapon or request.sub_weapon):
+        if not request.include_weapons and (
+            request.main_weapon or request.sub_weapon or request.ranged_weapon
+        ):
             fixed_gear = {}
             if request.main_weapon and request.main_weapon.get("Name", "Empty") != "Empty":
                 fixed_gear["main"] = request.main_weapon
             if request.sub_weapon and request.sub_weapon.get("Name", "Empty") != "Empty":
                 fixed_gear["sub"] = request.sub_weapon
+            if request.ranged_weapon and request.ranged_weapon.get("Name", "Empty") != "Empty":
+                fixed_gear["ranged"] = request.ranged_weapon
+                # Always lock ammo slot whenever a ranged weapon is hard-set — even if no
+                # ammo piece was supplied — so the optimizer cannot freely fill the slot.
+                # Use the Empty sentinel when there is no ammo to equip.
+                _empty_item = {"Name": "Empty", "Name2": "Empty", "Type": "None", "Jobs": all_jobs}
+                fixed_gear["ammo"] = (
+                    request.ammo
+                    if request.ammo and request.ammo.get("Name", "Empty") != "Empty"
+                    else _empty_item
+                )
         
         # Convert UI buffs to stat bonuses
         # Food may be in buffs.food as a string
@@ -3503,21 +4458,113 @@ async def optimize_magic(request: MagicOptimizeRequest):
         print(f"  Optimization type: {opt_type}")
         print(f"  Available MAGIC_TARGETS keys: {list(MAGIC_TARGETS.keys())}")
         
+        # -------------------------------------------------------------------------
+        # Regen / Refresh route: two-phase greedy optimizer
+        # -------------------------------------------------------------------------
+        spell_obj = get_spell(request.spell_name)
+        if (REGEN_REFRESH_AVAILABLE
+                and spell_obj is not None
+                and spell_obj.properties.get('buff_type') in ('regen', 'refresh')):
+
+            buff_type = spell_obj.properties['buff_type']
+            rr_spell_type = (RegenRefreshSpellType.REGEN
+                             if buff_type == 'regen'
+                             else RegenRefreshSpellType.REFRESH)
+
+            rr_result = optimize_regen_refresh(
+                inventory=state.inventory,
+                spell_type=rr_spell_type,
+                spell_tier=spell_obj.tier,
+                job=job_enum,
+                mode=RegenRefreshMode.MAX_MAGNITUDE,
+                include_weapons=request.include_weapons,
+            )
+
+            # Build gear dict: gear_set maps slot_name -> ItemInstance
+            gear_dict = {}
+            for slot_name, item in rr_result.gear_set.items():
+                aug_list = [str(a) for a in item.augments_raw
+                            if a and a != 'none' and str(a) != '']
+                gear_dict[slot_name] = {
+                    "name": item.base.name,
+                    "name2": item.base.name_log or item.base.name,
+                    "_augments": aug_list if aug_list else None,
+                }
+
+            unit = "HP" if rr_spell_type == RegenRefreshSpellType.REGEN else "MP"
+            gs = rr_result.gear_stats
+            pot_key = "regen_potency" if buff_type == 'regen' else "refresh_potency"
+            flat_dur = gs.regen_effect_duration if buff_type == 'regen' else gs.refresh_effect_duration
+
+            stats_summary = {
+                f"{unit.lower()}_per_tick": rr_result.per_tick,
+                "num_ticks": rr_result.num_ticks,
+                f"total_{unit.lower()}": rr_result.total_resource,
+                "duration_seconds": round(rr_result.duration_seconds, 1),
+                pot_key: gs.regen_potency if buff_type == 'regen' else gs.refresh_potency,
+                "effect_duration_flat": flat_dur,
+                "enhancing_duration_pct": gs.enhancing_duration / 100,
+                "enhancing_duration_augment_pct": gs.enhancing_duration_augment / 100,
+                "potency_locked_slots": rr_result.potency_slots,
+                "duration_filled_slots": rr_result.duration_slots,
+            }
+
+            potency_desc = (
+                f"{rr_result.per_tick} {unit}/tick x {rr_result.num_ticks} ticks"
+                f" ({rr_result.duration_seconds:.0f}s) = {rr_result.total_resource} {unit} total"
+            )
+
+            result_entry = MagicGearsetResult(
+                rank=1,
+                score=float(rr_result.score),
+                potency_score=float(rr_result.score),
+                potency_description=potency_desc,
+                gear=gear_dict,
+                stats=stats_summary,
+            )
+
+            return MagicOptimizeResponse(
+                success=True,
+                spell_name=request.spell_name,
+                optimization_type=request.optimization_type,
+                magic_burst=False,
+                target=request.target,
+                results=[result_entry],
+            )
+
         # Run optimization
-        results = run_magic_optimization(
-            inventory=state.inventory,
-            job=job_enum,
-            spell_name=request.spell_name,
-            optimization_type=opt_type,
-            target=target,
-            magic_burst=request.magic_burst,
-            skillchain_steps=request.skillchain_steps,
-            include_weapons=request.include_weapons,
-            fixed_gear=fixed_gear,
-            beam_width=request.beam_width,
-            job_gifts=job_gifts,
-            buff_bonuses=buff_bonuses,
-        )
+        if request.slow_mode:
+            results = run_magic_optimization_slow(
+                inventory=state.inventory,
+                job=job_enum,
+                spell_name=request.spell_name,
+                optimization_type=opt_type,
+                target=target,
+                magic_burst=request.magic_burst,
+                skillchain_steps=request.skillchain_steps,
+                include_weapons=request.include_weapons,
+                fixed_gear=fixed_gear,
+                beam_width=request.beam_width,
+                job_gifts=job_gifts,
+                buff_bonuses=buff_bonuses,
+                max_iterations=request.slow_max_iterations,
+                top_n_per_slot=request.slow_top_n_per_slot,
+            )
+        else:
+            results = run_magic_optimization(
+                inventory=state.inventory,
+                job=job_enum,
+                spell_name=request.spell_name,
+                optimization_type=opt_type,
+                target=target,
+                magic_burst=request.magic_burst,
+                skillchain_steps=request.skillchain_steps,
+                include_weapons=request.include_weapons,
+                fixed_gear=fixed_gear,
+                beam_width=request.beam_width,
+                job_gifts=job_gifts,
+                buff_bonuses=buff_bonuses,
+            )
         
         # Extract stratification info from results
         stratification_note = get_stratification_note(results)
@@ -3579,14 +4626,17 @@ async def optimize_magic(request: MagicOptimizeRequest):
             if buff_bonuses:
                 caster.int_stat += buff_bonuses.get("INT", 0)
                 caster.mnd_stat += buff_bonuses.get("MND", 0)
+                caster.vit_stat += buff_bonuses.get("VIT", 0)
                 caster.mab += buff_bonuses.get("magic_attack", 0)
                 caster.magic_accuracy += buff_bonuses.get("magic_accuracy", 0)
                 caster.magic_damage += buff_bonuses.get("magic_damage", 0)
+                caster.cure_potency += buff_bonuses.get("cure_potency", 0)
             
             # Build stats summary with TOTAL values (job preset + gear + gifts)
             stats_summary = {
                 "INT": caster.int_stat,  # Total INT
                 "MND": caster.mnd_stat,  # Total MND
+                "VIT": caster.vit_stat,  # Total VIT
                 "magic_attack": caster.mab,  # Total MAB
                 "magic_damage": caster.magic_damage,  # Total magic damage
                 "magic_accuracy": caster.magic_accuracy,  # Total magic accuracy
@@ -3596,10 +4646,13 @@ async def optimize_magic(request: MagicOptimizeRequest):
                 "dark_magic_skill": caster.dark_magic_skill,  # Total skill
                 "enfeebling_magic_skill": caster.enfeebling_magic_skill,  # Total skill
                 "enhancing_magic_skill": caster.enhancing_magic_skill,  # Total skill
+                "healing_magic_skill": caster.healing_magic_skill,  # Total skill
                 "fast_cast": candidate.stats.fast_cast,  # Keep as gear value (basis points)
+                "cure_potency": caster.cure_potency,  # Total cure potency (basis points)
                 # Also include gear-only values for reference
                 "gear_INT": candidate.stats.INT,
                 "gear_MND": candidate.stats.MND,
+                "gear_VIT": candidate.stats.VIT,
                 "gear_magic_attack": candidate.stats.magic_attack,
                 "gear_enfeebling_skill": candidate.stats.enfeebling_magic_skill,
             }
@@ -3627,7 +4680,12 @@ async def optimize_magic(request: MagicOptimizeRequest):
                     # Get skill for spell type
                     skill = caster.get_skill_for_type(spell.magic_type)
                     
-                    # Calculate accuracy
+                    # Calculate accuracy using element-adjusted MEVA.
+                    from magic_formulas import FULL_RESIST_THRESHOLD, HIT_RATE_FLOOR_THRESHOLD
+                    resistance_rank = (
+                        target.elemental_resistance_ranks.get(spell.element, 100)
+                        if spell.element is not None else 100
+                    )
                     dstat_bonus = calculate_dstat_bonus(caster_stat, target_stat)
                     total_macc = calculate_magic_accuracy(
                         skill=skill,
@@ -3635,7 +4693,12 @@ async def optimize_magic(request: MagicOptimizeRequest):
                         dstat_bonus=int(dstat_bonus),
                         magic_burst=False,
                     )
-                    calculated_hit_rate = calculate_magic_hit_rate(total_macc, target.magic_evasion)
+                    effective_meva = target.get_elemental_meva(spell.element)
+                    calculated_hit_rate = calculate_magic_hit_rate(total_macc, effective_meva)
+                    if resistance_rank <= FULL_RESIST_THRESHOLD:
+                        calculated_hit_rate = 0.05
+                    elif resistance_rank <= HIT_RATE_FLOOR_THRESHOLD:
+                        calculated_hit_rate = min(calculated_hit_rate, 0.05)
                 else:
                     calculated_hit_rate = 0.0
             
@@ -3657,6 +4720,8 @@ async def optimize_magic(request: MagicOptimizeRequest):
                 # Also provide the raw potency for display
                 if 'potency' in eval_details:
                     result_entry.raw_potency = eval_details['potency']
+                if 'potency_description' in eval_details:
+                    result_entry.potency_description = eval_details['potency_description']
             else:
                 result_entry.damage = score  # Score is average damage
             
@@ -3827,18 +4892,21 @@ async def simulate_magic(request: MagicSimulateRequest):
             fast_cast=total_fc,
         )
         
-        # Get target stats
-        target_data = MAGIC_TARGET_PRESETS.get(request.target)
-        if target_data:
-            target = MagicTargetStats(
-                int_stat=target_data.get("int_stat", 200),
-                mnd_stat=target_data.get("mnd_stat", 200),
-                magic_evasion=target_data.get("magic_evasion", 600),
-                magic_defense_bonus=target_data.get("magic_defense_bonus", 30),
-            )
-        else:
-            # Fallback to default apex mob
-            target = MAGIC_TARGETS.get('apex_mob', MagicTargetStats())
+        # Get target stats — prefer MAGIC_TARGETS (carries elemental resistance ranks
+        # for Sortie bosses), fall back to constructing from MAGIC_TARGET_PRESETS.
+        target = MAGIC_TARGETS.get(request.target)
+        if target is None:
+            target_data = MAGIC_TARGET_PRESETS.get(request.target)
+            if target_data:
+                target = MagicTargetStats(
+                    int_stat=target_data.get("int_stat", 200),
+                    mnd_stat=target_data.get("mnd_stat", 200),
+                    magic_evasion=target_data.get("magic_evasion", 600),
+                    magic_defense_bonus=target_data.get("magic_defense_bonus", 30),
+                )
+            else:
+                # Fallback to default apex mob
+                target = MAGIC_TARGETS.get('apex_mob', MagicTargetStats())
         
         # Apply debuffs to target
         for debuff in request.debuffs:
@@ -4077,11 +5145,13 @@ def convert_magic_buffs_to_caster_stats(
     bonuses = {
         "INT": 0,
         "MND": 0,
+        "VIT": 0,
         "STR": 0,
         "DEX": 0,
         "magic_attack": 0,
         "magic_accuracy": 0,
         "magic_damage": 0,
+        "cure_potency": 0,
     }
     
     # Process BRD magic songs (etudes)
@@ -4141,9 +5211,11 @@ def convert_magic_buffs_to_caster_stats(
         custom = ui_buffs["custom"]
         bonuses["INT"] += custom.get("INT", 0)
         bonuses["MND"] += custom.get("MND", 0)
+        bonuses["VIT"] += custom.get("VIT", 0)
         bonuses["magic_attack"] += custom.get("magic_attack", 0)
         bonuses["magic_accuracy"] += custom.get("magic_accuracy", 0)
         bonuses["magic_damage"] += custom.get("magic_damage", 0)
+        bonuses["cure_potency"] += custom.get("cure_potency", 0)
     
     return bonuses
 
@@ -4168,6 +5240,9 @@ class LuaSetInfo(BaseModel):
     representative_spell: Optional[str] = None  # Representative spell for magic sets
     spell_type: Optional[str] = None  # elemental, dark, enfeebling_int, enfeebling_mnd, divine
     tp_set_type: Optional[str] = None  # pure_tp, hybrid_tp, acc_tp, dt_tp, refresh_tp (for engaged sets)
+    optimization_type: Optional[str] = None  # 'damage'|'accuracy'|'burst'|'potency' — authoritative value for /api/optimize/magic
+    is_ranged_ws: bool = False  # True for Archery/Marksmanship WS (require range+ammo, not main+sub)
+    base_set_name: Optional[str] = None  # For SIRD sets: the base midcast set name (e.g., sets.midcast['Cure IV'])
 
 
 class LuaParseResponse(BaseModel):
@@ -4182,6 +5257,7 @@ class LuaParseResponse(BaseModel):
     # New fields for weapon requirements
     required_weapons: Dict[str, List[str]] = {}  # weapon_type -> list of WS names
     required_weapon_types: List[str] = []  # Ordered list of weapon types needed
+    has_ranged_ws_sets: bool = False  # True if any placeholder WS set requires range+ammo slots
 
 
 class LuaOptimizedSet(BaseModel):
@@ -4249,6 +5325,11 @@ def classify_lua_set_type(set_name: str, context: str = "") -> str:
     
     # Magic sets (midcast)
     if 'midcast' in name_lower:
+        # SIRD variant — Spell Interruption Rate Down overlay
+        # Must be checked before any other midcast classification
+        if name_lower.endswith('.sird') or "sird" in context_lower:
+            return 'sird'
+        
         # Cure/Healing magic - check BEFORE elemental to avoid "Curaga" matching something else
         if any(x in name_lower for x in ['cure', 'curaga', 'cura', 'healing']):
             return 'healing'
@@ -4268,6 +5349,9 @@ def classify_lua_set_type(set_name: str, context: str = "") -> str:
                     return 'enhancing_duration'
                 if 'skill' in name_lower:
                     return 'enhancing_skill'
+                # Haste/Haste II: potency is fixed, only duration matters
+                if 'haste' in name_lower:
+                    return 'enhancing_duration'
                 # Default enhancing midcast = maximize skill
                 return 'enhancing_skill'
         
@@ -4324,12 +5408,12 @@ def classify_lua_set_type(set_name: str, context: str = "") -> str:
         # Default midcast to magic_damage (will use elemental)
         return 'magic_damage'
     
-    # Buff sets (not midcast but buff-related)
+    # Buff sets (sets.buff.* — worn-while-active gear, not safely optimizable)
     if 'buff' in name_lower:
-        # Check for specific buff types
+        # Composure is a JA; catch it here too for safety
         if 'composure' in name_lower:
             return 'ja_composure'
-        return 'other'
+        return 'buff'
     
     # DT/Idle sets
     if 'idle' in name_lower or 'dt' in name_lower or 'defense' in name_lower:
@@ -4450,157 +5534,179 @@ def get_weapon_type_for_ws(ws_name: str) -> Optional[str]:
 def get_representative_spell_for_set(set_name: str, context: str = "") -> tuple:
     """
     Determine an appropriate representative spell for magic set optimization.
-    
-    Returns tuple of (spell_name, spell_type)
-    spell_type is one of: elemental, dark, drain, divine, enfeebling_int, enfeebling_mnd, 
-                          enhancing, healing, None
-    
-    Returns (None, 'enhancing') or (None, 'healing') for sets that shouldn't use damage simulation.
+
+    Returns tuple of (spell_name, spell_type, optimization_type) where:
+      - spell_name:        exact spell name for /api/optimize/magic, or None if no sim needed
+      - spell_type:        elemental | drain | dark | enfeebling_int | enfeebling_mnd |
+                           enhancing | healing | divine | other
+      - optimization_type: 'damage' | 'accuracy' | 'burst' | 'potency'
+                           This is the authoritative value; the frontend must NOT re-derive it.
+
+    Stage 1 — determine spell category from the set name.
+    Stage 2 — determine optimization mode from the path suffix:
+        .Resistant / .Acc              -> accuracy
+        .MaxDuration                   -> accuracy  (enfeebling: want the full duration to land)
+        .MB / .Burst / 'mb' in name    -> burst     (elemental/divine only)
+        base (no suffix)               -> potency   (enfeebling, healing, enhancing, drain/absorb)
+                                       -> damage    (elemental, stun, dark-damage)
     """
     name_lower = set_name.lower()
-    context_lower = context.lower()
-    
+    context_lower = context.lower() if context else ""
+
+    # --- Stage 2: detect mode modifiers from the path ---
+    is_resistant = 'resistant' in name_lower or name_lower.endswith('.acc')
+    is_max_duration = 'maxduration' in name_lower or 'max_duration' in name_lower
+    is_burst = 'mb' in name_lower or 'burst' in name_lower or 'burst' in context_lower
+
     # =========================================================================
-    # HEALING MAGIC - Cure sets
+    # HEALING MAGIC
     # =========================================================================
     if any(x in name_lower for x in ['cure', 'curaga', 'cura', 'healing']):
-        # Return Cure IV as representative - commonly used, good baseline
-        return ('Cure IV', 'healing')
-    
+        return ('Cure IV', 'healing', 'potency')
+
     # =========================================================================
-    # ENHANCING MAGIC - These don't benefit from damage simulation
+    # ENHANCING MAGIC
+    # All enhancing sets use potency optimization; magic_optimizer branches
+    # internally on the spell name (regen_potency, refresh_potency, etc.)
     # =========================================================================
-    # Specific enhancing spells
     if 'stoneskin' in name_lower:
-        return (None, 'enhancing')  # Stoneskin - optimize for enhancing skill/duration
+        return ('Stoneskin', 'enhancing', 'potency')
     if 'phalanx' in name_lower:
-        return (None, 'enhancing')  # Phalanx - optimize for enhancing skill
+        return ('Phalanx', 'enhancing', 'potency')
     if 'refresh' in name_lower:
-        return (None, 'enhancing')  # Refresh - optimize for enhancing duration/potency
-    if 'haste' in name_lower:
-        return (None, 'enhancing')  # Haste - no gear optimization really needed
-    if 'aquaveil' in name_lower:
-        return (None, 'enhancing')  # Aquaveil - optimize for enhancing skill
+        return ('Refresh', 'enhancing', 'potency')
     if 'regen' in name_lower:
-        return (None, 'enhancing')  # Regen - optimize for enhancing duration/potency
-    
-    # Generic enhancing magic sets
-    if any(x in name_lower for x in ['enhancing', 'duration', 'enhancingskill', 
-                                      'enhancingduration', 'enspell', 'temper',
-                                      'gain', 'boost', 'bar', 'protect', 'shell',
-                                      'blink', 'invisible', 'sneak', 'deodorize']):
-        return (None, 'enhancing')  # Don't use damage simulation
-    
+        return ('Regen', 'enhancing', 'potency')
+    if 'aquaveil' in name_lower:
+        return ('Aquaveil', 'enhancing', 'potency')
+    if 'haste' in name_lower:
+        return ('Haste', 'enhancing', 'potency')
+    if any(x in name_lower for x in ['enspell', 'temper',
+                                      'enfire', 'enblizzard', 'enthunder',
+                                      'enaero', 'enstone', 'enwater']):
+        return ('Enfire II', 'enhancing', 'potency')
+    if any(x in name_lower for x in ['enhancing', 'enhancingduration', 'enhancingskill']):
+        # Duration-focused variant -> use a duration spell as the representative
+        if 'duration' in name_lower:
+            return ('Haste', 'enhancing', 'potency')
+        return ('Phalanx', 'enhancing', 'potency')
+    if any(x in name_lower for x in ['protect', 'shell', 'blink',
+                                      'invisible', 'sneak', 'deodorize', 'spikes']):
+        return ('Phalanx', 'enhancing', 'potency')
+    # bar-spells (Barfire, Barblizzard, etc.)
+    if any(x in name_lower for x in ['barfire', 'barblizzard', 'barthunder', 'baraero',
+                                      'barstone', 'barwater', 'barpoison', 'barsleep',
+                                      'barparalyze', 'barsilence', 'barblind', 'barpetrify']):
+        return ('Barfire', 'enhancing', 'potency')
+
     # =========================================================================
-    # Check for Magic Burst indicator
-    # =========================================================================
-    is_burst = 'mb' in name_lower or 'burst' in name_lower or 'burst' in context_lower
-    
-    # =========================================================================
-    # ELEMENTAL DAMAGE - Use high tier spells
+    # ELEMENTAL MAGIC
     # =========================================================================
     if any(x in name_lower for x in ['elemental', 'nuke']):
-        # Check for specific element in name
-        if 'thunder' in name_lower:
-            return ('Thunder VI', 'elemental')
-        elif 'fire' in name_lower:
-            return ('Fire VI', 'elemental')
-        elif 'blizzard' in name_lower or 'ice' in name_lower:
-            return ('Blizzard VI', 'elemental')
-        elif 'aero' in name_lower or 'wind' in name_lower:
-            return ('Aero VI', 'elemental')
-        elif 'stone' in name_lower or 'earth' in name_lower:
-            return ('Stone VI', 'elemental')
-        elif 'water' in name_lower:
-            return ('Water VI', 'elemental')
-        else:
-            # Default to Thunder VI as it's commonly used
-            return ('Thunder VI', 'elemental')
-    
-    # Specific element names in midcast (but not conflicting with enhancing)
-    if 'thunder' in name_lower:
-        return ('Thunder VI', 'elemental')
-    if 'fire' in name_lower:
-        return ('Fire VI', 'elemental')
-    if 'blizzard' in name_lower:
-        return ('Blizzard VI', 'elemental')
-    if 'aero' in name_lower:
-        return ('Aero VI', 'elemental')
+        if 'thunder' in name_lower:                              spell = 'Thunder VI'
+        elif 'fire' in name_lower:                               spell = 'Fire VI'
+        elif 'blizzard' in name_lower or 'ice' in name_lower:   spell = 'Blizzard VI'
+        elif 'aero' in name_lower or 'wind' in name_lower:      spell = 'Aero VI'
+        elif 'stone' in name_lower or 'earth' in name_lower:    spell = 'Stone VI'
+        elif 'water' in name_lower:                              spell = 'Water VI'
+        else:                                                    spell = 'Thunder VI'
+        opt = 'accuracy' if is_resistant else ('burst' if is_burst else 'damage')
+        return (spell, 'elemental', opt)
+
+    # Specific element names in midcast set paths
+    for elem, spell_name in [('thunder', 'Thunder VI'), ('fire', 'Fire VI'),
+                              ('blizzard', 'Blizzard VI'), ('aero', 'Aero VI'),
+                              ('water', 'Water VI')]:
+        if elem in name_lower:
+            opt = 'accuracy' if is_resistant else ('burst' if is_burst else 'damage')
+            return (spell_name, 'elemental', opt)
     # Stone - but not Stoneskin (already handled above)
     if 'stone' in name_lower and 'skin' not in name_lower:
-        return ('Stone VI', 'elemental')
-    if 'water' in name_lower:
-        return ('Water VI', 'elemental')
-    
+        opt = 'accuracy' if is_resistant else ('burst' if is_burst else 'damage')
+        return ('Stone VI', 'elemental', opt)
+
     # =========================================================================
     # DARK MAGIC
     # =========================================================================
-    # Drain/Aspir specific sets
     if 'drain' in name_lower or 'aspir' in name_lower:
-        return ('Drain III', 'drain')
-    
-    # Absorb spells - dark magic that drains stats
+        return ('Drain III', 'drain', 'potency')
+
     if 'absorb' in name_lower:
-        return ('Absorb-STR', 'dark')
-    
-    # Stun
+        return ('Absorb-STR', 'dark', 'potency')
+
     if 'stun' in name_lower:
-        return ('Stun', 'dark')
-    
-    # General dark magic (use Bio as representative - doesn't have special gear)
+        return ('Stun', 'dark', 'damage')
+
+    if 'bio' in name_lower:
+        # Bio's DOT potency scales with Dark Magic Skill -> potency mode
+        return ('Bio III', 'dark', 'potency')
+
     if 'dark' in name_lower:
-        return ('Bio III', 'dark')
-    
+        return ('Bio III', 'dark', 'damage')
+
     # =========================================================================
     # DIVINE MAGIC
     # =========================================================================
-    if 'divine' in name_lower or 'banish' in name_lower or 'holy' in name_lower:
-        return ('Holy II', 'divine')
-    
+    if any(x in name_lower for x in ['divine', 'banish', 'holy']):
+        opt = 'accuracy' if is_resistant else ('burst' if is_burst else 'damage')
+        return ('Holy II', 'divine', opt)
+
     # =========================================================================
-    # ENFEEBLING MAGIC
+    # ENFEEBLING - special cases first
     # =========================================================================
-    # Impact - special dark magic enfeeble (uses INT)
+    # Impact: INT-based hybrid enfeeble/damage - always accuracy mode
     if 'impact' in name_lower:
-        return ('Impact', 'enfeebling_int')
-    
-    # Dispelga - special enfeeble
+        return ('Impact', 'enfeebling_int', 'accuracy')
+
+    # Dispelga: MND-based AoE dispel (was incorrectly mapped to INT before)
     if 'dispelga' in name_lower:
-        return ('Dispelga', 'enfeebling_int')
-    
-    # INT-based enfeebling (potency based on INT)
-    if 'intenfeeble' in name_lower or 'int enfeeble' in name_lower:
-        return ('Poison II', 'enfeebling_int')
-    
-    # Check for specific INT-based enfeebles
-    if any(x in name_lower for x in ['blind', 'gravity', 'poison', 'dispel', 'sleep', 'break', 'bind']):
-        return ('Poison II', 'enfeebling_int')
-    
-    # MND-based enfeebling (potency based on MND)
-    if 'mndenfeeble' in name_lower or 'mnd enfeeble' in name_lower:
-        return ('Slow II', 'enfeebling_mnd')
-    
-    # Check for specific MND-based enfeebles
+        opt = 'accuracy' if is_resistant else 'potency'
+        return ('Dispelga', 'enfeebling_mnd', opt)
+
+    # =========================================================================
+    # ENFEEBLING - INT-based (Sleep, Gravity, Blind, Bind, Poison, Break)
+    # =========================================================================
+    if 'sleep' in name_lower:
+        # MaxDuration variant -> accuracy mode (want the full duration to land)
+        opt = 'accuracy' if (is_resistant or is_max_duration) else 'potency'
+        return ('Sleep II', 'enfeebling_int', opt)
+
+    if any(x in name_lower for x in ['intenfeeble', 'int enfeeble']):
+        opt = 'accuracy' if is_resistant else 'potency'
+        return ('Sleep II', 'enfeebling_int', opt)
+
+    if any(x in name_lower for x in ['blind', 'gravity', 'poison', 'bind', 'break']):
+        opt = 'accuracy' if is_resistant else 'potency'
+        return ('Gravity II', 'enfeebling_int', opt)
+
+    # =========================================================================
+    # ENFEEBLING - MND-based (Slow, Paralyze, Silence, Addle, Distract, Frazzle, Dia)
+    # =========================================================================
+    if any(x in name_lower for x in ['mndenfeeble', 'mnd enfeeble']):
+        opt = 'accuracy' if is_resistant else 'potency'
+        return ('Slow II', 'enfeebling_mnd', opt)
+
+    if any(x in name_lower for x in ['distract', 'frazzle']):
+        opt = 'accuracy' if is_resistant else 'potency'
+        return ('Distract III', 'enfeebling_mnd', opt)
+
     if any(x in name_lower for x in ['slow', 'paralyze', 'silence', 'addle']):
-        return ('Slow II', 'enfeebling_mnd')
-    
-    # Generic enfeebling - default to MND-based as more common
-    if 'enfeebl' in name_lower or 'enfeeb' in name_lower:
-        return ('Slow II', 'enfeebling_mnd')
-    
-    # Skill-based enfeebles (Distract/Frazzle)
-    if 'distract' in name_lower or 'frazzle' in name_lower:
-        return ('Distract III', 'enfeebling_mnd')
-    
-    # Dia - technically enfeebling
+        opt = 'accuracy' if is_resistant else 'potency'
+        return ('Slow II', 'enfeebling_mnd', opt)
+
     if 'dia' in name_lower:
-        return ('Dia III', 'enfeebling_mnd')
-    
+        opt = 'accuracy' if is_resistant else 'potency'
+        return ('Dia III', 'enfeebling_mnd', opt)
+
+    # Generic enfeebling - default to MND-based
+    if any(x in name_lower for x in ['enfeebl', 'enfeeb']):
+        opt = 'accuracy' if is_resistant else 'potency'
+        return ('Slow II', 'enfeebling_mnd', opt)
+
     # =========================================================================
-    # DEFAULT - If nothing matches, return None to skip simulation
+    # DEFAULT - no match; caller should skip simulation
     # =========================================================================
-    # Don't default to Thunder VI for unknown sets - let the optimizer handle it
-    return (None, 'other')
+    return (None, 'other', 'damage')
 
 
 # =============================================================================
@@ -4648,9 +5754,23 @@ async def parse_lua_file(file: UploadFile = File(...)):
             # Initialize optional fields
             ws_name = None
             weapon_type = None
+            is_ranged_ws = False
             representative_spell = None
             spell_type = None
             tp_set_type = None
+            optimization_type = None
+            base_set_name = None
+            
+            # Weapon types that use the Range slot instead of the Main slot
+            _RANGED_WS_WEAPON_TYPES = {'Archery', 'Marksmanship'}
+            
+            # For SIRD sets, compute the base midcast set name for set_combine
+            # e.g., sets.midcast['Cure IV'].SIRD -> sets.midcast['Cure IV']
+            if set_type == 'sird' and set_def.name in placeholder_names:
+                import re as _re
+                # Strip the .SIRD suffix (case-insensitive)
+                base_set_name = _re.sub(r'\.SIRD$', '', set_def.name, flags=_re.IGNORECASE)
+            
             
             # For WS sets, extract WS name and weapon type
             if set_type == 'ws' and set_def.name in placeholder_names:
@@ -4658,6 +5778,7 @@ async def parse_lua_file(file: UploadFile = File(...)):
                 if ws_name:
                     weapon_type = get_weapon_type_for_ws(ws_name)
                     if weapon_type:
+                        is_ranged_ws = weapon_type in _RANGED_WS_WEAPON_TYPES
                         # Track for required weapons summary
                         if weapon_type not in required_weapons:
                             required_weapons[weapon_type] = []
@@ -4671,17 +5792,35 @@ async def parse_lua_file(file: UploadFile = File(...)):
                     set_def.placeholder_context
                 )
             
-            # For magic sets, determine representative spell
-            if set_type in ('magic_damage', 'magic_burst', 'magic_accuracy') and set_def.name in placeholder_names:
-                representative_spell, spell_type = get_representative_spell_for_set(
-                    set_def.name, 
+            # For all magic-related sets, determine representative spell and
+            # the authoritative optimization_type.  This covers:
+            #   - damage/burst/accuracy magic (midcast elemental, enfeebling, etc.)
+            #   - enhancing magic (Refresh, Regen, Haste, Phalanx, etc.)
+            #   - healing magic (Cure, Curaga, etc.)
+            # The frontend must use optimization_type directly and not re-derive it.
+            _MAGIC_SET_TYPES = {
+                'magic_damage', 'magic_burst', 'magic_accuracy',
+                'enhancing', 'enhancing_skill', 'enhancing_duration',
+                'healing',
+            }
+            if set_type in _MAGIC_SET_TYPES and set_def.name in placeholder_names:
+                representative_spell, spell_type, optimization_type = get_representative_spell_for_set(
+                    set_def.name,
                     set_def.placeholder_context
                 )
             
             sets_info.append(LuaSetInfo(
                 name=set_def.name,
                 path=set_def.path,
-                is_placeholder=set_def.name in placeholder_names,
+                # JA precast and buff sets are intentionally left alone:
+                # - JA sets contain gear worn AT TIME OF USE vs WHILE ACTIVE — hard to distinguish
+                # - Buff sets (sets.buff.*) are the same problem: active-effect gear varies by context
+                # Mark both as non-placeholder so the optimizer skips them entirely.
+                is_placeholder=(
+                    set_def.name in placeholder_names
+                    and not set_type.startswith('ja_')
+                    and set_type != 'buff'
+                ),
                 has_items=bool(set_def.items),
                 item_count=len(set_def.items),
                 base_set=set_def.base_set,
@@ -4689,13 +5828,21 @@ async def parse_lua_file(file: UploadFile = File(...)):
                 set_type=set_type,
                 ws_name=ws_name,
                 weapon_type=weapon_type,
+                is_ranged_ws=is_ranged_ws,
                 representative_spell=representative_spell,
                 spell_type=spell_type,
                 tp_set_type=tp_set_type,
+                optimization_type=optimization_type,
+                base_set_name=base_set_name,
             ))
         
         # Build ordered list of required weapon types
         required_weapon_types = list(required_weapons.keys())
+        
+        # Check if any placeholder WS set is a ranged WS
+        has_ranged_ws_sets = any(
+            s.is_ranged_ws for s in sets_info if s.is_placeholder
+        )
         
         return LuaParseResponse(
             success=True,
@@ -4706,6 +5853,7 @@ async def parse_lua_file(file: UploadFile = File(...)):
             sets=sets_info,
             required_weapons=required_weapons,
             required_weapon_types=required_weapon_types,
+            has_ranged_ws_sets=has_ranged_ws_sets,
         )
         
     except Exception as e:

@@ -28,6 +28,29 @@ class SetDefinition:
     comment: Optional[str] = None    # Optional custom comment
 
 
+# Job-specific empyrean earrings are right-ear only items.
+# If the optimizer places one in LEFT_EAR, we swap it to RIGHT_EAR on output.
+# Mirrors EMPYREAN_EARRING_PREFIXES in app.js.
+EMPYREAN_EARRING_PREFIXES: Set[str] = {
+    'boii', 'bhikku', 'ebers', 'wicce', 'lethargy',
+    "skulker's", "chevalier's", "heathen's", 'nukumi',
+    'fili', 'amini', 'kasuga', 'hattori', "peltast's",
+    "beckoner's", 'hashishin', "chasseur's", 'karagoz',
+    'maculele', 'arbatel', 'azimuth', 'erilaz',
+}
+
+
+def _is_empyrean_earring(item: Optional['ItemInstance']) -> bool:
+    """Return True if the item is a job-specific empyrean earring (right-ear only)."""
+    if not item:
+        return False
+    name = item.name or ''
+    if 'earring' not in name.lower():
+        return False
+    first_word = name.lower().split()[0] if name.split() else ''
+    return first_word in EMPYREAN_EARRING_PREFIXES
+
+
 class LuaGenerator:
     """
     Generates GearSwap Lua code from gear sets.
@@ -143,6 +166,24 @@ class LuaGenerator:
                 set_path, set_def.gear_set, include_comments, set_def.comment
             )
     
+    def _fix_empyrean_ear_order(
+        self,
+        items: Dict
+    ) -> Dict:
+        """
+        Return a copy of items with ears swapped if an empyrean earring is in LEFT_EAR.
+
+        Empyrean earrings are right-ear only. If the optimizer placed one in
+        LEFT_EAR (Slot.LEFT_EAR), swap it with RIGHT_EAR so the generated Lua
+        is correct. Mirrors the isEmpyreanEarring / swap logic in app.js.
+        """
+        left = items.get(Slot.LEFT_EAR)
+        if _is_empyrean_earring(left):
+            items = dict(items)  # don't mutate the original
+            items[Slot.LEFT_EAR] = items.get(Slot.RIGHT_EAR)
+            items[Slot.RIGHT_EAR] = left
+        return items
+
     def _generate_standalone_set(
         self,
         set_name: str,
@@ -173,9 +214,12 @@ class LuaGenerator:
             Slot.BODY, Slot.HANDS, Slot.LEFT_RING, Slot.RIGHT_RING,
             Slot.BACK, Slot.WAIST, Slot.LEGS, Slot.FEET,
         ]
-        
+
+        # Fix empyrean earring position: right-ear only items must not sit in LEFT_EAR.
+        items = self._fix_empyrean_ear_order(dict(gear_set.items))
+
         for slot in slot_order:
-            item = gear_set.items.get(slot)
+            item = items.get(slot)
             if item:
                 slot_name = SLOT_NAMES[slot]
                 item_lua = self._format_item(item)
@@ -202,8 +246,11 @@ class LuaGenerator:
                 set_path, set_def.gear_set, include_comments, set_def.comment
             )
         
-        # Calculate the difference between this set and base set
+        # Calculate the difference between this set and base set.
+        # Fix empyrean ear order in the diff result so right-ear-only items
+        # don't end up assigned to left_ear in the generated Lua.
         diff_items = self._diff_gear_sets(base_def.gear_set, set_def.gear_set)
+        diff_items = self._fix_empyrean_ear_order(diff_items)
         
         if not diff_items:
             # No differences - just reference the base set

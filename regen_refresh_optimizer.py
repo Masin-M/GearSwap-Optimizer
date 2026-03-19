@@ -66,11 +66,11 @@ class GearStats:
 
 REGEN_BASE_DATA = {
     # tier: (base_hp_per_tick, base_duration_seconds)
-    1: (5, 75),    # Regen I: 5 HP/tick, 75 sec
-    2: (12, 60),   # Regen II: 12 HP/tick, 60 sec
-    3: (20, 60),   # Regen III: 20 HP/tick, 60 sec
-    4: (30, 60),   # Regen IV: 30 HP/tick, 60 sec
-    5: (40, 60),   # Regen V: 40 HP/tick, 60 sec
+    1: (5,  75),   # Regen I:   5 HP/tick,  75 sec
+    2: (12, 60),   # Regen II:  12 HP/tick,  60 sec
+    3: (20, 60),   # Regen III: 20 HP/tick,  60 sec
+    4: (30, 60),   # Regen IV:  30 HP/tick,  60 sec
+    5: (40, 60),   # Regen V:   40 HP/tick,  60 sec
 }
 
 REFRESH_BASE_DATA = {
@@ -489,3 +489,333 @@ if __name__ == "__main__":
     
     print("\n")
     print(format_regen_summary(potency_set, tier=5))
+
+
+# =============================================================================
+# INVENTORY OPTIMIZER
+# =============================================================================
+
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from models import Slot, Job
+    from inventory_loader import Inventory
+
+
+# Slots relevant to an enhancing midcast set.
+# Imported lazily to avoid circular dependencies when this module is used standalone.
+_MIDCAST_SLOT_NAMES = [
+    'head', 'neck', 'left_ear', 'right_ear',
+    'body', 'hands', 'left_ring', 'right_ring',
+    'back', 'waist', 'legs', 'feet',
+]
+_WEAPON_SLOT_NAMES = ['main', 'sub']
+
+
+@dataclass
+class SlotCandidate:
+    """A single item candidate for a slot."""
+    slot_name: str
+    item: Any                  # ItemInstance
+    gear_stats: GearStats
+    potency: int               # Spell-specific potency (regen_potency or refresh_potency)
+    duration_contribution: float  # Flat seconds + % contribution (computed per-slot preview)
+
+
+@dataclass
+class RegenRefreshResult:
+    """Result of a Regen/Refresh gear optimization."""
+    spell_type: SpellType
+    spell_tier: int
+    mode: OptimizationMode
+
+    # Best item per slot (slot_name -> ItemInstance, or None if empty)
+    gear_set: Dict[str, Any] = field(default_factory=dict)
+
+    # Which slots were filled by the potency pass (phase 1)
+    potency_slots: List[str] = field(default_factory=list)
+
+    # Which slots were filled by the duration pass (phase 2)
+    duration_slots: List[str] = field(default_factory=list)
+
+    # Accumulated gear stats across the full set
+    gear_stats: GearStats = field(default_factory=GearStats)
+
+    # Final spell output
+    total_resource: int = 0    # Total HP (Regen) or MP (Refresh) returned
+    duration_seconds: float = 0.0
+    num_ticks: int = 0
+    per_tick: int = 0
+
+    # Raw score (same as total_resource for MAX_MAGNITUDE, per_tick for MAX_TICK)
+    score: float = 0.0
+
+
+def _extract_gear_stats_from_item(item, spell_type: SpellType) -> GearStats:
+    """Pull the six relevant stats from an ItemInstance's total_stats."""
+    s = item.total_stats
+    return GearStats(
+        regen_potency=getattr(s, 'regen_potency', 0),
+        regen_effect_duration=getattr(s, 'regen_effect_duration', 0),
+        refresh_potency=getattr(s, 'refresh_potency', 0),
+        refresh_effect_duration=getattr(s, 'refresh_effect_duration', 0),
+        enhancing_duration=getattr(s, 'enhancing_duration', 0),
+        enhancing_duration_augment=getattr(s, 'enhancing_duration_augment', 0),
+    )
+
+
+def _has_any_relevant_stat(gs: GearStats, spell_type: SpellType) -> bool:
+    """Return True if this GearStats contributes anything for the given spell type."""
+    if spell_type == SpellType.REGEN:
+        return (gs.regen_potency > 0 or gs.regen_effect_duration > 0
+                or gs.enhancing_duration > 0 or gs.enhancing_duration_augment > 0)
+    else:
+        return (gs.refresh_potency > 0 or gs.refresh_effect_duration > 0
+                or gs.enhancing_duration > 0 or gs.enhancing_duration_augment > 0)
+
+
+def _get_potency(gs: GearStats, spell_type: SpellType) -> int:
+    return gs.regen_potency if spell_type == SpellType.REGEN else gs.refresh_potency
+
+
+def _add_gear_stats(a: GearStats, b: GearStats) -> GearStats:
+    """Return a new GearStats that is the sum of a and b."""
+    return GearStats(
+        regen_potency=a.regen_potency + b.regen_potency,
+        regen_effect_duration=a.regen_effect_duration + b.regen_effect_duration,
+        refresh_potency=a.refresh_potency + b.refresh_potency,
+        refresh_effect_duration=a.refresh_effect_duration + b.refresh_effect_duration,
+        enhancing_duration=a.enhancing_duration + b.enhancing_duration,
+        enhancing_duration_augment=a.enhancing_duration_augment + b.enhancing_duration_augment,
+    )
+
+
+def _score(gear: GearStats, spell_type: SpellType, spell_tier: int,
+           mode: OptimizationMode) -> float:
+    if spell_type == SpellType.REGEN:
+        return score_regen_set(gear, spell_tier, mode)
+    else:
+        return score_refresh_set(gear, spell_tier, mode)
+
+
+def optimize_regen_refresh(
+    inventory: 'Inventory',
+    spell_type: SpellType,
+    spell_tier: int,
+    job: 'Job',
+    mode: OptimizationMode = OptimizationMode.MAX_MAGNITUDE,
+    include_weapons: bool = False,
+) -> RegenRefreshResult:
+    """
+    Two-phase greedy optimization for Regen/Refresh midcast sets.
+
+    Phase 1 - Potency lock:
+        Find every item in the inventory that carries regen_potency (for Regen)
+        or refresh_potency (for Refresh).  For each slot that has such an item,
+        choose the one with the highest potency and lock the slot.  If two items
+        in the same slot have equal potency, the one with more total duration
+        contribution wins; item level breaks any remaining tie.
+
+    Phase 2 - Duration fill:
+        With potency-locked slots fixed, iterate over the remaining slots and
+        pick the item that maximises the spell score given the gear accumulated
+        so far.  Because enhancing_duration and enhancing_duration_augment are
+        separate multiplicative steps, the marginal value of a percentage-duration
+        item depends on the current accumulated state - so each slot is evaluated
+        against the running total rather than in isolation.
+
+    Args:
+        inventory:       Loaded player inventory.
+        spell_type:      SpellType.REGEN or SpellType.REFRESH.
+        spell_tier:      Spell tier (Regen 1-5, Refresh 1-3).
+        job:             Player's job (used to filter equippable items).
+        mode:            MAX_TICK or MAX_MAGNITUDE.
+        include_weapons: Whether to consider main/sub slots.
+
+    Returns:
+        RegenRefreshResult with the best item per slot and full spell output.
+    """
+    from models import Slot, SLOT_NAMES
+
+    # Build the set of slot names we care about
+    slot_names = list(_MIDCAST_SLOT_NAMES)
+    if include_weapons:
+        slot_names = _WEAPON_SLOT_NAMES + slot_names
+
+    # Reverse-map slot_name -> Slot enum for inventory lookup
+    name_to_slot = {v: k for k, v in SLOT_NAMES.items()}
+
+    # -------------------------------------------------------------------------
+    # Collect candidates: items per slot that have at least one relevant stat
+    # -------------------------------------------------------------------------
+    candidates: Dict[str, List[Any]] = {s: [] for s in slot_names}
+
+    for item in inventory.items:
+        if not item.can_equip_from():
+            continue
+        if job and not item.base.can_equip(job):
+            continue
+
+        gs = _extract_gear_stats_from_item(item, spell_type)
+        if not _has_any_relevant_stat(gs, spell_type):
+            continue
+
+        # An item may fit multiple slots - add to each applicable one
+        for slot_name in slot_names:
+            slot_enum = name_to_slot.get(slot_name)
+            if slot_enum is None:
+                continue
+            item_slots = item.base.get_slots()
+            if slot_enum in item_slots:
+                candidates[slot_name].append(item)
+
+    # -------------------------------------------------------------------------
+    # Phase 1: Lock slots that have potency items
+    # -------------------------------------------------------------------------
+    locked: Dict[str, Any] = {}           # slot_name -> ItemInstance
+    locked_stats: Dict[str, GearStats] = {}
+
+    for slot_name in slot_names:
+        potency_items = [
+            item for item in candidates[slot_name]
+            if _get_potency(_extract_gear_stats_from_item(item, spell_type), spell_type) > 0
+        ]
+        if not potency_items:
+            continue
+
+        def _phase1_key(item):
+            gs = _extract_gear_stats_from_item(item, spell_type)
+            potency = _get_potency(gs, spell_type)
+            # Tiebreak 1: total duration contribution at a notional base
+            # (flat seconds + combined % applied to base duration to get a scalar)
+            base_dur = REGEN_BASE_DATA[spell_tier][1] if spell_type == SpellType.REGEN \
+                       else REFRESH_BASE_DATA[spell_tier][1]
+            preview_dur = (base_dur + gs.regen_effect_duration + gs.refresh_effect_duration) \
+                          * (1 + gs.enhancing_duration / 10000) \
+                          * (1 + gs.enhancing_duration_augment / 10000)
+            # Tiebreak 2: item level
+            return (potency, preview_dur, item.base.item_level)
+
+        best = max(potency_items, key=_phase1_key)
+        locked[slot_name] = best
+        locked_stats[slot_name] = _extract_gear_stats_from_item(best, spell_type)
+
+    # Accumulated gear from phase 1
+    current_gear = GearStats()
+    for gs in locked_stats.values():
+        current_gear = _add_gear_stats(current_gear, gs)
+
+    # -------------------------------------------------------------------------
+    # Phase 2: Fill remaining slots by maximising score delta
+    # -------------------------------------------------------------------------
+    duration_filled: Dict[str, Any] = {}
+
+    remaining_slots = [s for s in slot_names if s not in locked]
+
+    for slot_name in remaining_slots:
+        slot_candidates = candidates[slot_name]
+        if not slot_candidates:
+            continue
+
+        best_item = None
+        best_score = _score(current_gear, spell_type, spell_tier, mode)
+
+        for item in slot_candidates:
+            gs = _extract_gear_stats_from_item(item, spell_type)
+            trial_gear = _add_gear_stats(current_gear, gs)
+            trial_score = _score(trial_gear, spell_type, spell_tier, mode)
+            if trial_score > best_score:
+                best_score = trial_score
+                best_item = item
+            elif trial_score == best_score and best_item is not None:
+                # Tiebreak: prefer item with more potency, then higher item level
+                challenger_potency = _get_potency(gs, spell_type)
+                current_best_potency = _get_potency(
+                    _extract_gear_stats_from_item(best_item, spell_type), spell_type)
+                if challenger_potency > current_best_potency:
+                    best_item = item
+                elif challenger_potency == current_best_potency:
+                    if item.base.item_level > best_item.base.item_level:
+                        best_item = item
+
+        if best_item is not None:
+            duration_filled[slot_name] = best_item
+            gs = _extract_gear_stats_from_item(best_item, spell_type)
+            current_gear = _add_gear_stats(current_gear, gs)
+
+    # -------------------------------------------------------------------------
+    # Build result
+    # -------------------------------------------------------------------------
+    gear_set = {**locked, **duration_filled}
+
+    if spell_type == SpellType.REGEN:
+        total, duration, ticks, per_tick = calculate_regen_total(spell_tier, current_gear)
+    else:
+        total, duration, ticks, per_tick = calculate_refresh_total(spell_tier, current_gear)
+
+    final_score = _score(current_gear, spell_type, spell_tier, mode)
+
+    return RegenRefreshResult(
+        spell_type=spell_type,
+        spell_tier=spell_tier,
+        mode=mode,
+        gear_set=gear_set,
+        potency_slots=list(locked.keys()),
+        duration_slots=list(duration_filled.keys()),
+        gear_stats=current_gear,
+        total_resource=total,
+        duration_seconds=duration,
+        num_ticks=ticks,
+        per_tick=per_tick,
+        score=final_score,
+    )
+
+
+def format_optimization_result(result: RegenRefreshResult) -> str:
+    """Format an optimization result for display."""
+    spell_name = (
+        f"Regen {['I','II','III','IV','V'][result.spell_tier - 1]}"
+        if result.spell_type == SpellType.REGEN
+        else f"Refresh {['I','II','III'][result.spell_tier - 1]}"
+    )
+    unit = "HP" if result.spell_type == SpellType.REGEN else "MP"
+    mode_str = "Max Tick" if result.mode == OptimizationMode.MAX_TICK else "Max Magnitude"
+
+    lines = [
+        f"=== {spell_name} Midcast Optimization ({mode_str}) ===",
+        f"",
+        f"Result:  {result.per_tick} {unit}/tick  x  {result.num_ticks} ticks"
+        f"  ({result.duration_seconds:.1f}s)  =  {result.total_resource} {unit} total",
+        f"",
+        f"Gear Contribution:",
+        f"  {'Regen potency' if result.spell_type == SpellType.REGEN else 'Refresh potency'}:"
+        f"  +{result.gear_stats.regen_potency if result.spell_type == SpellType.REGEN else result.gear_stats.refresh_potency}"
+        f" {unit}/tick",
+        f"  Flat duration:   +{result.gear_stats.regen_effect_duration if result.spell_type == SpellType.REGEN else result.gear_stats.refresh_effect_duration}s",
+        f"  Enh. dur (gear): +{result.gear_stats.enhancing_duration / 100:.1f}%",
+        f"  Enh. dur (aug):  +{result.gear_stats.enhancing_duration_augment / 100:.1f}%",
+        f"",
+    ]
+
+    if result.potency_slots:
+        lines.append(f"Phase 1 - Potency locked slots: {', '.join(result.potency_slots)}")
+        for slot_name in result.potency_slots:
+            item = result.gear_set.get(slot_name)
+            if item:
+                lines.append(f"  {slot_name:<12} {item.name}")
+    else:
+        lines.append("Phase 1 - No potency items found in inventory")
+
+    lines.append("")
+
+    if result.duration_slots:
+        lines.append(f"Phase 2 - Duration filled slots: {', '.join(result.duration_slots)}")
+        for slot_name in result.duration_slots:
+            item = result.gear_set.get(slot_name)
+            if item:
+                lines.append(f"  {slot_name:<12} {item.name}")
+    else:
+        lines.append("Phase 2 - No additional duration items found")
+
+    return "\n".join(lines)

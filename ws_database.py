@@ -33,6 +33,7 @@ class WSType(Enum):
     PHYSICAL = "Physical"
     MAGICAL = "Magical"
     HYBRID = "Hybrid"
+    NONE = "None"  # Non-damaging utility weapon skills (e.g. Dagan, Starlight, Moonlight)
 
 
 @dataclass
@@ -166,6 +167,22 @@ class WeaponskillData:
             weights['crit_rate'] = 6.0
             weights['crit_damage'] = 5.0
         
+        # TP Bonus: increases entry-TP which raises fTP, especially powerful for
+        # WSes where fTP scales steeply with TP (e.g. Savage Blade 4.0→13.75).
+        # Weight scales with the fTP range so flat-fTP WSes value it less.
+        # Calibration: 250 TP Bonus ≈ 5-7% WSD equivalent at ws_damage weight 7.0
+        # → target score ≈ 250 * 2.8 = 700, comparable to ~5% WSD at scale factor 20.
+        # For flat-fTP WSes (replicating with ftp[0]==ftp[2]) it is still
+        # worth something (better average hit rate) but less impactful.
+        ftp_range = self.ftp[2] - self.ftp[0]
+        if ftp_range > 0:
+            # Scale with how much TP matters to the WS damage formula
+            # Clamp to [0.5, 2.8] so extreme values stay reasonable
+            tp_bonus_weight = max(0.5, min(2.8, ftp_range * 0.25))
+        else:
+            tp_bonus_weight = 0.5  # Flat fTP: TP Bonus has limited but real value
+        weights['tp_bonus'] = tp_bonus_weight
+        
         return weights
 
 
@@ -195,7 +212,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.SWORD,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"DEX": 80},
-        ftp=(2.25, 2.25, 2.25),
+        ftp=(1.6328125, 1.6328125, 1.6328125),
         hits=3,
         ftp_replicating=True,
         can_crit=True,
@@ -213,8 +230,8 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         hits=5,
         ftp_replicating=True,
         can_crit=False,
-        skillchain=["Gravitation", "Scission"],
-        notes="Ignores defense. Best at low attack vs high def targets."
+        skillchain=["Darkness", "Gravitation", "Scission"],
+        notes="Standard physical damage with attack penalty. Darkness property only under Aeonic Aftermath (Sequence)."
     ),
     
     "Expiacion": WeaponskillData(
@@ -222,8 +239,8 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.SWORD,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"STR": 30, "INT": 30, "DEX": 20},
-        ftp=(3.75, 7.5, 10.0),
-        hits=3,
+        ftp=(3.796875, 9.390625, 12.1875),
+        hits=2,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Distortion", "Scission"],
@@ -235,20 +252,20 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.SWORD,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"MND": 50, "STR": 30},
-        ftp=(2.0, 2.0, 2.0),
+        ftp=(4.0, 4.0, 4.0),
         hits=3,
         ftp_replicating=True,
         can_crit=False,
         skillchain=["Fragmentation", "Distortion"],
-        notes="Cannot critical hit."
+        notes="Murgleis mythic WS (RDM only)."
     ),
     
     "Fast Blade": WeaponskillData(
         name="Fast Blade",
         weapon_type=WeaponType.SWORD,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 20, "DEX": 20},
-        ftp=(1.0, 1.0, 1.0),
+        stat_modifiers={"STR": 40, "DEX": 40},
+        ftp=(1.0, 3.0, 5.0),
         hits=2,
         ftp_replicating=False,
         can_crit=False,
@@ -260,27 +277,27 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Fast Blade II",
         weapon_type=WeaponType.SWORD,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 30, "DEX": 30},
-        ftp=(2.0, 2.0, 2.0),
+        stat_modifiers={"DEX": 80},
+        ftp=(1.8, 3.5, 5.0),
         hits=2,
         ftp_replicating=True,
         can_crit=False,
-        skillchain=["Scission"],
-        notes="Ambuscade sword WS. fTP replicates."
+        skillchain=["Fusion"],
+        notes="Ambuscade sword WS (Kaja Sword). fTP replicates."
     ),
     
     "Burning Blade": WeaponskillData(
         name="Burning Blade",
         weapon_type=WeaponType.SWORD,
-        ws_type=WSType.HYBRID,
+        ws_type=WSType.MAGICAL,
         stat_modifiers={"STR": 40, "INT": 40},
-        ftp=(1.0, 1.5, 2.0),
+        ftp=(1.0, 2.09765625, 3.3984375),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         element="Fire",
         skillchain=["Liquefaction"],
-        notes="Basic hybrid fire sword WS."
+        notes="Magical fire sword WS."
     ),
     
     "Swift Blade": WeaponskillData(
@@ -301,12 +318,12 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.SWORD,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"MND": 40, "STR": 40},
-        ftp=(2.75, 2.75, 2.75),
+        ftp=(5.0, 5.0, 5.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Light", "Fusion"],
-        notes="Excalibur relic WS."
+        notes="Excalibur/Caliburn relic WS. +10 HP/tick Regen aftermath (duration scales with TP)."
     ),
     
     "Imperator": WeaponskillData(
@@ -322,6 +339,72 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         notes="Prime WS. 3-hit fTP replicating."
     ),
 
+    "Flat Blade": WeaponskillData(
+        name="Flat Blade",
+        weapon_type=WeaponType.SWORD,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"STR": 100},
+        ftp=(1.0, 1.0, 1.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=["Impaction"],
+        notes="Stuns enemy; chance of stunning varies with TP. Skill level 75."
+    ),
+
+    "Shining Blade": WeaponskillData(
+        name="Shining Blade",
+        weapon_type=WeaponType.SWORD,
+        ws_type=WSType.MAGICAL,
+        stat_modifiers={"STR": 40, "MND": 40},
+        ftp=(1.125, 2.22265625, 3.5234375),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        element="Light",
+        skillchain=["Scission"],
+        notes="Magical light sword WS. Skill level 100."
+    ),
+
+    "Spirits Within": WeaponskillData(
+        name="Spirits Within",
+        weapon_type=WeaponType.SWORD,
+        ws_type=WSType.NONE,
+        stat_modifiers={},
+        ftp=(0.0, 0.0, 0.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=[],
+        notes="Breath damage. Damage scales with current HP: 12.5% at 1000 TP, 50% at 2000 TP, 100% at 3000 TP. Unavoidable; unaffected by target Defense/Evasion. Does not interrupt skillchains. Skill level 175."
+    ),
+
+    "Vorpal Blade": WeaponskillData(
+        name="Vorpal Blade",
+        weapon_type=WeaponType.SWORD,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"STR": 60},
+        ftp=(1.375, 1.375, 1.375),
+        hits=4,
+        ftp_replicating=True,
+        can_crit=True,
+        skillchain=["Scission", "Impaction"],
+        notes="Critical hit rate varies with TP. Requires WAR/RDM/PLD/DRK/BLU/RUN as main or sub job. Skill level 200."
+    ),
+
+    "Atonement": WeaponskillData(
+        name="Atonement",
+        weapon_type=WeaponType.SWORD,
+        ws_type=WSType.NONE,
+        stat_modifiers={},
+        ftp=(1.0, 1.5, 2.0),
+        hits=2,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=["Fusion", "Reverberation"],
+        notes="Mythic WS (Burtgang). PLD main job only. Breath damage based on Enmity (CE+VE). Damage formula: ((CE/6)−1)+((VE/6)−1); capped at weaponLevel×10. Unaffected by Defense/Evasion."
+    ),
+
     # -------------------------------------------------------------------------
     # DAGGER
     # -------------------------------------------------------------------------
@@ -330,7 +413,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.DAGGER,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"DEX": 80},
-        ftp=(6.0, 15.0, 19.5),
+        ftp=(5.0, 10.19, 13.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,  # Cannot crit unless forced
@@ -356,7 +439,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Aeolian Edge",
         weapon_type=WeaponType.DAGGER,
         ws_type=WSType.MAGICAL,
-        stat_modifiers={"DEX": 28, "INT": 28},
+        stat_modifiers={"DEX": 40, "INT": 40},
         ftp=(2.0, 3.0, 4.5),
         hits=1,
         ftp_replicating=False,
@@ -376,15 +459,15 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Fusion", "Compression"],
-        notes="Carnwenhan mythic WS."
+        notes="Vajra mythic WS (THF)."
     ),
     
     "Exenterator": WeaponskillData(
         name="Exenterator",
         weapon_type=WeaponType.DAGGER,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"AGI": 73, "INT": 15},
-        ftp=(1.0, 1.0, 1.0),
+        stat_modifiers={"AGI": 73},
+        ftp=(1.1875, 1.1875, 1.1875),
         hits=4,
         ftp_replicating=True,
         can_crit=False,
@@ -448,13 +531,95 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Ruthless Stroke",
         weapon_type=WeaponType.DAGGER,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"DEX": 60, "AGI": 40},
-        ftp=(4.0, 4.0, 4.0),
-        hits=5,
-        ftp_replicating=True,
+        stat_modifiers={"DEX": 25, "AGI": 25},
+        ftp=(5.375, 14.0, 23.0),
+        hits=4,
+        ftp_replicating=False,
         can_crit=False,
         skillchain=["Liquefaction", "Impaction", "Fragmentation"],
-        notes="Prime WS. 5-hit fTP replicating."
+        notes="Prime WS via Mpu Gandring. Fourfold attack, damage scales significantly with TP."
+    ),
+
+    "Wasp Sting": WeaponskillData(
+        name="Wasp Sting",
+        weapon_type=WeaponType.DAGGER,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"DEX": 100},
+        ftp=(1.0, 1.0, 1.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=["Scission"],
+        notes="Basic dagger WS. Skill level 5."
+    ),
+
+    "Gust Slash": WeaponskillData(
+        name="Gust Slash",
+        weapon_type=WeaponType.DAGGER,
+        ws_type=WSType.MAGICAL,
+        stat_modifiers={"DEX": 40, "INT": 40},
+        ftp=(1.0, 2.0, 3.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        element="Wind",
+        skillchain=["Detonation"],
+        notes="Magical wind dagger WS. Skill level 40."
+    ),
+
+    "Shadowstitch": WeaponskillData(
+        name="Shadowstitch",
+        weapon_type=WeaponType.DAGGER,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"CHR": 100},
+        ftp=(1.0, 1.0, 1.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=["Reverberation"],
+        notes="Physical dagger WS. Skill level 70."
+    ),
+
+    "Cyclone": WeaponskillData(
+        name="Cyclone",
+        weapon_type=WeaponType.DAGGER,
+        ws_type=WSType.MAGICAL,
+        stat_modifiers={"DEX": 40, "INT": 40},
+        ftp=(1.0, 2.375, 3.75),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        element="Wind",
+        skillchain=["Detonation", "Impaction"],
+        notes="Magical wind AoE dagger WS. Skill level 125."
+    ),
+
+    "Energy Steal": WeaponskillData(
+        name="Energy Steal",
+        weapon_type=WeaponType.DAGGER,
+        ws_type=WSType.MAGICAL,
+        stat_modifiers={"MND": 100},
+        ftp=(1.0, 1.0, 1.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        element="Dark",
+        skillchain=[],
+        notes="Magical dark dagger WS. Drains MP. No skillchain properties. Skill level 150."
+    ),
+
+    "Energy Drain": WeaponskillData(
+        name="Energy Drain",
+        weapon_type=WeaponType.DAGGER,
+        ws_type=WSType.MAGICAL,
+        stat_modifiers={"MND": 100},
+        ftp=(1.0, 1.0, 1.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        element="Dark",
+        skillchain=[],
+        notes="Magical dark dagger WS. Drains MP. No skillchain properties. Skill level 175."
     ),
 
     # -------------------------------------------------------------------------
@@ -467,10 +632,10 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         stat_modifiers={"STR": 85},
         ftp=(1.0, 3.0, 5.0),
         hits=5,
-        ftp_replicating=False,
+        ftp_replicating=True,
         can_crit=False,
-        skillchain=["Fragmentation", "Scission"],
-        notes="Multi-hit with high STR mod. ACC varies with TP."
+        skillchain=["Light", "Fragmentation", "Scission"],
+        notes="Multi-hit fTP replicating. Light property only under Aeonic Aftermath. STR mod scales 73–85% with merit rank."
     ),
     
     "Torcleaver": WeaponskillData(
@@ -481,10 +646,9 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         ftp=(4.75, 7.5, 10.0),
         hits=1,
         ftp_replicating=False,
-        can_crit=True,
-        crit_rate_tp=(2000, 3500, 5000),
-        skillchain=["Light", "Distortion", "Scission"],
-        notes="Empyrean WS. High fTP, can crit."
+        can_crit=False,
+        skillchain=["Light", "Distortion"],
+        notes="Empyrean WS (Caladbolg). PLD/DRK main job only. Caladbolg grants Aftermath; Espafut/Xiphias grant access without Aftermath."
     ),
     
     "Scourge": WeaponskillData(
@@ -500,6 +664,33 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         notes="Ragnarok relic WS."
     ),
     
+    "Power Slash": WeaponskillData(
+        name="Power Slash",
+        weapon_type=WeaponType.GREAT_SWORD,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"STR": 60, "VIT": 60},
+        ftp=(1.0, 1.0, 1.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=True,
+        skillchain=["Transfixion"],
+        notes="Critical hit rate varies with TP. Exact crit rate values per TP tier unknown."
+    ),
+
+    "Frostbite": WeaponskillData(
+        name="Frostbite",
+        weapon_type=WeaponType.GREAT_SWORD,
+        ws_type=WSType.MAGICAL,
+        stat_modifiers={"STR": 40, "INT": 40},
+        ftp=(1.0, 1.0, 1.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        element="Ice",
+        skillchain=["Induration"],
+        notes="Magical ice WS. fTP values unverified."
+    ),
+
     "Hard Slash": WeaponskillData(
         name="Hard Slash",
         weapon_type=WeaponType.GREAT_SWORD,
@@ -516,7 +707,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
     "Freezebite": WeaponskillData(
         name="Freezebite",
         weapon_type=WeaponType.GREAT_SWORD,
-        ws_type=WSType.HYBRID,
+        ws_type=WSType.MAGICAL,
         stat_modifiers={"STR": 40, "INT": 40},
         ftp=(1.0, 2.0, 3.0),
         hits=1,
@@ -531,22 +722,35 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Shockwave",
         weapon_type=WeaponType.GREAT_SWORD,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 100},
+        stat_modifiers={"STR": 30, "MND": 30},
         ftp=(1.125, 1.125, 1.125),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Reverberation"],
-        notes="AoE WS. Dispels target."
+        notes="AoE WS. Sleeps enemies; duration varies with TP."
+    ),
+
+    "Crescent Moon": WeaponskillData(
+        name="Crescent Moon",
+        weapon_type=WeaponType.GREAT_SWORD,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"STR": 80},
+        ftp=(1.0, 1.0, 1.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=["Scission"],
+        notes="fTP values unverified."
     ),
     
     "Sickle Moon": WeaponskillData(
         name="Sickle Moon",
         weapon_type=WeaponType.GREAT_SWORD,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 50, "AGI": 50},
+        stat_modifiers={"STR": 40, "AGI": 40},
         ftp=(2.5625, 2.5625, 2.5625),
-        hits=1,
+        hits=2,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Scission", "Impaction"],
@@ -557,13 +761,13 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Spinning Slash",
         weapon_type=WeaponType.GREAT_SWORD,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 100},
+        stat_modifiers={"STR": 30, "INT": 30},
         ftp=(1.5, 1.5, 1.5),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Fragmentation"],
-        notes="AoE WS."
+        notes="AoE WS. Dervish Sword and Foreshock Sword each add +35% WS damage."
     ),
     
     "Ground Strike": WeaponskillData(
@@ -597,7 +801,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Fimbulvetr",
         weapon_type=WeaponType.GREAT_SWORD,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 60, "VIT": 40},
+        stat_modifiers={"STR": 60, "VIT": 60},
         ftp=(4.0, 4.0, 4.0),
         hits=3,
         ftp_replicating=True,
@@ -626,13 +830,13 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Tachi: Shoha",
         weapon_type=WeaponType.GREAT_KATANA,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 73, "MND": 15},
-        ftp=(1.375, 1.375, 1.375),
+        stat_modifiers={"STR": 73},
+        ftp=(1.375, 3.25, 4.625),
         hits=2,
         ftp_replicating=True,
         can_crit=False,
-        skillchain=["Fragmentation", "Compression"],
-        notes="Good for building TP. fTP replicates."
+        skillchain=["Light", "Fragmentation", "Compression"],
+        notes="Merit/Aeonic WS. STR mod scales 73–85% via merits. Light property granted by Aeonic aftermath."
     ),
     
     "Tachi: Kaiten": WeaponskillData(
@@ -645,7 +849,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Light", "Fragmentation"],
-        notes="Good base damage. Masamune adds WS damage."
+        notes="Relic WS. Boosted by Amanomurakumo."
     ),
     
     "Tachi: Rana": WeaponskillData(
@@ -657,8 +861,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         hits=3,
         ftp_replicating=True,
         can_crit=False,
-        skillchain=["Gravitation", "Distortion"],
-        notes="Kogarasumaru mythic WS."
+        skillchain=["Gravitation", "Induration"],
     ),
     
     "Tachi: Enpi": WeaponskillData(
@@ -666,12 +869,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.GREAT_KATANA,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"STR": 60},
-        ftp=(1.0, 1.5, 2.0),
-        hits=2,
-        ftp_replicating=False,
-        can_crit=False,
-        skillchain=["Transfixion", "Scission"],
-        notes="Basic great katana WS."
+        ftp=(1.0, 2.0, 4.0),
     ),
     
     "Tachi: Goten": WeaponskillData(
@@ -706,8 +904,8 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Tachi: Jinpu",
         weapon_type=WeaponType.GREAT_KATANA,
         ws_type=WSType.HYBRID,
-        stat_modifiers={"STR": 30, "INT": 30},
-        ftp=(0.5, 2.0, 4.0),
+        stat_modifiers={"STR": 30},
+        ftp=(0.5, 1.5, 2.5),
         hits=2,
         ftp_replicating=False,
         can_crit=False,
@@ -719,15 +917,15 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
     "Tachi: Koki": WeaponskillData(
         name="Tachi: Koki",
         weapon_type=WeaponType.GREAT_KATANA,
-        ws_type=WSType.MAGICAL,
-        stat_modifiers={"STR": 30, "MND": 30},
-        ftp=(1.0, 2.0, 3.0),
+        ws_type=WSType.HYBRID,
+        stat_modifiers={"STR": 50, "MND": 30},
+        ftp=(0.5, 1.5, 2.5),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         element="Light",
-        skillchain=["Transfixion", "Compression"],
-        notes="Magical light damage."
+        skillchain=["Reverberation", "Impaction"],
+        notes="Hybrid light damage."
     ),
     
     "Tachi: Yukikaze": WeaponskillData(
@@ -739,7 +937,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        skillchain=["Detonation", "Induration", "Impaction"],
+        skillchain=["Induration", "Detonation"],
         notes="Attack varies with TP. Blinds target."
     ),
     
@@ -766,7 +964,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Fusion", "Compression"],
-        notes="Attack varies with TP. Binds target."
+        notes="Attack varies with TP. Paralyzes target."
     ),
     
     "Tachi: Ageha": WeaponskillData(
@@ -774,25 +972,38 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.GREAT_KATANA,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"CHR": 60, "STR": 40},
-        ftp=(2.0, 2.0, 2.0),
+        ftp=(2.625, 2.625, 2.625),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Compression", "Scission"],
-        notes="Dispels target. Accuracy varies with TP."
+        notes="Lowers target's Defense. Accuracy varies with TP."
     ),
     
     "Tachi: Mumei": WeaponskillData(
         name="Tachi: Mumei",
         weapon_type=WeaponType.GREAT_KATANA,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 60, "MND": 40},
-        ftp=(4.0, 4.0, 4.0),
-        hits=3,
-        ftp_replicating=True,
+        stat_modifiers={"STR": 50, "DEX": 50},
+        ftp=(3.66, 7.33, 11.0),
+        hits=1,
+        ftp_replicating=False,
         can_crit=False,
-        skillchain=["Darkness", "Gravitation"],
-        notes="Prime WS. 3-hit fTP replicating."
+        skillchain=["Detonation", "Compression", "Distortion"],
+        notes="Prime WS. High fTP scaling with TP."
+    ),
+
+    "Tachi: Hobaku": WeaponskillData(
+        name="Tachi: Hobaku",
+        weapon_type=WeaponType.GREAT_KATANA,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"STR": 60},
+        ftp=(1.0, 1.0, 1.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=["Induration"],
+        notes="Basic great katana WS. Stuns target. Skill level 30."
     ),
 
     # -------------------------------------------------------------------------
@@ -802,13 +1013,13 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Blade: Shun",
         weapon_type=WeaponType.KATANA,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"DEX": 73, "CHR": 15},
+        stat_modifiers={"DEX": 73},
         ftp=(1.0, 1.0, 1.0),
         hits=5,
         ftp_replicating=True,
         can_crit=False,
-        skillchain=["Fusion", "Impaction"],
-        notes="Multi-hit. Good for TP building."
+        skillchain=["Light", "Fusion", "Impaction"],
+        notes="Merit WS. DEX mod scales 73–85% with merit rank. Light property available under Aeonic Aftermath. Requires Martial Mastery quest + Heart of the Bushin key item."
     ),
     
     "Blade: Hi": WeaponskillData(
@@ -822,7 +1033,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         can_crit=True,
         crit_rate_tp=(1000, 1500, 2000),
         skillchain=["Darkness", "Gravitation"],
-        notes="Empyrean WS. High fTP, can crit. Kannagi adds WS damage."
+        notes="Empyrean WS (Kannagi). High fTP, can crit. Crit rate +15%/+20%/+25% by TP tier. Kannagi Aftermath: occasionally deals double damage. NIN main job only."
     ),
     
     "Blade: Metsu": WeaponskillData(
@@ -835,15 +1046,28 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Darkness", "Fragmentation"],
-        notes="Nagi mythic WS. Very high single-hit damage."
+        notes="Relic WS (Yoshimitsu / Kikoku / Sekirei). Very high single-hit damage. Aftermath: Subtle Blow +10."
     ),
     
+    "Blade: Rin": WeaponskillData(
+        name="Blade: Rin",
+        weapon_type=WeaponType.KATANA,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"STR": 60, "DEX": 60},
+        ftp=(1.0, 1.0, 1.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=True,
+        skillchain=["Transfixion"],
+        notes="Skill 5. Crit rate scales with TP (unique — does NOT use dDEX or equipment crit rate)."
+    ),
+
     "Blade: Retsu": WeaponskillData(
         name="Blade: Retsu",
         weapon_type=WeaponType.KATANA,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"DEX": 60, "STR": 20},
-        ftp=(0.5, 1.5, 2.5),
+        ftp=(1.0, 1.0, 1.0),
         hits=2,
         ftp_replicating=False,
         can_crit=False,
@@ -889,7 +1113,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         ftp_replicating=False,
         can_crit=False,
         element="Earth",
-        skillchain=["Transfixion", "Impaction"],
+        skillchain=["Impaction", "Transfixion"],
         notes="Hybrid earth damage."
     ),
     
@@ -904,21 +1128,21 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         can_crit=False,
         element="Dark",
         skillchain=["Compression"],
-        notes="Magical dark damage. Drains HP."
+        notes="Magical dark damage. Ignores Utsusemi/Blink."
     ),
     
     "Blade: Jin": WeaponskillData(
         name="Blade: Jin",
         weapon_type=WeaponType.KATANA,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"DEX": 40, "STR": 40},
+        stat_modifiers={"STR": 30, "DEX": 30},
         ftp=(1.375, 1.375, 1.375),
         hits=3,
         ftp_replicating=True,
         can_crit=True,
         crit_rate_tp=(1000, 1500, 2000),
-        skillchain=["Detonation", "Impaction"],
-        notes="Multi-hit crit WS."
+        skillchain=["Impaction", "Detonation"],
+        notes="Multi-hit crit WS. NIN main job only."
     ),
     
     "Blade: Ten": WeaponskillData(
@@ -926,25 +1150,25 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.KATANA,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"STR": 30, "DEX": 30},
-        ftp=(4.5, 7.5, 10.0),
+        ftp=(4.5, 11.5, 15.5),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        skillchain=["Gravitation", "Transfixion"],
-        notes="High fTP scaling."
+        skillchain=["Gravitation"],
+        notes="High fTP scaling. NIN main job only."
     ),
     
     "Blade: Ku": WeaponskillData(
         name="Blade: Ku",
         weapon_type=WeaponType.KATANA,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"DEX": 30, "INT": 30},
+        stat_modifiers={"STR": 30, "DEX": 30},
         ftp=(1.25, 1.25, 1.25),
         hits=5,
         ftp_replicating=True,
         can_crit=False,
         skillchain=["Gravitation", "Transfixion"],
-        notes="Multi-hit WS. Accuracy varies with TP."
+        notes="Multi-hit WS. NIN main or Kaja Katana / Gokotai. Quest: Bugi Soden."
     ),
     
     "Blade: Yu": WeaponskillData(
@@ -952,39 +1176,39 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.KATANA,
         ws_type=WSType.MAGICAL,
         stat_modifiers={"DEX": 40, "INT": 40},
-        ftp=(2.0, 3.5, 5.0),
+        ftp=(3.0, 3.0, 3.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         element="Water",
-        skillchain=["Reverberation", "Impaction"],
-        notes="Magical water damage."
+        skillchain=["Reverberation", "Scission"],
+        notes="Magical water damage. AoE Poison effect. NIN main job only."
     ),
     
     "Blade: Kamu": WeaponskillData(
         name="Blade: Kamu",
         weapon_type=WeaponType.KATANA,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"DEX": 60, "INT": 60},
+        stat_modifiers={"STR": 60, "INT": 60},
         ftp=(1.0, 1.0, 1.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Fragmentation", "Compression"],
-        notes="Kikoku mythic WS. Reduces enemy defense."
+        notes="Nagi mythic WS. Lowers target accuracy. NIN main job only."
     ),
     
     "Zesho Meppo": WeaponskillData(
         name="Zesho Meppo",
         weapon_type=WeaponType.KATANA,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"DEX": 50, "CHR": 50},
-        ftp=(3.0, 3.0, 3.0),
-        hits=8,
-        ftp_replicating=True,
+        stat_modifiers={"DEX": 25, "AGI": 25},
+        ftp=(4.0, 4.0, 18.715),
+        hits=4,
+        ftp_replicating=False,
         can_crit=False,
-        skillchain=["Darkness", "Gravitation"],
-        notes="Prime WS. 8-hit fTP replicating."
+        skillchain=["Induration", "Reverberation", "Fusion"],
+        notes="Prime WS (Dokoku). 4-hit, NOT fTP replicating. Steep TP scaling; 3k fTP is 18.715. NIN main job only."
     ),
 
     # -------------------------------------------------------------------------
@@ -994,26 +1218,26 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Decimation",
         weapon_type=WeaponType.AXE,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 50, "VIT": 50},
+        stat_modifiers={"STR": 50},
         ftp=(1.75, 1.75, 1.75),
         hits=3,
         ftp_replicating=True,
         can_crit=False,
         skillchain=["Fusion", "Reverberation"],
-        notes="Multi-hit. fTP replicates."
+        notes="Multi-hit. fTP replicates. Quest WS (skill 240)."
     ),
     
     "Ruinator": WeaponskillData(
         name="Ruinator",
         weapon_type=WeaponType.AXE,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 73, "VIT": 15},
-        ftp=(1.33, 1.33, 1.33),
+        stat_modifiers={"STR": 73},
+        ftp=(1.08, 1.08, 1.08),
         hits=4,
         ftp_replicating=True,
         can_crit=False,
-        skillchain=["Distortion", "Detonation"],
-        notes="Farsha mythic WS."
+        skillchain=["Distortion", "Detonation", "Darkness"],
+        notes="Merit WS (Martial Mastery quest). STR mod scales 73-85% with merits. Darkness skillchain only via Aeonic Aftermath."
     ),
     
     "Cloudsplitter": WeaponskillData(
@@ -1021,7 +1245,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.AXE,
         ws_type=WSType.MAGICAL,
         stat_modifiers={"STR": 40, "MND": 40},
-        ftp=(2.25, 4.5, 7.5),
+        ftp=(3.75, 6.70, 8.5),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
@@ -1030,29 +1254,68 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         notes="Empyrean magical WS."
     ),
     
-    "Raging Axe": WeaponskillData(
-        name="Raging Axe",
+    "Smash Axe": WeaponskillData(
+        name="Smash Axe",
         weapon_type=WeaponType.AXE,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"STR": 100},
         ftp=(1.0, 1.0, 1.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=["Induration", "Reverberation"],
+        notes="Skill 40."
+    ),
+
+    "Gale Axe": WeaponskillData(
+        name="Gale Axe",
+        weapon_type=WeaponType.AXE,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"STR": 100},
+        ftp=(1.0, 1.0, 1.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=["Detonation"],
+        notes="Skill 70. Applies Choke (VIT-13) on target."
+    ),
+
+    "Avalanche Axe": WeaponskillData(
+        name="Avalanche Axe",
+        weapon_type=WeaponType.AXE,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"STR": 60},
+        ftp=(1.50, 3.00, 5.50),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=["Scission", "Impaction"],
+        notes="Skill 100."
+    ),
+
+    "Raging Axe": WeaponskillData(
+        name="Raging Axe",
+        weapon_type=WeaponType.AXE,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"STR": 60},
+        ftp=(1.0, 3.0, 6.0),
         hits=2,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Detonation", "Impaction"],
-        notes="Basic axe WS."
+        notes="Basic axe WS. fTP values marked Verification Needed on BG-Wiki."
     ),
     
     "Spinning Axe": WeaponskillData(
         name="Spinning Axe",
         weapon_type=WeaponType.AXE,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 100},
-        ftp=(1.5, 1.5, 1.5),
+        stat_modifiers={"STR": 60},
+        ftp=(2.0, 4.0, 6.5),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        skillchain=["Impaction", "Scission"],
+        skillchain=["Liquefaction", "Scission", "Impaction"],
         notes="Basic AoE axe WS."
     ),
     
@@ -1075,7 +1338,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.AXE,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"STR": 50, "VIT": 50},
-        ftp=(3.0, 4.25, 6.0),
+        ftp=(2.5, 6.5, 10.375),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
@@ -1088,26 +1351,25 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.AXE,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"STR": 50},
-        ftp=(3.5, 5.0, 7.0),
+        ftp=(4.0, 10.5, 13.625),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        skillchain=["Fusion", "Scission"],
-        notes="High fTP scaling."
+        skillchain=["Fusion"],
+        notes="Ranged-style attack (launches axe at target). High fTP scaling."
     ),
     
     "Bora Axe": WeaponskillData(
         name="Bora Axe",
         weapon_type=WeaponType.AXE,
-        ws_type=WSType.HYBRID,
-        stat_modifiers={"DEX": 60, "INT": 40},
-        ftp=(1.0, 2.0, 3.0),
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"DEX": 100},
+        ftp=(4.5, 4.5, 4.5),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        element="Wind",
         skillchain=["Scission", "Detonation"],
-        notes="Hybrid wind damage."
+        notes="Ranged-style attack. Applies Bind on target."
     ),
     
     "Onslaught": WeaponskillData(
@@ -1115,39 +1377,39 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.AXE,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"DEX": 80},
-        ftp=(3.0, 3.0, 3.0),
+        ftp=(4.275, 4.275, 4.275),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Darkness", "Gravitation"],
-        notes="Guttler relic WS."
+        notes="Relic WS (Ogre Killer/Guttler/Cleofun Axe). Lowers target Accuracy by -30. fTP ranges 4.275-4.37 depending on relic upgrade level."
     ),
     
     "Primal Rend": WeaponskillData(
         name="Primal Rend",
         weapon_type=WeaponType.AXE,
         ws_type=WSType.MAGICAL,
-        stat_modifiers={"CHR": 60, "MND": 40},
-        ftp=(2.0, 2.5, 3.0),
+        stat_modifiers={"CHR": 60, "DEX": 30},
+        ftp=(3.0625, 5.835, 7.5625),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         element="Light",
         skillchain=["Gravitation", "Reverberation"],
-        notes="Aymur mythic WS. Magical light damage."
+        notes="Aymur mythic WS. Magical light damage. dSTAT calculated as (pCHR - mINT) x 1.5."
     ),
     
     "Blitz": WeaponskillData(
         name="Blitz",
         weapon_type=WeaponType.AXE,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 60, "VIT": 40},
-        ftp=(3.5, 3.5, 3.5),
-        hits=4,
+        stat_modifiers={"STR": 32, "DEX": 32},
+        ftp=(1.5, 7.0, 12.5),
+        hits=5,
         ftp_replicating=True,
         can_crit=False,
         skillchain=["Liquefaction", "Impaction", "Fragmentation"],
-        notes="Prime WS. 4-hit fTP replicating."
+        notes="Prime WS (Spalirisos). 5-hit fTP replicating."
     ),
 
     # -------------------------------------------------------------------------
@@ -1158,7 +1420,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.GREAT_AXE,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"STR": 80},
-        ftp=(3.0, 3.0, 3.0),
+        ftp=(2.0, 2.0, 2.0),
         hits=2,
         ftp_replicating=True,
         can_crit=True,
@@ -1176,15 +1438,15 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         hits=4,
         ftp_replicating=False,
         can_crit=False,
-        skillchain=["Fusion", "Compression"],
-        notes="Multi-hit with high VIT mod."
+        skillchain=["Light", "Fusion", "Compression"],
+        notes="Multi-hit with high VIT mod. Light is conditional, active only under Aeonic Aftermath."
     ),
     
     "Raging Rush": WeaponskillData(
         name="Raging Rush",
         weapon_type=WeaponType.GREAT_AXE,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 50, "VIT": 50},
+        stat_modifiers={"STR": 50},
         ftp=(1.0, 1.0, 1.0),
         hits=3,
         ftp_replicating=True,
@@ -1198,7 +1460,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Iron Tempest",
         weapon_type=WeaponType.GREAT_AXE,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 100},
+        stat_modifiers={"STR": 60},
         ftp=(1.0, 1.0, 1.0),
         hits=1,
         ftp_replicating=False,
@@ -1207,11 +1469,37 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         notes="Basic great axe WS."
     ),
     
+    "Sturmwind": WeaponskillData(
+        name="Sturmwind",
+        weapon_type=WeaponType.GREAT_AXE,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"STR": 60},
+        ftp=(1.0, 1.0, 1.0),
+        hits=2,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=["Reverberation", "Scission"],
+        notes="Attack varies with TP."
+    ),
+    
+    "Keen Edge": WeaponskillData(
+        name="Keen Edge",
+        weapon_type=WeaponType.GREAT_AXE,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"STR": 100},
+        ftp=(1.0, 1.0, 1.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=True,
+        skillchain=["Compression"],
+        notes="Critical hit rate varies with TP."
+    ),
+    
     "Shield Break": WeaponskillData(
         name="Shield Break",
         weapon_type=WeaponType.GREAT_AXE,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"VIT": 100},
+        stat_modifiers={"STR": 60, "VIT": 60},
         ftp=(1.0, 1.0, 1.0),
         hits=1,
         ftp_replicating=False,
@@ -1237,7 +1525,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Weapon Break",
         weapon_type=WeaponType.GREAT_AXE,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"VIT": 100},
+        stat_modifiers={"STR": 60, "VIT": 60},
         ftp=(1.0, 1.0, 1.0),
         hits=1,
         ftp_replicating=False,
@@ -1250,8 +1538,8 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Full Break",
         weapon_type=WeaponType.GREAT_AXE,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"VIT": 100},
-        ftp=(1.5, 1.5, 1.5),
+        stat_modifiers={"STR": 50, "VIT": 50},
+        ftp=(1.0, 1.0, 1.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
@@ -1263,8 +1551,8 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Steel Cyclone",
         weapon_type=WeaponType.GREAT_AXE,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 50, "VIT": 50},
-        ftp=(2.25, 2.25, 2.25),
+        stat_modifiers={"STR": 60, "VIT": 60},
+        ftp=(1.5, 2.5, 4.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
@@ -1277,7 +1565,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.GREAT_AXE,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"STR": 80},
-        ftp=(5.0, 5.0, 5.0),
+        ftp=(2.75, 2.75, 2.75),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
@@ -1289,9 +1577,9 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="King's Justice",
         weapon_type=WeaponType.GREAT_AXE,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 50, "VIT": 50},
-        ftp=(2.0, 4.125, 6.0),
-        hits=1,
+        stat_modifiers={"STR": 50},
+        ftp=(1.0, 3.0, 5.0),
+        hits=3,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Fragmentation", "Scission"],
@@ -1302,29 +1590,68 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Disaster",
         weapon_type=WeaponType.GREAT_AXE,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 60, "VIT": 40},
+        stat_modifiers={"STR": 60, "VIT": 60},
         ftp=(4.0, 4.0, 4.0),
         hits=3,
         ftp_replicating=True,
         can_crit=False,
-        skillchain=["Detonation", "Compression", "Distortion"],
+        skillchain=["Transfixion", "Scission", "Gravitation"],
         notes="Prime WS. 3-hit fTP replicating."
     ),
 
     # -------------------------------------------------------------------------
     # POLEARM
     # -------------------------------------------------------------------------
+    "Leg Sweep": WeaponskillData(
+        name="Leg Sweep",
+        weapon_type=WeaponType.POLEARM,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"STR": 100},
+        ftp=(1.0, 1.0, 1.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=["Impaction"],
+        notes="Basic polearm WS."
+    ),
+    
+    "Vorpal Thrust": WeaponskillData(
+        name="Vorpal Thrust",
+        weapon_type=WeaponType.POLEARM,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"STR": 50, "AGI": 50},
+        ftp=(1.0, 1.0, 1.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=["Reverberation", "Transfixion"],
+        notes="Basic polearm WS."
+    ),
+    
+    "Skewer": WeaponskillData(
+        name="Skewer",
+        weapon_type=WeaponType.POLEARM,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"STR": 50},
+        ftp=(1.0, 1.0, 1.0),
+        hits=3,
+        ftp_replicating=False,
+        can_crit=True,
+        skillchain=["Transfixion", "Impaction"],
+        notes="Crit rate varies with TP (values unverified on BG-Wiki). DRG main only."
+    ),
+    
     "Stardiver": WeaponskillData(
         name="Stardiver",
         weapon_type=WeaponType.POLEARM,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 73, "VIT": 15},
-        ftp=(0.75, 0.75, 0.75),
+        stat_modifiers={"STR": 73},
+        ftp=(0.75, 1.25, 1.75),
         hits=4,
         ftp_replicating=True,
         can_crit=False,
-        skillchain=["Gravitation", "Transfixion"],
-        notes="Multi-hit with high STR mod."
+        skillchain=["Darkness", "Gravitation", "Transfixion"],
+        notes="Multi-hit fTP replicating. STR mod varies 73-85%. Darkness SC property only with Aeonic Aftermath."
     ),
     
     "Camlann's Torment": WeaponskillData(
@@ -1336,8 +1663,8 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        skillchain=["Light", "Distortion"],
-        notes="Empyrean WS. High stat mods."
+        skillchain=["Light", "Fragmentation"],
+        notes="Empyrean WS. Defense Ignored varies with TP (12.5%/37.5%/62.5%†). DRG main only."
     ),
     
     "Impulse Drive": WeaponskillData(
@@ -1358,40 +1685,40 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.POLEARM,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"STR": 30, "DEX": 30},
-        ftp=(1.0, 1.0, 1.0),
+        ftp=(1.0, 2.5, 4.0),
         hits=2,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Transfixion"],
-        notes="Basic polearm WS."
+        notes="Basic polearm WS. Damage scales with TP."
     ),
     
     "Thunder Thrust": WeaponskillData(
         name="Thunder Thrust",
         weapon_type=WeaponType.POLEARM,
-        ws_type=WSType.HYBRID,
+        ws_type=WSType.MAGICAL,
         stat_modifiers={"STR": 40, "INT": 40},
-        ftp=(1.0, 2.0, 3.0),
+        ftp=(1.5, 3.28, 5.43),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         element="Thunder",
-        skillchain=["Impaction", "Transfixion"],
-        notes="Hybrid thunder damage."
+        skillchain=["Transfixion", "Impaction"],
+        notes="Magical thunder damage. fTP at 2k/3k unverified on BG-Wiki."
     ),
     
     "Raiden Thrust": WeaponskillData(
         name="Raiden Thrust",
         weapon_type=WeaponType.POLEARM,
-        ws_type=WSType.HYBRID,
+        ws_type=WSType.MAGICAL,
         stat_modifiers={"STR": 40, "INT": 40},
-        ftp=(1.0, 2.5, 4.0),
+        ftp=(1.0, 3.91, 7.96),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         element="Thunder",
-        skillchain=["Impaction", "Transfixion"],
-        notes="Stronger hybrid thunder damage."
+        skillchain=["Transfixion", "Impaction"],
+        notes="Magical thunder damage. fTP at 2k/3k unverified on BG-Wiki."
     ),
     
     "Penta Thrust": WeaponskillData(
@@ -1403,7 +1730,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         hits=5,
         ftp_replicating=True,
         can_crit=False,
-        skillchain=["Compression", "Transfixion"],
+        skillchain=["Compression"],
         notes="5-hit fTP replicating."
     ),
     
@@ -1424,13 +1751,13 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Sonic Thrust",
         weapon_type=WeaponType.POLEARM,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 100},
-        ftp=(2.0, 2.0, 2.0),
+        stat_modifiers={"STR": 40, "DEX": 40},
+        ftp=(3.0, 3.7, 4.5),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        skillchain=["Scission", "Transfixion"],
-        notes="AoE polearm WS."
+        skillchain=["Transfixion", "Scission"],
+        notes="AoE conal polearm WS. Damage scales with TP."
     ),
     
     "Geirskogul": WeaponskillData(
@@ -1438,7 +1765,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.POLEARM,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"DEX": 80},
-        ftp=(3.5, 3.5, 3.5),
+        ftp=(3.0, 3.0, 3.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
@@ -1464,13 +1791,13 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Diarmuid",
         weapon_type=WeaponType.POLEARM,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 60, "DEX": 40},
-        ftp=(3.5, 3.5, 3.5),
-        hits=4,
-        ftp_replicating=True,
+        stat_modifiers={"STR": 55, "VIT": 55},
+        ftp=(2.17, 5.36, 8.55),
+        hits=2,
+        ftp_replicating=False,
         can_crit=False,
-        skillchain=["Detonation", "Compression", "Distortion"],
-        notes="Prime WS. 4-hit fTP replicating."
+        skillchain=["Transfixion", "Scission", "Gravitation"],
+        notes="Prime WS (Gae Buide). DRG main only. All fTP values and stat mods unverified on BG-Wiki."
     ),
 
     # -------------------------------------------------------------------------
@@ -1480,13 +1807,13 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Entropy",
         weapon_type=WeaponType.SCYTHE,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"INT": 73, "MND": 15},
-        ftp=(1.0, 1.0, 1.0),
+        stat_modifiers={"INT": 73},
+        ftp=(0.75, 1.25, 2.0),
         hits=4,
         ftp_replicating=True,
         can_crit=False,
-        skillchain=["Gravitation", "Reverberation"],
-        notes="Unique INT/MND mods for scythe."
+        skillchain=["Darkness", "Gravitation", "Reverberation"],
+        notes="Merit WS. INT mod varies 73-85%. Converts damage to MP. Darkness SC only with Aeonic Aftermath."
     ),
     
     "Quietus": WeaponskillData(
@@ -1507,12 +1834,12 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.SCYTHE,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"STR": 20, "INT": 20},
-        ftp=(0.5, 0.5, 0.5),
+        ftp=(0.5, 3.25, 6.0),
         hits=4,
         ftp_replicating=True,
         can_crit=False,
-        skillchain=["Compression", "Reverberation"],
-        notes="Liberator mythic WS."
+        skillchain=["Fusion", "Compression"],
+        notes="Liberator mythic WS. DRK main only. Damage scales heavily with TP."
     ),
     
     "Cross Reaper": WeaponskillData(
@@ -1520,12 +1847,12 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.SCYTHE,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"STR": 60, "MND": 60},
-        ftp=(2.0, 2.0, 2.0),
+        ftp=(1.375, 2.75, 4.75),
         hits=2,
-        ftp_replicating=True,
+        ftp_replicating=False,
         can_crit=False,
-        skillchain=["Distortion", "Detonation"],
-        notes="Multi-hit with fTP replicating."
+        skillchain=["Distortion"],
+        notes="2-hit, damage scales with TP."
     ),
     
     "Spiral Hell": WeaponskillData(
@@ -1533,26 +1860,26 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.SCYTHE,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"STR": 50, "INT": 50},
-        ftp=(1.375, 1.375, 1.375),
+        ftp=(1.375, 2.75, 4.75),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Distortion", "Scission"],
-        notes="Standard scythe WS."
+        notes="Damage scales with TP."
     ),
     
     "Infernal Scythe": WeaponskillData(
         name="Infernal Scythe",
         weapon_type=WeaponType.SCYTHE,
         ws_type=WSType.MAGICAL,
-        stat_modifiers={"INT": 70, "MND": 30},
+        stat_modifiers={"STR": 30, "INT": 70},
         ftp=(2.0, 2.5, 3.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         element="Dark",
-        skillchain=["Shadow", "Reverberation"],
-        notes="Magical dark damage scythe WS."
+        skillchain=["Compression", "Reverberation"],
+        notes="Magical dark damage. Lowers target's attack (-25%)."
     ),
     
     "Slice": WeaponskillData(
@@ -1560,32 +1887,32 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.SCYTHE,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"STR": 100},
-        ftp=(1.0, 1.0, 1.0),
+        ftp=(1.0, 2.5, 4.125),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Scission"],
-        notes="Basic scythe WS."
+        notes="Basic scythe WS. fTP values unverified on BG-Wiki."
     ),
     
     "Dark Harvest": WeaponskillData(
         name="Dark Harvest",
         weapon_type=WeaponType.SCYTHE,
-        ws_type=WSType.HYBRID,
+        ws_type=WSType.MAGICAL,
         stat_modifiers={"STR": 40, "INT": 40},
-        ftp=(1.0, 1.5, 2.0),
+        ftp=(1.0, 3.54, 6.07),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         element="Dark",
         skillchain=["Reverberation"],
-        notes="Hybrid dark damage."
+        notes="Magical dark damage. fTP at 2k/3k unverified on BG-Wiki."
     ),
     
     "Shadow of Death": WeaponskillData(
         name="Shadow of Death",
         weapon_type=WeaponType.SCYTHE,
-        ws_type=WSType.HYBRID,
+        ws_type=WSType.MAGICAL,
         stat_modifiers={"STR": 40, "INT": 40},
         ftp=(1.0, 2.0, 3.0),
         hits=1,
@@ -1593,7 +1920,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         can_crit=False,
         element="Dark",
         skillchain=["Induration", "Reverberation"],
-        notes="Stronger hybrid dark damage."
+        notes="Magical dark damage. WAR or DRK main/sub required."
     ),
     
     "Nightmare Scythe": WeaponskillData(
@@ -1601,12 +1928,12 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.SCYTHE,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"STR": 60, "MND": 60},
-        ftp=(1.25, 1.25, 1.25),
+        ftp=(1.0, 1.0, 1.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Compression", "Scission"],
-        notes="Sleep effect."
+        notes="Blinds enemy. Blind duration varies with TP (60s/120s/180s)."
     ),
     
     "Spinning Scythe": WeaponskillData(
@@ -1618,21 +1945,34 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        skillchain=["Reverberation"],
-        notes="AoE scythe WS."
+        skillchain=["Reverberation", "Scission"],
+        notes="AoE scythe WS. Attack radius varies with TP (4/5/6)."
+    ),
+    
+    "Vorpal Scythe": WeaponskillData(
+        name="Vorpal Scythe",
+        weapon_type=WeaponType.SCYTHE,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"STR": 100},
+        ftp=(1.0, 1.0, 1.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=True,
+        skillchain=["Transfixion", "Scission"],
+        notes="Critical hit chance varies with TP. Exact crit rates flagged Information Needed on BG-Wiki."
     ),
     
     "Guillotine": WeaponskillData(
         name="Guillotine",
         weapon_type=WeaponType.SCYTHE,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 25, "MND": 25},
-        ftp=(1.0, 1.0, 1.0),
+        stat_modifiers={"STR": 30, "MND": 50},
+        ftp=(0.875, 0.875, 0.875),
         hits=4,
         ftp_replicating=True,
         can_crit=False,
         skillchain=["Induration"],
-        notes="4-hit fTP replicating. Silence effect."
+        notes="4-hit fTP replicating. Silences enemy. DRK main only."
     ),
     
     "Catastrophe": WeaponskillData(
@@ -1644,7 +1984,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        skillchain=["Gravitation", "Reverberation"],
+        skillchain=["Darkness", "Gravitation"],
         notes="Apocalypse relic WS. Drains HP."
     ),
     
@@ -1652,13 +1992,13 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Origin",
         weapon_type=WeaponType.SCYTHE,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 60, "INT": 40},
-        ftp=(3.5, 3.5, 3.5),
+        stat_modifiers={"STR": 60, "INT": 60},
+        ftp=(3.0, 6.0, 9.0),
         hits=4,
         ftp_replicating=True,
         can_crit=False,
-        skillchain=["Detonation", "Compression", "Distortion"],
-        notes="Prime WS. 4-hit fTP replicating."
+        skillchain=["Induration", "Reverberation", "Fusion"],
+        notes="Prime WS (Foenaria). DRK main only. Absorbs HP and MP. Damage scales with TP."
     ),
 
     # -------------------------------------------------------------------------
@@ -1668,79 +2008,79 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Black Halo",
         weapon_type=WeaponType.CLUB,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 70, "MND": 30},
-        ftp=(5.5, 10.0, 13.5),
+        stat_modifiers={"MND": 70, "STR": 30},
+        ftp=(3.0, 7.25, 9.75),
         hits=2,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Fragmentation", "Compression"],
-        notes="Very high fTP scaling. Maxentius adds WS damage."
+        notes="High fTP scaling. Maxentius and Kaja Rod both add +50% WS damage."
     ),
     
     "Realmrazer": WeaponskillData(
         name="Realmrazer",
         weapon_type=WeaponType.CLUB,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"MND": 73, "VIT": 15},
-        ftp=(1.0, 1.0, 1.0),
-        hits=5,
+        stat_modifiers={"MND": 73},
+        ftp=(0.9, 0.9, 0.9),
+        hits=7,
         ftp_replicating=True,
         can_crit=False,
-        skillchain=["Fusion", "Impaction"],
-        notes="Multi-hit MND WS."
+        skillchain=["Light", "Fusion", "Impaction"],
+        notes="Sevenfold attack, fTP replicating. MND mod scales with merits (~73-85%). Light property available under Aeonic Aftermath."
     ),
     
-    "Judgement": WeaponskillData(
-        name="Judgement",
+    "Judgment": WeaponskillData(
+        name="Judgment",
         weapon_type=WeaponType.CLUB,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"MND": 50, "STR": 30},
-        ftp=(3.0, 4.25, 7.0),
+        stat_modifiers={"STR": 50, "MND": 50},
+        ftp=(3.5, 8.75, 12.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        skillchain=["Light", "Impaction"],
-        notes="Light skillchain."
+        skillchain=["Impaction"],
+        notes="High fTP scaling with TP."
     ),
     
     "Hexa Strike": WeaponskillData(
         name="Hexa Strike",
         weapon_type=WeaponType.CLUB,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 50, "MND": 50},
-        ftp=(1.0, 1.0, 1.0),
+        stat_modifiers={"STR": 30, "MND": 30},
+        ftp=(1.125, 1.125, 1.125),
         hits=6,
         ftp_replicating=True,
         can_crit=True,
         crit_rate_tp=(1500, 2500, 3500),
-        skillchain=["Fusion", "Impaction"],
-        notes="6-hit WS with crit chance."
+        skillchain=["Fusion"],
+        notes="6-hit fTP replicating WS with crit chance."
     ),
     
     "Mystic Boon": WeaponskillData(
         name="Mystic Boon",
         weapon_type=WeaponType.CLUB,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"MND": 100},
-        ftp=(1.0, 2.0, 3.5),
+        stat_modifiers={"MND": 70, "STR": 30},
+        ftp=(2.5, 4.0, 7.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        skillchain=["Fusion", "Compression"],
-        notes="Converts damage to MP. Yagrush mythic WS."
+        skillchain=[],
+        notes="Converts damage to MP. Yagrush mythic WS. No skillchain properties."
     ),
     
     "Dagan": WeaponskillData(
         name="Dagan",
         weapon_type=WeaponType.CLUB,
-        ws_type=WSType.PHYSICAL,
-        stat_modifiers={"CHR": 80},
-        ftp=(1.0, 1.0, 1.0),
+        ws_type=WSType.NONE,
+        stat_modifiers={},
+        ftp=(0.0, 0.0, 0.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        skillchain=["Light"],
-        notes="Empyrean WS. Restores HP/MP to party."
+        skillchain=[],
+        notes="Empyrean WS. Restores HP/MP to self only (Target: Self). Not a damage WS — fTP and stat mods are not applicable. Gambanteinn grants Empyrean Aftermath."
     ),
     
     "Randgrith": WeaponskillData(
@@ -1748,25 +2088,25 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.CLUB,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"STR": 40, "MND": 40},
-        ftp=(3.0, 3.0, 3.0),
+        ftp=(4.25, 4.25, 4.25),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Light", "Fragmentation"],
-        notes="Mjollnir relic WS."
+        notes="Accessible via Gullintani, Mjollnir, or Molva Maul."
     ),
     
     "Flash Nova": WeaponskillData(
         name="Flash Nova",
         weapon_type=WeaponType.CLUB,
         ws_type=WSType.MAGICAL,
-        stat_modifiers={"MND": 50, "STR": 30},
-        ftp=(2.0, 2.5, 3.0),
+        stat_modifiers={"STR": 50, "MND": 50},
+        ftp=(3.0, 3.0, 3.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         element="Light",
-        skillchain=["Compression", "Reverberation"],
+        skillchain=["Reverberation", "Induration"],
         notes="Magical light damage."
     ),
     
@@ -1775,12 +2115,12 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.CLUB,
         ws_type=WSType.MAGICAL,
         stat_modifiers={"STR": 40, "MND": 40},
-        ftp=(1.0, 2.0, 2.5),
+        ftp=(2.125, 3.675, 6.125),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         element="Light",
-        skillchain=["Impaction", "Scission"],
+        skillchain=["Impaction"],
         notes="Basic magical light club WS."
     ),
     
@@ -1789,7 +2129,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.CLUB,
         ws_type=WSType.MAGICAL,
         stat_modifiers={"STR": 40, "MND": 40},
-        ftp=(1.0, 1.5, 2.0),
+        ftp=(1.625, 3.0, 4.625),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
@@ -1808,7 +2148,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Induration", "Reverberation"],
-        notes="Stuns target."
+        notes="Lowers target's INT."
     ),
     
     "True Strike": WeaponskillData(
@@ -1816,25 +2156,25 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.CLUB,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"STR": 100},
-        ftp=(1.5, 1.5, 1.5),
+        ftp=(1.0, 1.0, 1.0),
         hits=1,
         ftp_replicating=False,
-        can_crit=False,
+        can_crit=True,
         skillchain=["Detonation", "Impaction"],
-        notes="Ignores defense. Defense varies with TP."
+        notes="100% Critical Hit Rate. Accuracy varies with TP."
     ),
     
     "Exudation": WeaponskillData(
         name="Exudation",
         weapon_type=WeaponType.CLUB,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"MND": 60, "INT": 40},
-        ftp=(2.0, 2.0, 2.0),
+        stat_modifiers={"INT": 50, "MND": 50},
+        ftp=(2.8, 2.8, 2.8),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        skillchain=["Induration", "Reverberation"],
-        notes="Chatoyant staff mythic WS. Drains HP/MP."
+        skillchain=["Darkness", "Fragmentation"],
+        notes="Ergon WS (Idris). Attack-based."
     ),
     
     "Dagda": WeaponskillData(
@@ -1843,11 +2183,50 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"MND": 60, "CHR": 40},
         ftp=(4.0, 4.0, 4.0),
-        hits=3,
+        hits=2,
         ftp_replicating=True,
         can_crit=False,
-        skillchain=["Liquefaction", "Impaction", "Fragmentation"],
-        notes="Prime WS. 3-hit fTP replicating."
+        skillchain=["Transfixion", "Scission", "Gravitation"],
+        notes="Prime WS. 2-hit fTP replicating. Note: stat mods and fTP are unconfirmed per wiki (mods changed March 2024; Information Needed)."
+    ),
+
+    "Brainshaker": WeaponskillData(
+        name="Brainshaker",
+        weapon_type=WeaponType.CLUB,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"STR": 100},
+        ftp=(1.0, 1.0, 1.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=["Reverberation"],
+        notes="Stuns target. Chance of stun varies with TP. Skill req: 70."
+    ),
+
+    "Starlight": WeaponskillData(
+        name="Starlight",
+        weapon_type=WeaponType.CLUB,
+        ws_type=WSType.NONE,
+        stat_modifiers={},
+        ftp=(0.0, 0.0, 0.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=[],
+        notes="Restores MP to self. Amount restored varies with TP and Club Skill. Not a damage WS. Skill req: 100."
+    ),
+
+    "Moonlight": WeaponskillData(
+        name="Moonlight",
+        weapon_type=WeaponType.CLUB,
+        ws_type=WSType.NONE,
+        stat_modifiers={},
+        ftp=(0.0, 0.0, 0.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=[],
+        notes="Restores MP for party members in range. Amount varies with TP and Club Skill. Not a damage WS. Skill req: 125."
     ),
 
     # -------------------------------------------------------------------------
@@ -2059,13 +2438,13 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Shattersoul",
         weapon_type=WeaponType.STAFF,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"INT": 73, "MND": 15},
+        stat_modifiers={"INT": 73},
         ftp=(1.375, 1.375, 1.375),
         hits=3,
         ftp_replicating=True,
         can_crit=False,
-        skillchain=["Gravitation", "Reverberation"],
-        notes="Multi-hit INT WS. Also lowers target MDB."
+        skillchain=["Darkness", "Gravitation", "Induration"],
+        notes="Merit WS. 3-hit INT WS. Lowers target MDB −10. Darkness property only under Aeonic Aftermath."
     ),
     
     "Cataclysm": WeaponskillData(
@@ -2073,13 +2452,13 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.STAFF,
         ws_type=WSType.MAGICAL,
         stat_modifiers={"STR": 30, "INT": 30},
-        ftp=(2.75, 2.75, 2.75),
+        ftp=(1.75, 3.75, 6.50),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         element="Dark",
         skillchain=["Compression", "Reverberation"],
-        notes="Magical dark damage."
+        notes="AoE magical dark damage."
     ),
     
     "Heavy Swing": WeaponskillData(
@@ -2087,7 +2466,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.STAFF,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"STR": 100},
-        ftp=(1.0, 1.0, 1.0),
+        ftp=(1.0, 2.0, 3.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
@@ -2098,29 +2477,29 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
     "Rock Crusher": WeaponskillData(
         name="Rock Crusher",
         weapon_type=WeaponType.STAFF,
-        ws_type=WSType.HYBRID,
+        ws_type=WSType.MAGICAL,
         stat_modifiers={"STR": 40, "INT": 40},
-        ftp=(1.0, 1.5, 2.0),
+        ftp=(1.0, 3.27, 5.54),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         element="Earth",
         skillchain=["Impaction"],
-        notes="Hybrid earth damage."
+        notes="Magical earth damage."
     ),
     
     "Earth Crusher": WeaponskillData(
         name="Earth Crusher",
         weapon_type=WeaponType.STAFF,
-        ws_type=WSType.HYBRID,
+        ws_type=WSType.MAGICAL,
         stat_modifiers={"STR": 40, "INT": 40},
-        ftp=(1.0, 2.0, 3.0),
+        ftp=(1.0, 3.58, 6.16),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         element="Earth",
         skillchain=["Detonation", "Impaction"],
-        notes="AoE hybrid earth damage."
+        notes="AoE magical earth damage."
     ),
     
     "Starburst": WeaponskillData(
@@ -2128,13 +2507,13 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.STAFF,
         ws_type=WSType.MAGICAL,
         stat_modifiers={"STR": 40, "MND": 40},
-        ftp=(1.0, 2.0, 2.5),
+        ftp=(1.0, 3.27, 5.54),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        element="Light",
+        element="Light/Dark",
         skillchain=["Compression", "Reverberation"],
-        notes="Magical light damage."
+        notes="Magical light/dark damage (random element). Uses Blunt Damage Taken, not Magic DT."
     ),
     
     "Sunburst": WeaponskillData(
@@ -2142,13 +2521,13 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.STAFF,
         ws_type=WSType.MAGICAL,
         stat_modifiers={"STR": 40, "MND": 40},
-        ftp=(1.0, 2.5, 4.0),
+        ftp=(1.0, 3.58, 6.16),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        element="Light",
-        skillchain=["Transfixion", "Reverberation"],
-        notes="Stronger magical light damage."
+        element="Light/Dark",
+        skillchain=["Compression", "Reverberation"],
+        notes="AoE magical light/dark damage (random element). Uses Blunt Damage Taken, not Magic DT."
     ),
     
     "Shell Crusher": WeaponskillData(
@@ -2161,41 +2540,41 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Detonation"],
-        notes="Lowers target magic defense."
+        notes="Lowers target physical DEF −25%; duration scales with TP."
     ),
     
     "Full Swing": WeaponskillData(
         name="Full Swing",
         weapon_type=WeaponType.STAFF,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 50, "MND": 50},
-        ftp=(2.0, 2.0, 2.0),
+        stat_modifiers={"STR": 50},
+        ftp=(1.0, 3.0, 9.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Liquefaction", "Impaction"],
-        notes="AoE staff WS."
+        notes="Single-target staff WS. 9.0 fTP at 3000 TP is flagged unverified on wiki."
     ),
     
     "Retribution": WeaponskillData(
         name="Retribution",
         weapon_type=WeaponType.STAFF,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 50, "MND": 50},
-        ftp=(2.0, 4.0, 7.0),
+        stat_modifiers={"MND": 50, "STR": 30},
+        ftp=(2.0, 3.0, 5.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Gravitation", "Reverberation"],
-        notes="High fTP scaling."
+        notes="ATK Modifier ×1.5. Requires Blood and Glory quest."
     ),
     
     "Gate of Tartarus": WeaponskillData(
         name="Gate of Tartarus",
         weapon_type=WeaponType.STAFF,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"CHR": 80},
-        ftp=(2.0, 2.0, 2.0),
+        stat_modifiers={"INT": 80},
+        ftp=(3.0, 3.0, 3.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
@@ -2208,13 +2587,13 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.STAFF,
         ws_type=WSType.MAGICAL,
         stat_modifiers={"MND": 80},
-        ftp=(2.0, 2.5, 3.0),
+        ftp=(2.0, 2.0, 2.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         element="Dark",
         skillchain=["Gravitation", "Transfixion"],
-        notes="Tupsimati mythic WS. Lowers target magic defense."
+        notes="Tupsimati mythic WS (SCH only). Lowers target Magic Attack Bonus −10."
     ),
     
     "Vidohunir": WeaponskillData(
@@ -2222,40 +2601,79 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.STAFF,
         ws_type=WSType.MAGICAL,
         stat_modifiers={"INT": 80},
-        ftp=(3.0, 3.0, 3.0),
+        ftp=(1.75, 1.75, 1.75),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         element="Dark",
-        skillchain=["Darkness", "Gravitation"],
-        notes="Laevateinn mythic WS."
+        skillchain=["Fragmentation", "Distortion"],
+        notes="Laevateinn mythic WS (BLM only). Lowers target MDB −10."
     ),
     
     "Myrkr": WeaponskillData(
         name="Myrkr",
         weapon_type=WeaponType.STAFF,
-        ws_type=WSType.PHYSICAL,
-        stat_modifiers={"MND": 80},
-        ftp=(1.0, 1.0, 1.0),
+        ws_type=WSType.NONE,
+        stat_modifiers={},
+        ftp=(0.0, 0.0, 0.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        skillchain=["Fragmentation", "Compression"],
-        notes="Empyrean WS. Converts HP to MP."
+        skillchain=[],
+        notes="Empyrean WS (BLM/SMN/SCH only). Self-only. Restores 20/40/60% of Max MP at 1k/2k/3k TP. Removes up to 3 status effects. Not a damaging WS."
     ),
     
     "Oshala": WeaponskillData(
         name="Oshala",
         weapon_type=WeaponType.STAFF,
+        ws_type=WSType.NONE,
+        stat_modifiers={},
+        ftp=(0.0, 0.0, 0.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=["Induration", "Reverberation", "Fusion"],
+        notes="Prime WS (BLM/SMN/SCH only). Type, stat modifiers, and fTP are unverified/information needed per wiki."
+    ),
+
+    "Spirit Taker": WeaponskillData(
+        name="Spirit Taker",
+        weapon_type=WeaponType.STAFF,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"INT": 50, "MND": 50},
+        ftp=(1.0, 2.0, 3.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=[],
+        notes="Restores MP equal to damage dealt. Single target. Skill level 215."
+    ),
+
+    "Garland of Bliss": WeaponskillData(
+        name="Garland of Bliss",
+        weapon_type=WeaponType.STAFF,
         ws_type=WSType.MAGICAL,
-        stat_modifiers={"INT": 60, "MND": 40},
-        ftp=(3.5, 3.5, 3.5),
+        stat_modifiers={"MND": 70, "STR": 30},
+        ftp=(2.25, 2.25, 2.25),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         element="Light",
-        skillchain=["Liquefaction", "Impaction", "Fragmentation"],
-        notes="Prime WS. Magical light damage."
+        skillchain=["Fusion", "Reverberation"],
+        notes="Mythic WS (Nirvana). SMN only. Lowers target DEF −12.5%; duration varies with TP."
+    ),
+
+    "Tartarus Torpor": WeaponskillData(
+        name="Tartarus Torpor",
+        weapon_type=WeaponType.STAFF,
+        ws_type=WSType.NONE,
+        stat_modifiers={"STR": 30, "INT": 30},
+        ftp=(0.0, 0.0, 0.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=[],
+        notes="Campaign WS. Requires Samudra. AoE sleep; lowers target magical defense and magical evasion; duration varies with TP. Only usable during Campaign Battle."
     ),
 
     # -------------------------------------------------------------------------
@@ -2266,7 +2684,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.MARKSMANSHIP,
         ws_type=WSType.MAGICAL,
         stat_modifiers={"AGI": 60},
-        ftp=(6.0, 6.85, 7.75),
+        ftp=(5.5, 5.5, 5.5),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
@@ -2280,20 +2698,20 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.MARKSMANSHIP,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"AGI": 73},
-        ftp=(2.0, 2.0, 2.0),
+        ftp=(2.0, 3.0, 4.0),
         hits=2,
         ftp_replicating=True,
         can_crit=False,
-        skillchain=["Fusion", "Reverberation"],
-        notes="Multi-hit ranged WS."
+        skillchain=["Light", "Fusion", "Reverberation"],
+        notes="Merit WS. AGI mod scales 73–85% with merit rank. Light property available under Aeonic Aftermath."
     ),
     
     "Trueflight": WeaponskillData(
         name="Trueflight",
         weapon_type=WeaponType.MARKSMANSHIP,
         ws_type=WSType.MAGICAL,
-        stat_modifiers={"AGI": 50, "MND": 50},
-        ftp=(4.0, 4.5, 5.5),
+        stat_modifiers={"AGI": 100},
+        ftp=(3.89, 6.49, 9.67),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
@@ -2306,13 +2724,13 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Hot Shot",
         weapon_type=WeaponType.MARKSMANSHIP,
         ws_type=WSType.HYBRID,
-        stat_modifiers={"AGI": 70, "INT": 30},
-        ftp=(1.0, 2.0, 3.0),
+        stat_modifiers={"AGI": 70},
+        ftp=(0.5, 1.55, 2.1),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         element="Fire",
-        skillchain=["Liquefaction"],
+        skillchain=["Liquefaction", "Transfixion"],
         notes="Hybrid fire damage."
     ),
     
@@ -2320,38 +2738,38 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Split Shot",
         weapon_type=WeaponType.MARKSMANSHIP,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"AGI": 100},
+        stat_modifiers={"AGI": 70},
         ftp=(1.0, 1.0, 1.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        skillchain=["Transfixion"],
-        notes="Basic marksmanship WS."
+        skillchain=["Reverberation", "Transfixion"],
+        notes="Ignores enemy's defense. Amount ignored varies with TP."
     ),
     
     "Sniper Shot": WeaponskillData(
         name="Sniper Shot",
         weapon_type=WeaponType.MARKSMANSHIP,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"AGI": 100},
-        ftp=(1.5, 1.5, 1.5),
+        stat_modifiers={"AGI": 70},
+        ftp=(1.0, 1.0, 1.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        skillchain=["Transfixion", "Detonation"],
-        notes="Lowers target defense."
+        skillchain=["Liquefaction", "Transfixion"],
+        notes="Lowers enemy's INT (−10, decays over time)."
     ),
     
     "Slug Shot": WeaponskillData(
         name="Slug Shot",
         weapon_type=WeaponType.MARKSMANSHIP,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"AGI": 100},
-        ftp=(2.5, 3.0, 4.0),
+        stat_modifiers={"AGI": 70},
+        ftp=(5.0, 5.0, 5.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        skillchain=["Liquefaction", "Transfixion"],
+        skillchain=["Reverberation", "Transfixion", "Detonation"],
         notes="High damage single shot."
     ),
     
@@ -2359,26 +2777,39 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Blast Shot",
         weapon_type=WeaponType.MARKSMANSHIP,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"AGI": 100},
-        ftp=(1.5, 1.5, 1.5),
+        stat_modifiers={"AGI": 70},
+        ftp=(2.0, 2.0, 2.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Induration", "Transfixion"],
-        notes="Stuns target."
+        notes="Melee-range ranged attack. Accuracy varies with TP."
+    ),
+    
+    "Numbing Shot": WeaponskillData(
+        name="Numbing Shot",
+        weapon_type=WeaponType.MARKSMANSHIP,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"AGI": 80},
+        ftp=(3.0, 3.0, 3.0),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=["Induration", "Detonation", "Impaction"],
+        notes="Inflicts Paralyze on target."
     ),
     
     "Detonator": WeaponskillData(
         name="Detonator",
         weapon_type=WeaponType.MARKSMANSHIP,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"AGI": 73},
-        ftp=(2.0, 2.0, 2.0),
+        stat_modifiers={"AGI": 70},
+        ftp=(1.5, 2.5, 5.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Fusion", "Transfixion"],
-        notes="Fomalhaut mythic WS."
+        notes="Quest WS (Shoot First, Ask Questions Later)."
     ),
     
     "Coronach": WeaponskillData(
@@ -2386,7 +2817,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.MARKSMANSHIP,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"DEX": 40, "AGI": 40},
-        ftp=(4.0, 4.0, 4.0),
+        ftp=(3.0, 3.0, 3.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
@@ -2398,15 +2829,28 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Terminus",
         weapon_type=WeaponType.MARKSMANSHIP,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"AGI": 60, "DEX": 40},
-        ftp=(4.0, 4.0, 4.0),
+        stat_modifiers={"DEX": 70, "AGI": 70},
+        ftp=(2.5, 5.0, 7.5),
         hits=3,
-        ftp_replicating=True,
+        ftp_replicating=False,
         can_crit=False,
-        skillchain=["Liquefaction", "Impaction", "Fragmentation"],
-        notes="Prime WS. 3-hit fTP replicating."
+        skillchain=["Induration", "Reverberation", "Fusion"],
+        notes="Prime WS."
     ),
-    
+
+    "Heavy Shot": WeaponskillData(
+        name="Heavy Shot",
+        weapon_type=WeaponType.MARKSMANSHIP,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"AGI": 70},
+        ftp=(3.5, 3.5, 3.5),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=True,
+        skillchain=["Fusion"],
+        notes="Skill 225. RNG main job only. Chance of critical varies with TP."
+    ),
+
     "Apex Arrow": WeaponskillData(
         name="Apex Arrow",
         weapon_type=WeaponType.ARCHERY,
@@ -2416,8 +2860,8 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        skillchain=["Fragmentation", "Transfixion"],
-        notes="High damage ranged WS."
+        skillchain=["Light", "Fragmentation", "Transfixion"],
+        notes="High damage ranged WS. Light is conditional, active only under Aeonic Aftermath."
     ),
     
     "Jishnu's Radiance": WeaponskillData(
@@ -2438,8 +2882,8 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Flaming Arrow",
         weapon_type=WeaponType.ARCHERY,
         ws_type=WSType.HYBRID,
-        stat_modifiers={"STR": 40, "AGI": 40},
-        ftp=(1.0, 1.5, 2.0),
+        stat_modifiers={"AGI": 50, "STR": 20},
+        ftp=(0.5, 1.55, 2.1),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
@@ -2452,8 +2896,8 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Piercing Arrow",
         weapon_type=WeaponType.ARCHERY,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 50, "AGI": 50},
-        ftp=(1.5, 1.5, 1.5),
+        stat_modifiers={"AGI": 50, "STR": 20},
+        ftp=(1.0, 1.0, 1.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
@@ -2465,11 +2909,11 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Dulling Arrow",
         weapon_type=WeaponType.ARCHERY,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 50, "AGI": 50},
-        ftp=(1.5, 1.5, 1.5),
+        stat_modifiers={"AGI": 50, "STR": 20},
+        ftp=(1.0, 1.0, 1.0),
         hits=1,
         ftp_replicating=False,
-        can_crit=False,
+        can_crit=True,
         skillchain=["Liquefaction", "Transfixion"],
         notes="Lowers target defense."
     ),
@@ -2478,8 +2922,8 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Sidewinder",
         weapon_type=WeaponType.ARCHERY,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 50, "AGI": 50},
-        ftp=(4.0, 5.0, 6.0),
+        stat_modifiers={"AGI": 50, "STR": 20},
+        ftp=(5.0, 5.0, 5.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
@@ -2491,8 +2935,8 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Blast Arrow",
         weapon_type=WeaponType.ARCHERY,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 50, "AGI": 50},
-        ftp=(1.5, 1.5, 1.5),
+        stat_modifiers={"AGI": 50, "STR": 20},
+        ftp=(2.0, 2.0, 2.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
@@ -2500,30 +2944,69 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         notes="Stuns target."
     ),
     
+    "Arching Arrow": WeaponskillData(
+        name="Arching Arrow",
+        weapon_type=WeaponType.ARCHERY,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"AGI": 50, "STR": 20},
+        ftp=(3.5, 3.5, 3.5),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=True,
+        skillchain=["Fusion"],
+        notes="Chance of critical hit varies with TP. Accessible to non-RNG jobs via Exalted Bow or Exalted Bow +1."
+    ),
+    
     "Empyreal Arrow": WeaponskillData(
         name="Empyreal Arrow",
         weapon_type=WeaponType.ARCHERY,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 16, "AGI": 25},
-        ftp=(2.0, 2.5, 3.5),
+        stat_modifiers={"AGI": 50, "STR": 20},
+        ftp=(1.5, 2.5, 5.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Fusion", "Transfixion"],
-        notes="Attack varies with TP."
+        notes="Damage varies with TP. Accessible to non-RNG jobs via Kaja Bow or Ullr."
     ),
     
     "Refulgent Arrow": WeaponskillData(
         name="Refulgent Arrow",
         weapon_type=WeaponType.ARCHERY,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 60, "AGI": 60},
-        ftp=(5.0, 5.0, 5.0),
+        stat_modifiers={"STR": 60},
+        ftp=(3.0, 4.25, 7.0),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         skillchain=["Reverberation", "Transfixion"],
         notes="High stat mods."
+    ),
+    
+    "Scatter Shot": WeaponskillData(
+        name="Scatter Shot",
+        weapon_type=WeaponType.ARCHERY,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"STR": 50, "AGI": 50},
+        ftp=(1.5, 1.5, 1.5),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=["Impaction", "Transfixion"],
+        notes="AoE archery WS. Hits all enemies in range. Damage per target is lower than single-target WS; situational for mob packs."
+    ),
+    
+    "Hunter's Shot": WeaponskillData(
+        name="Hunter's Shot",
+        weapon_type=WeaponType.ARCHERY,
+        ws_type=WSType.PHYSICAL,
+        stat_modifiers={"AGI": 60, "STR": 40},
+        ftp=(2.5, 3.0, 3.5),
+        hits=1,
+        ftp_replicating=False,
+        can_crit=False,
+        skillchain=["Reverberation", "Transfixion"],
+        notes="Reduces target's accuracy. Decent fTP scaling with TP. Useful as a debuff WS when accuracy down on mobs is valuable."
     ),
     
     "Namas Arrow": WeaponskillData(
@@ -2543,13 +3026,13 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Sarv",
         weapon_type=WeaponType.ARCHERY,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"AGI": 60, "DEX": 40},
-        ftp=(4.0, 4.0, 4.0),
-        hits=3,
-        ftp_replicating=True,
+        stat_modifiers={"STR": 65, "AGI": 65},
+        ftp=(2.75, 5.5, 8.25),
+        hits=1,
+        ftp_replicating=False,
         can_crit=False,
-        skillchain=["Liquefaction", "Impaction", "Fragmentation"],
-        notes="Prime WS. 3-hit fTP replicating."
+        skillchain=["Transfixion", "Scission", "Gravitation"],
+        notes="Prime WS (Pinaka). Damage varies with TP."
     ),
     
     # -------------------------------------------------------------------------
@@ -2559,7 +3042,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Leaden Salute",
         weapon_type=WeaponType.MARKSMANSHIP,
         ws_type=WSType.MAGICAL,
-        stat_modifiers={"AGI": 73, "MND": 15},
+        stat_modifiers={"AGI": 100},
         ftp=(4.0, 6.7, 10.0),
         hits=1,
         ftp_replicating=False,
@@ -2573,13 +3056,13 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         name="Mordant Rime",
         weapon_type=WeaponType.DAGGER,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"CHR": 85},
+        stat_modifiers={"CHR": 70, "DEX": 30},
         ftp=(5.0, 5.0, 5.0),
         hits=2,
         ftp_replicating=True,
         can_crit=False,
         skillchain=["Fragmentation", "Distortion"],
-        notes="BRD Empyrean WS. Unique CHR mod."
+        notes="Carnwenhan Mythic WS (BRD). Unique CHR/DEX mod."
     ),
     
     "Dimidiation": WeaponskillData(
@@ -2588,11 +3071,11 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"DEX": 80},
         ftp=(8.5, 8.5, 8.5),
-        hits=1,
+        hits=2,
         ftp_replicating=False,
         can_crit=False,
-        skillchain=["Light", "Distortion"],
-        notes="RUN Empyrean WS. Very high fTP, DEX based."
+        skillchain=["Light", "Fragmentation"],
+        notes="Ergon WS (Epeolatry). RUN main job only. Aftermath effect varies with TP; Epeolatry Lv.119 grants Aftermath."
     ),
     
     "Pyrrhic Kleos": WeaponskillData(
@@ -2600,52 +3083,40 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.DAGGER,
         ws_type=WSType.PHYSICAL,
         stat_modifiers={"STR": 40, "DEX": 40},
-        ftp=(2.5, 2.5, 2.5),
+        ftp=(1.75, 1.75, 1.75),
         hits=4,
         ftp_replicating=True,
         can_crit=False,
         skillchain=["Distortion", "Scission"],
-        notes="DNC Empyrean WS. Multi-hit fTP replicating."
-    ),
-    
-    "Spinning Attack": WeaponskillData(
-        name="Spinning Attack",
-        weapon_type=WeaponType.GREAT_AXE,
-        ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 100},
-        ftp=(1.5, 1.5, 1.5),
-        hits=1,
-        ftp_replicating=False,
-        can_crit=False,
-        skillchain=["Liquefaction", "Scission", "Impaction"],
-        notes="AoE WS. High STR mod."
+        notes="Terpsichore Mythic WS (DNC). Multi-hit fTP replicating."
     ),
     
     "Fell Cleave": WeaponskillData(
         name="Fell Cleave",
         weapon_type=WeaponType.GREAT_AXE,
         ws_type=WSType.PHYSICAL,
-        stat_modifiers={"STR": 60, "VIT": 60},
+        stat_modifiers={"STR": 60},
         ftp=(2.75, 2.75, 2.75),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
-        skillchain=["Scission", "Detonation"],
-        notes="Standard great axe WS."
+        skillchain=["Scission", "Detonation", "Impaction"],
+        notes="Area-of-effect damage."
     ),
+    
     
     "Sanguine Blade": WeaponskillData(
         name="Sanguine Blade",
         weapon_type=WeaponType.SWORD,
         ws_type=WSType.MAGICAL,
-        stat_modifiers={"MND": 50, "STR": 50},
+        stat_modifiers={"MND": 50, "STR": 30},
         ftp=(2.75, 2.75, 2.75),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
         element="Dark",
-        skillchain=["Compression", "Reverberation"],
-        notes="Magical sword WS. Drains HP."
+        skillchain=[],
+        notes="Magical dark sword WS. Drains HP. No skillchain properties."
     ),
     
     "Red Lotus Blade": WeaponskillData(
@@ -2653,7 +3124,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.SWORD,
         ws_type=WSType.MAGICAL,
         stat_modifiers={"STR": 40, "INT": 40},
-        ftp=(1.5, 1.5, 1.5),
+        ftp=(1.0, 2.3828125, 3.75),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
@@ -2667,7 +3138,7 @@ WEAPONSKILLS: Dict[str, WeaponskillData] = {
         weapon_type=WeaponType.SWORD,
         ws_type=WSType.MAGICAL,
         stat_modifiers={"STR": 40, "MND": 40},
-        ftp=(2.0, 2.5, 3.0),
+        ftp=(1.125, 2.625, 4.125),
         hits=1,
         ftp_replicating=False,
         can_crit=False,
@@ -2718,7 +3189,7 @@ def get_weaponskills_for_job(job_name: str) -> List[str]:
     job_ws_map = {
         "WAR": ["Resolution", "Ukko's Fury", "Upheaval", "Decimation"],
         "MNK": ["Victory Smite", "Shijin Spiral", "Howling Fist"],
-        "WHM": ["Black Halo", "Realmrazer", "Judgement"],
+        "WHM": ["Black Halo", "Realmrazer", "Judgment"],
         "BLM": ["Cataclysm", "Shattersoul"],
         "RDM": ["Savage Blade", "Chant du Cygne", "Requiescat"],
         "THF": ["Rudra's Storm", "Evisceration", "Aeolian Edge", "Exenterator"],

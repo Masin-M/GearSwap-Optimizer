@@ -53,6 +53,13 @@ PAIR_SLOT_MAP = {
     SLOT_TO_IDX['ring2']: SLOT_TO_IDX['ring1'],
 }
 
+# Two-phase search slot groupings.
+# Phase 1: Core armor slots — smaller per-slot pools, establish the stat foundation.
+# Phase 2: Accessories — large pools (rings, earrings, ammo) layered on top of
+#           the narrowed Phase 1 candidates.
+PHASE1_SLOTS = ['head', 'neck', 'body', 'hands', 'back', 'waist', 'legs', 'feet']
+PHASE2_SLOTS = ['ammo', 'ear1', 'ear2', 'ring1', 'ring2']
+
 
 # =============================================================================
 # STAT INDEXING (same as fast version)
@@ -97,8 +104,8 @@ WSDIST_TO_STAT = {
     'Cure Potency': 'cure_potency', '"Cure potency"': 'cure_potency',
     'Cure Potency II': 'cure_potency_ii', '"Cure Potency II"': 'cure_potency_ii',
     'Enhancing Duration': 'enhancing_duration', '"Enhancing Duration"': 'enhancing_duration',
-    'Enh. Mag. eff. dur.': 'enhancing_duration', '"Enh. Mag. eff. dur."': 'enhancing_duration',
-    'Enhancing magic effect duration': 'enhancing_duration',
+    'Enh. Mag. eff. dur.': 'enhancing_duration_augment', '"Enh. Mag. eff. dur."': 'enhancing_duration_augment',
+    'Enhancing magic effect duration': 'enhancing_duration_augment',
     'Elemental Magic Skill': 'elemental_magic_skill', '"Elemental Magic Skill"': 'elemental_magic_skill',
     'Dark Magic Skill': 'dark_magic_skill', '"Dark Magic Skill"': 'dark_magic_skill',
     'Enfeebling Magic Skill': 'enfeebling_magic_skill', '"Enfeebling Magic Skill"': 'enfeebling_magic_skill',
@@ -137,8 +144,8 @@ WSDIST_TO_STAT = {
     'Dark Elemental Bonus': 'dark_elemental_bonus',
     'EnSpell Damage': 'enspell_damage', 'Ninjutsu Magic Attack': 'ninjutsu_magic_attack',
     'Blood Pact Damage': 'blood_pact_damage', 'Occult Acumen': 'occult_acumen',
-    'Enfeebling magic effect': 'enfeebling_effect', '"Enfeebling magic effect"': 'enfeebling_effect',
-    'Enfeebling Magic Effect': 'enfeebling_effect',
+    'Enfeebling Magic effect': 'enfeebling_effect', '"Enfeebling Magic effect"': 'enfeebling_effect',
+    'Enfeebling Magic Effect': 'enfeebling_effect','Enfeebling magic effect': 'enfeebling_effect',
     'Drain and Aspir potency': 'drain_aspir_potency', '"Drain and Aspir potency"': 'drain_aspir_potency',
     'Drain/Aspir potency': 'drain_aspir_potency',
     'Sword enhancement spell damage': 'sword_enhancement_flat',
@@ -152,8 +159,22 @@ PERCENTAGE_STATS = frozenset({
     'crit_rate', 'crit_damage', 'ws_damage', 'damage_taken', 'physical_dt', 'magical_dt',
     'magic_burst_bonus', 'magic_burst_damage_ii', 'pdl', 'skillchain_bonus',
     'fast_cast', 'cure_potency', 'cure_potency_ii', 'blood_pact_damage',
-    'enhancing_duration', 'drain_aspir_potency', 'sword_enhancement_percent',
+    'enhancing_duration', 'enhancing_duration_augment', 'drain_aspir_potency', 'sword_enhancement_percent',
 })
+
+# Stats that to_wsdist_gear() does NOT output.  These must be injected from
+# item.total_stats after the wsdist conversion so the beam search can see them.
+# Mirrors the manual pull list in api.py's inventory endpoint.
+_WSDIST_MISSING_STATS = (
+    'enmity', 'refresh', 'regen',
+    'refresh_potency', 'regen_potency',
+    'cure_potency', 'cure_potency_ii',
+    'drain_aspir_potency',
+    'spell_interruption_rate_down',
+    'enfeebling_effect', 'enfeebling_duration',
+    'enhancing_duration', 'enhancing_duration_augment',
+    'regen_effect_duration', 'refresh_effect_duration',
+)
 
 
 # =============================================================================
@@ -489,7 +510,16 @@ class NumbaBeamSearchOptimizer:
             else:
                 items = self.inventory.get_items_for_slot(slot_enum, self.job)
             
-            # Convert and filter
+            # Convert and score all items.
+            # Only hard filter: score <= 0 (item has zero contribution to any
+            # weighted stat — e.g. a pure-magic item in a physical WS profile).
+            # We intentionally do NOT apply a relative threshold here because the
+            # highest-scoring item in a slot often has extreme haste or multi-attack
+            # (70-160× weight per basis-point) which would make every non-haste item
+            # look like <2 % of the best, cutting genuinely good items like
+            # Malignance Tights or Reiki Yotai.  The relative threshold is applied
+            # later in _prefilter_item_pool using a percentile-anchored reference
+            # so that one outlier item cannot penalise the whole slot pool.
             item_dict: Dict[str, Tuple[Dict[str, Any], np.ndarray]] = {}
             
             for item in items:
@@ -506,7 +536,37 @@ class NumbaBeamSearchOptimizer:
                     name2 = wsdist_gear.get('Name2', wsdist_gear.get('Name', 'Unknown'))
                     
                     stats_array = self._gear_to_stats_array(wsdist_gear)
+                    
+                    # Patch in stats that to_wsdist_gear() does not carry.
+                    # These are the same stats the API has to pull manually from
+                    # total_stats (see api.py "Stats not carried through wsdist
+                    # conversion" comment).  Without this, the beam search never
+                    # sees enhancing_duration, regen_potency, etc.
+                    # NOTE: No PERCENTAGE_STATS conversion here — total_stats
+                    # values are already in basis points, matching the array scale
+                    # that _array_to_stats expects.
+                    _ts = item.total_stats
+                    for _sname in _WSDIST_MISSING_STATS:
+                        _idx = STAT_TO_INDEX.get(_sname)
+                        if _idx is None:
+                            continue
+                        _val = getattr(_ts, _sname, 0)
+                        if _val and stats_array[_idx] == 0:
+                            stats_array[_idx] = _val
+                    
                     item_score = self._score_stats_array(stats_array)
+                    
+                    # Debug: warn when an augmented item scores suspiciously low,
+                    # which usually means the augment's stats weren't picked up by
+                    # to_wsdist_gear (e.g. Path B WSD on Nyame Helm).
+                    if augment_str and item_score <= 0:
+                        ws_dmg_idx = STAT_TO_INDEX.get('ws_damage', -1)
+                        has_wsd = ws_dmg_idx >= 0 and stats_array[ws_dmg_idx] > 0
+                        print(
+                            f"  ⚠ Augmented item scored 0 — augment may not be "
+                            f"parsed by wsdist: {name2!r} (augment_str={augment_str!r}, "
+                            f"wsd_in_stats={has_wsd})"
+                        )
                     
                     if item_score <= 0:
                         continue
@@ -582,85 +642,228 @@ class NumbaBeamSearchOptimizer:
     def get_items_for_slot(self, slot: str) -> List[Dict[str, Any]]:
         """Get available items for a slot in wsdist format."""
         return self._items.get(slot, [])
-    
-    def search(
+
+    def _prefilter_item_pool(self, max_per_slot: int = 40, relative_threshold: float = 0.08):
+        """
+        Pre-filter each slot's item pool by solo score contribution.
+
+        Two complementary passes:
+
+        1. Relative threshold (always runs, even on small pools):
+           Prune items scoring below ``relative_threshold`` × the *P75 reference*.
+           The reference is the 75th-percentile score of all non-Empty items in
+           the slot rather than the single best item.  This prevents one outlier
+           piece with large haste / multi-attack from setting a bar so high that
+           every non-haste item in the slot gets cut.
+
+        2. Top-N cap: if the slot still has more than ``max_per_slot`` items after
+           the relative pass, only the top ``max_per_slot`` are kept.
+
+        The 'Empty' placeholder is always retained.
+
+        Why P75?
+            For TP profiles the best-in-slot item often carries gear_haste at
+            70× weight per basis-point, giving it a score 50-100× higher than
+            solid items like Malignance Tights (no haste).  Using the best score
+            as the anchor causes these good-but-no-haste items to fall below any
+            reasonable threshold.  P75 anchors the filter on the bulk of the
+            competition — a far more representative bar.
+        """
+        print("\n  [Pre-filter] Scoring items individually and pruning low-value entries...")
+
+        already_filtered: set = set()
+
+        for slot in list(self._items.keys()):
+            items = self._items[slot]
+            if len(items) == 0:
+                continue
+
+            canonical = slot
+            if slot == 'ear2':
+                canonical = 'ear1'
+            elif slot == 'ring2':
+                canonical = 'ring1'
+
+            if canonical in already_filtered:
+                mirror = canonical
+                self._items[slot] = self._items[mirror]
+                self._item_stats[slot] = self._item_stats[mirror]
+                self._item_ids[slot] = self._item_ids[mirror]
+                continue
+
+            item_stats = self._item_stats[slot]
+            item_ids   = self._item_ids[slot]
+
+            scored: List[Tuple[float, int]] = []
+            empty_indices: List[int] = []
+
+            for i in range(len(items)):
+                item_id = item_ids[i]
+                if item_id == -1:
+                    empty_indices.append(i)
+                    continue
+                score = self._score_stats_array(item_stats[i])
+                scored.append((score, i))
+
+            scored.sort(key=lambda x: -x[0])
+
+            keep_set = set(empty_indices)
+
+            if scored and relative_threshold > 0:
+                # Anchor selection:
+                #   Large pools (>=8 items): use P75 — the item at the 75th percentile
+                #     rank.  This keeps the bar representative of real competition
+                #     rather than one exceptional outlier (e.g. a single haste item
+                #     that scores 100× everything else).
+                #   Small pools (<8 items): P75 collapses toward the best item for
+                #     1-3 items, so we anchor on the 2nd-best item instead.  This
+                #     lets genuinely useful items survive even when the absolute best
+                #     item in the slot has extreme haste/DA score.
+                n = len(scored)
+                if n >= 8:
+                    p75_rank = n * 25 // 100   # e.g. rank 2 for 8 items
+                    anchor_score = scored[p75_rank][0]
+                else:
+                    # Use 2nd-best; for single-item pools use that item itself
+                    fallback_rank = min(1, n - 1)
+                    anchor_score = scored[fallback_rank][0]
+
+                min_rel_score = anchor_score * relative_threshold
+
+                budget = max(max_per_slot - len(empty_indices), 1)
+
+                rel_removed = 0
+                topn_removed = 0
+                for rank, (score, idx) in enumerate(scored):
+                    if score < min_rel_score:
+                        rel_removed += 1
+                        continue
+                    if rank >= budget:
+                        topn_removed += 1
+                        continue
+                    keep_set.add(idx)
+
+                if rel_removed or topn_removed:
+                    msgs = []
+                    if rel_removed:
+                        msgs.append(
+                            f"{rel_removed} below {relative_threshold:.0%} "
+                            f"of P75 anchor ({anchor_score:.0f})"
+                        )
+                    if topn_removed:
+                        msgs.append(f"{topn_removed} over top-{max_per_slot} cap")
+                    print(f"    {slot}: {len(items)} → {len(keep_set)} items "
+                          f"(pruned: {', '.join(msgs)})")
+            else:
+                for _, idx in scored:
+                    keep_set.add(idx)
+
+            keep_ordered = sorted(keep_set)
+            kept_items = [items[i] for i in keep_ordered]
+            kept_stats = item_stats[keep_ordered]
+            kept_ids   = item_ids[keep_ordered]
+
+            self._items[slot]      = kept_items
+            self._item_stats[slot] = kept_stats
+            self._item_ids[slot]   = kept_ids
+
+            already_filtered.add(canonical)
+
+        for slot1, slot2 in [('ear1', 'ear2'), ('ring1', 'ring2')]:
+            if slot1 in self._items and slot2 in self._items:
+                if len(self._items[slot1]) != len(self._items[slot2]):
+                    self._items[slot2]      = self._items[slot1]
+                    self._item_stats[slot2] = self._item_stats[slot1]
+                    self._item_ids[slot2]   = self._item_ids[slot1]
+
+    def _run_beam_for_slots(
         self,
-        fixed_gear: Optional[Dict[str, Dict[str, Any]]] = None,
-        slots_to_optimize: Optional[List[str]] = None,
-    ) -> List[GearsetCandidate]:
+        slots: List[str],
+        beam_stats: np.ndarray,
+        beam_gear: np.ndarray,
+        beam_used: np.ndarray,
+        beam_scores: np.ndarray,
+        beam_width: int,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
-        Run beam search to find top gearset candidates.
-        
-        Same interface as BeamSearchOptimizer.search().
+        Core beam-search loop over an arbitrary ordered list of slots.
+
+        Shared by both ``search()`` and the two phases of ``two_phase_search()``.
+        The caller controls the beam width so Phase 1 can use a wider beam than
+        Phase 2.
+
+        Returns updated (beam_stats, beam_gear, beam_used, beam_scores).
         """
-        if slots_to_optimize is None:
-            slots_to_optimize = ALL_SLOTS if self.include_weapons else ARMOR_SLOTS
-        
-        # Initialize beam arrays
-        beam_stats = np.zeros((1, N_STATS), dtype=np.float64)
-        beam_gear = np.full((1, N_SLOTS), -1, dtype=np.int32)
-        beam_used = np.zeros((1, max(len(self._id_to_name2), 1)), dtype=np.int16)
-        beam_scores = np.zeros(1, dtype=np.float64)
-        
-        # Track fixed gear for reconstruction
-        self._fixed_gear = fixed_gear or {}
-        self._fixed_gear_stats: Dict[str, np.ndarray] = {}
-        
-        # Add fixed gear
-        if fixed_gear:
-            for slot, gear in fixed_gear.items():
-                slot_idx = SLOT_TO_IDX[slot]
-                gear_stats = self._gear_to_stats_array(gear)
-                beam_stats[0] += gear_stats
-                beam_gear[0, slot_idx] = -2  # -2 means fixed gear
-                self._fixed_gear_stats[slot] = gear_stats
-                
-                name2 = gear.get('Name2', gear.get('Name', 'Empty'))
-                if name2 != 'Empty':
-                    item_id = self._get_or_create_item_id(name2)
-                    if item_id >= 0 and item_id < len(beam_used[0]):
-                        beam_used[0, item_id] += 1
-            
-            beam_scores[0] = self._score_stats_array(beam_stats[0])
-        
-        # Pre-allocate output arrays for expansion (worst case size)
-        max_items_per_slot = max(len(v) for v in self._items.values()) if self._items else 1
-        max_expansions = self.beam_width * max_items_per_slot
-        
-        out_scores = np.zeros(max_expansions, dtype=np.float64)
+        # Pre-allocate output arrays for the expansion kernel.
+        # beam_size is bounded by beam_width; n_items is bounded by the largest
+        # slot pool after any pre-filtering has run.
+        max_items_per_slot = max(
+            (len(v) for v in self._items.values() if v), default=1
+        )
+        max_expansions = beam_width * max_items_per_slot
+
+        out_scores   = np.zeros(max_expansions, dtype=np.float64)
         out_beam_idx = np.zeros(max_expansions, dtype=np.int32)
         out_item_idx = np.zeros(max_expansions, dtype=np.int32)
-        
-        # Process each slot
-        for slot in slots_to_optimize:
+
+        # Paired slots are now expanded jointly to avoid the sequential-greedy
+        # flaw where the first slot's winner blocks the globally-best pairing.
+        # ear1 / ring1 are skipped individually; both are handled together
+        # when ear2 / ring2 is encountered.
+        PAIR_FIRST  = {'ear2': 'ear1', 'ring2': 'ring1'}
+        PAIR_SECOND = {'ear1', 'ring1'}
+
+        for slot in slots:
+            # Skip first-of-pair; it will be handled with its partner.
+            if slot in PAIR_SECOND:
+                continue
+
+            # Joint pair expansion for ear1+ear2 or ring1+ring2.
+            if slot in PAIR_FIRST:
+                slot1 = PAIR_FIRST[slot]
+                beam_stats, beam_gear, beam_used, beam_scores = \
+                    self._process_paired_slots(
+                        slot1, slot,
+                        beam_stats, beam_gear, beam_used, beam_scores,
+                        beam_width,
+                    )
+                continue
+
             if slot in self._fixed_gear:
                 continue
-            
-            slot_idx = SLOT_TO_IDX[slot]
-            pair_slot_idx = PAIR_SLOT_MAP.get(slot_idx, -1)
-            
+
+            slot_idx      = SLOT_TO_IDX[slot]
+            pair_slot_idx = -1  # paired slots no longer processed individually
+
             item_stats = self._item_stats.get(slot)
-            item_ids = self._item_ids.get(slot)
-            items = self._items.get(slot, [])
-            
+            item_ids   = self._item_ids.get(slot)
+            items      = self._items.get(slot, [])
+
             if item_stats is None or len(items) == 0:
                 print(f"  {slot}: No items available, skipping")
                 continue
-            
-            n_items = len(items)
+
+            n_items   = len(items)
             beam_size = len(beam_stats)
-            
-            # Special handling for sub slot with weapon filtering
+
+            # Sub slot needs weapon-aware filtering (Python-side logic)
             if slot == 'sub' and self.include_weapons:
                 beam_stats, beam_gear, beam_used, beam_scores = self._process_sub_slot(
                     beam_stats, beam_gear, beam_used, beam_scores,
                     item_stats, item_ids, items, slot_idx
                 )
                 continue
-            
+
             print(f"  {slot}: Testing {n_items} items across {beam_size} candidates...")
-            
-            # Run Numba kernel
+
+            # Grow output buffers if needed (can happen when beam_width was
+            # increased for Phase 1 relative to a previous allocation)
+            needed = beam_size * n_items
+            if needed > len(out_scores):
+                out_scores   = np.zeros(needed, dtype=np.float64)
+                out_beam_idx = np.zeros(needed, dtype=np.int32)
+                out_item_idx = np.zeros(needed, dtype=np.int32)
+
             n_valid = _expand_and_score_kernel(
                 beam_stats, beam_gear, beam_used,
                 item_stats, item_ids,
@@ -669,52 +872,379 @@ class NumbaBeamSearchOptimizer:
                 self._hard_cap_indices, self._hard_cap_values, self._hard_cap_is_neg,
                 self._soft_cap_indices, self._soft_cap_values,
                 slot_idx, pair_slot_idx,
-                out_scores, out_beam_idx, out_item_idx
+                out_scores, out_beam_idx, out_item_idx,
             )
-            
+
             if n_valid == 0:
                 print(f"    No valid expansions!")
                 continue
-            
-            # Select top-k using argpartition (O(n) average)
-            k = min(self.beam_width, n_valid)
+
+            k = min(beam_width, n_valid)
             if n_valid > k:
-                # argpartition gives indices of k largest (unsorted)
                 topk_indices = np.argpartition(out_scores[:n_valid], -k)[-k:]
             else:
                 topk_indices = np.arange(n_valid, dtype=np.int32)
-            
-            # Allocate new beam arrays
-            new_stats = np.zeros((k, N_STATS), dtype=np.float64)
-            new_gear = np.zeros((k, N_SLOTS), dtype=np.int32)
-            new_used = np.zeros((k, len(self._owned_counts)), dtype=np.int16)
-            new_scores = np.zeros(k, dtype=np.float64)
-            
-            # Reconstruct top-k candidates
+
+            new_stats  = np.zeros((k, N_STATS),                   dtype=np.float64)
+            new_gear   = np.zeros((k, N_SLOTS),                   dtype=np.int32)
+            new_used   = np.zeros((k, len(self._owned_counts)),   dtype=np.int16)
+            new_scores = np.zeros(k,                               dtype=np.float64)
+
             _reconstruct_topk_kernel(
-                topk_indices.astype(np.int32), out_beam_idx, out_item_idx, out_scores,
+                topk_indices.astype(np.int32),
+                out_beam_idx, out_item_idx, out_scores,
                 beam_stats, beam_gear, beam_used,
                 item_stats, item_ids,
                 slot_idx,
-                new_stats, new_gear, new_used, new_scores
+                new_stats, new_gear, new_used, new_scores,
             )
-            
-            beam_stats = new_stats
-            beam_gear = new_gear
-            beam_used = new_used
+
+            beam_stats  = new_stats
+            beam_gear   = new_gear
+            beam_used   = new_used
             beam_scores = new_scores
-            
-            # Print progress
-            best_idx = np.argmax(beam_scores)
-            worst_idx = np.argmin(beam_scores)
-            top_item_idx = beam_gear[best_idx, slot_idx]
-            top_item_name = items[top_item_idx].get('Name2', 'Unknown') if top_item_idx >= 0 else 'Unknown'
-            
+
+            best_idx      = np.argmax(beam_scores)
+            worst_idx     = np.argmin(beam_scores)
+            top_item_idx  = beam_gear[best_idx, slot_idx]
+            top_item_name = (
+                items[top_item_idx].get('Name2', 'Unknown')
+                if top_item_idx >= 0 else 'Unknown'
+            )
             print(f"    Top score: {beam_scores[best_idx]:.1f}, "
-                  f"Bottom score: {beam_scores[worst_idx]:.1f}")
+                  f"Bottom: {beam_scores[worst_idx]:.1f}")
             print(f"    Winner: {top_item_name}")
-        
-        # Convert to GearsetCandidate objects
+
+        return beam_stats, beam_gear, beam_used, beam_scores
+    
+    def _process_paired_slots(
+        self,
+        slot1: str,
+        slot2: str,
+        beam_stats: np.ndarray,
+        beam_gear: np.ndarray,
+        beam_used: np.ndarray,
+        beam_scores: np.ndarray,
+        beam_width: int,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Jointly expand two paired accessory slots (ear1+ear2 or ring1+ring2).
+
+        Why this exists
+        ---------------
+        Sequential slot-by-slot beam search has a systematic flaw for paired
+        slots that share the same item pool:
+
+          1. slot1 (e.g. ear1) is scored in isolation.  The highest solo-score
+             item wins the beam competition and fills ear1 for every surviving
+             candidate.
+          2. When slot2 (ear2) is processed the canonical-ordering guard
+             (item_id >= pair_item_id) blocks any item whose ID is lower than
+             the ear1 winner.  If the *combination* (lower-ID item, winner) is
+             actually better than (winner, anything with higher ID), it is never
+             explored.
+
+        By enumerating all canonical (i, j) pairs — where i <= j by item index
+        so we never explore the same unordered pair twice — we guarantee the
+        globally best pairing is always reachable regardless of which item
+        scores higher in isolation.
+
+        The pair pool is small (typically ≤ 10 items per slot after
+        pre-filtering), so the O(n²) pair enumeration is negligible.
+        """
+        # Both slots share the same item pool.
+        item_stats = self._item_stats.get(slot1)
+        item_ids   = self._item_ids.get(slot1)
+        items      = self._items.get(slot1, [])
+
+        if item_stats is None or len(items) == 0:
+            print(f"  {slot1}+{slot2}: No items available, skipping pair")
+            return beam_stats, beam_gear, beam_used, beam_scores
+
+        slot1_idx = SLOT_TO_IDX[slot1]
+        slot2_idx = SLOT_TO_IDX[slot2]
+        n_items   = len(items)
+        beam_size = len(beam_stats)
+
+        # Handle fixed-gear edge cases: one or both slots locked.
+        slot1_fixed = slot1 in self._fixed_gear
+        slot2_fixed = slot2 in self._fixed_gear
+
+        if slot1_fixed and slot2_fixed:
+            return beam_stats, beam_gear, beam_used, beam_scores
+
+        if slot1_fixed or slot2_fixed:
+            # Only one slot is free — fall back to single-slot expansion.
+            free_slot = slot2 if slot1_fixed else slot1
+            free_idx  = SLOT_TO_IDX[free_slot]
+            print(f"  {free_slot}: Testing {n_items} items across {beam_size} "
+                  f"candidates (partner slot fixed)...")
+            expansions = []
+            for b in range(beam_size):
+                for i in range(n_items):
+                    item_id = item_ids[i]
+                    if item_id >= 0 and beam_used[b, item_id] >= self._owned_counts[item_id]:
+                        continue
+                    new_stat = beam_stats[b] + item_stats[i]
+                    score    = self._score_stats_array(new_stat)
+                    expansions.append((score, b, i))
+            if not expansions:
+                return beam_stats, beam_gear, beam_used, beam_scores
+            expansions.sort(key=lambda x: x[0], reverse=True)
+            top = expansions[:beam_width]
+            k = len(top)
+            ns = np.zeros((k, N_STATS), dtype=np.float64)
+            ng = beam_gear[:1].copy(); ng = np.zeros((k, N_SLOTS), dtype=np.int32)
+            nu = np.zeros((k, len(self._owned_counts)), dtype=np.int16)
+            nsc = np.zeros(k, dtype=np.float64)
+            for idx, (score, b, i) in enumerate(top):
+                ns[idx]  = beam_stats[b] + item_stats[i]
+                ng[idx]  = beam_gear[b]; ng[idx, free_idx] = i
+                nu[idx]  = beam_used[b]
+                if item_ids[i] >= 0:
+                    nu[idx, item_ids[i]] += 1
+                nsc[idx] = score
+            return ns, ng, nu, nsc
+
+        # --- Joint pair expansion ---
+        print(f"  {slot1}+{slot2}: Testing pairs from {n_items}-item pool "
+              f"across {beam_size} candidates...")
+
+        expansions = []  # (score, b, i, j)
+
+        for b in range(beam_size):
+            for i in range(n_items):
+                id_i = item_ids[i]
+                # Check ownership for first item
+                if id_i >= 0 and beam_used[b, id_i] >= self._owned_counts[id_i]:
+                    continue
+
+                for j in range(i, n_items):  # j >= i enforces canonical ordering
+                    id_j = item_ids[j]
+
+                    # Check ownership for second item.
+                    # If i == j (same item in both slots) we need 2 copies.
+                    used_after_i = beam_used[b].copy()
+                    if id_i >= 0:
+                        used_after_i[id_i] += 1
+                    if id_j >= 0 and used_after_i[id_j] >= self._owned_counts[id_j]:
+                        continue
+
+                    combined_stats = beam_stats[b] + item_stats[i] + item_stats[j]
+                    score = self._score_stats_array(combined_stats)
+                    expansions.append((score, b, i, j))
+
+        if not expansions:
+            print(f"    No valid pairs found!")
+            return beam_stats, beam_gear, beam_used, beam_scores
+
+        expansions.sort(key=lambda x: x[0], reverse=True)
+        top = expansions[:beam_width]
+        k   = len(top)
+
+        new_stats  = np.zeros((k, N_STATS),                 dtype=np.float64)
+        new_gear   = np.zeros((k, N_SLOTS),                 dtype=np.int32)
+        new_used   = np.zeros((k, len(self._owned_counts)), dtype=np.int16)
+        new_scores = np.zeros(k,                             dtype=np.float64)
+
+        for idx, (score, b, i, j) in enumerate(top):
+            id_i = item_ids[i]
+            id_j = item_ids[j]
+            new_stats[idx]          = beam_stats[b] + item_stats[i] + item_stats[j]
+            new_gear[idx]           = beam_gear[b]
+            new_gear[idx, slot1_idx] = i
+            new_gear[idx, slot2_idx] = j
+            new_used[idx]           = beam_used[b]
+            if id_i >= 0:
+                new_used[idx, id_i] += 1
+            if id_j >= 0:
+                new_used[idx, id_j] += 1
+            new_scores[idx] = score
+
+        best = np.argmax(new_scores)
+        name_i = items[new_gear[best, slot1_idx]].get('Name2', 'Unknown')
+        name_j = items[new_gear[best, slot2_idx]].get('Name2', 'Unknown')
+        print(f"    Top score: {new_scores[best]:.1f}, Bottom: {new_scores[-1]:.1f}")
+        print(f"    Winner: {slot1}={name_i}, {slot2}={name_j}")
+
+        return new_stats, new_gear, new_used, new_scores
+
+    def _init_beam(
+        self,
+        fixed_gear: Optional[Dict[str, Dict[str, Any]]],
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Initialise beam arrays and apply any fixed-gear stats.
+
+        Shared by both ``search()`` and ``two_phase_search()``.
+        Also populates ``self._fixed_gear`` and ``self._fixed_gear_stats``.
+        """
+        beam_stats  = np.zeros((1, N_STATS),                    dtype=np.float64)
+        beam_gear   = np.full ((1, N_SLOTS), -1,                dtype=np.int32)
+        beam_used   = np.zeros((1, max(len(self._id_to_name2), 1)), dtype=np.int16)
+        beam_scores = np.zeros(1,                                dtype=np.float64)
+
+        self._fixed_gear        = fixed_gear or {}
+        self._fixed_gear_stats: Dict[str, np.ndarray] = {}
+
+        if fixed_gear:
+            for slot, gear in fixed_gear.items():
+                slot_idx = SLOT_TO_IDX[slot]
+                beam_gear[0, slot_idx] = -2  # -2 means fixed gear
+
+                if gear is None:
+                    # Slot is locked to empty — no stats contributed, beam search
+                    # will not place anything here.
+                    self._fixed_gear_stats[slot] = np.zeros(N_STATS, dtype=np.float64)
+                    continue
+
+                gear_stats = self._gear_to_stats_array(gear)
+                beam_stats[0]          += gear_stats
+                self._fixed_gear_stats[slot] = gear_stats
+
+                name2 = gear.get('Name2', gear.get('Name', 'Empty'))
+                if name2 != 'Empty':
+                    item_id = self._get_or_create_item_id(name2)
+                    if 0 <= item_id < len(beam_used[0]):
+                        beam_used[0, item_id] += 1
+
+            beam_scores[0] = self._score_stats_array(beam_stats[0])
+
+        return beam_stats, beam_gear, beam_used, beam_scores
+
+    def search(
+        self,
+        fixed_gear: Optional[Dict[str, Dict[str, Any]]] = None,
+        slots_to_optimize: Optional[List[str]] = None,
+    ) -> List[GearsetCandidate]:
+        """
+        Run beam search to find top gearset candidates.
+
+        Same interface as BeamSearchOptimizer.search().
+        Delegates the slot iteration to ``_run_beam_for_slots()``.
+        """
+        if slots_to_optimize is None:
+            slots_to_optimize = ALL_SLOTS if self.include_weapons else ARMOR_SLOTS
+
+        beam_stats, beam_gear, beam_used, beam_scores = self._init_beam(fixed_gear)
+
+        beam_stats, beam_gear, beam_used, beam_scores = self._run_beam_for_slots(
+            slots_to_optimize,
+            beam_stats, beam_gear, beam_used, beam_scores,
+            self.beam_width,
+        )
+
+        return self._convert_to_gearset_candidates(beam_stats, beam_gear, beam_used, beam_scores)
+
+    def two_phase_search(
+        self,
+        fixed_gear: Optional[Dict[str, Dict[str, Any]]] = None,
+        phase1_multiplier: int = 3,
+        max_per_slot: int = 10,
+    ) -> List[GearsetCandidate]:
+        """
+        Two-phase beam search that handles the large accessory search space.
+
+        Problem with a single-pass greedy beam search
+        ---------------------------------------------
+        Slots are processed left-to-right.  Early slots can fill the beam with
+        candidates that *look* good in isolation (high HP, DT, or just happened
+        to be part of a strong pair) but leave no room for the genuinely
+        offensive items that the accessory slots (rings, earrings, ammo) would
+        have needed to score well.
+
+        Solution
+        --------
+        1. **Pre-filtering** — before any search begins, score every item in
+           isolation (solo stat contribution × weight vector, with hard-cap
+           logic).  Only the top ``max_per_slot`` items per slot survive.  This
+           prevents defensively-oriented items from ever entering the beam.
+
+        2. **Phase 1 (main armor)** — optimise head/neck/body/hands/back/waist/
+           legs/feet with a *wider* intermediate beam (``beam_width *
+           phase1_multiplier``).  The wider beam preserves diverse main-slot
+           combinations rather than collapsing prematurely.
+
+        3. **Trim** — narrow the Phase 1 beam back to ``beam_width`` so Phase 2
+           starts at a manageable size.
+
+        4. **Phase 2 (accessories)** — optimise ammo/ear1/ear2/ring1/ring2
+           against the established armor foundation, using the normal
+           ``beam_width``.
+
+        Parameters
+        ----------
+        fixed_gear        : Slots that are locked in (e.g. weapons).
+        phase1_multiplier : How many times wider the Phase 1 beam is relative
+                            to ``self.beam_width``.  3× is a good default.
+        max_per_slot      : Maximum items retained per slot after pre-filtering.
+                            Raise this if you suspect good items are being
+                            dropped; lower it to speed things up.
+        """
+        slots_to_optimize = ALL_SLOTS if self.include_weapons else ARMOR_SLOTS
+
+        # Weapon slots (main/sub/ranged) are in ALL_SLOTS but not in PHASE1_SLOTS
+        # or PHASE2_SLOTS, so they must be prepended to Phase 1 explicitly when
+        # include_weapons is True.  Fixed weapons are excluded since they are
+        # already applied to the beam by _init_beam.
+        fixed = fixed_gear or {}
+        weapon_slots = [
+            s for s in WEAPON_SLOTS
+            if s in slots_to_optimize and s not in fixed
+        ]
+        phase1_slots = weapon_slots + [s for s in PHASE1_SLOTS if s in slots_to_optimize]
+        phase2_slots = [s for s in PHASE2_SLOTS if s in slots_to_optimize]
+
+        # ------------------------------------------------------------------
+        # Pre-filter: prune low-value items from every slot pool
+        # ------------------------------------------------------------------
+        self._prefilter_item_pool(max_per_slot=max_per_slot, relative_threshold=0.08)
+
+        # ------------------------------------------------------------------
+        # Initialise beam (apply fixed gear)
+        # ------------------------------------------------------------------
+        beam_stats, beam_gear, beam_used, beam_scores = self._init_beam(fixed_gear)
+
+        phase1_width = self.beam_width * phase1_multiplier
+
+        # ------------------------------------------------------------------
+        # Phase 1 — main armor slots, wide beam
+        # ------------------------------------------------------------------
+        print(f"\n{'='*70}")
+        print(f"PHASE 1: Main Armor Slots  (beam width: {phase1_width})")
+        print(f"  Slots: {phase1_slots}")
+        print('='*70)
+
+        beam_stats, beam_gear, beam_used, beam_scores = self._run_beam_for_slots(
+            phase1_slots,
+            beam_stats, beam_gear, beam_used, beam_scores,
+            phase1_width,
+        )
+
+        # Trim back to final beam_width before Phase 2
+        if len(beam_scores) > self.beam_width:
+            k = self.beam_width
+            topk = np.argpartition(beam_scores, -k)[-k:]
+            beam_stats  = beam_stats[topk]
+            beam_gear   = beam_gear[topk]
+            beam_used   = beam_used[topk]
+            beam_scores = beam_scores[topk]
+            print(f"\n  Trimmed to top {k} candidates for Phase 2")
+
+        # ------------------------------------------------------------------
+        # Phase 2 — accessories layered on top of Phase 1 foundation
+        # ------------------------------------------------------------------
+        print(f"\n{'='*70}")
+        print(f"PHASE 2: Accessories  (beam width: {self.beam_width})")
+        print(f"  Slots: {phase2_slots}")
+        print('='*70)
+
+        beam_stats, beam_gear, beam_used, beam_scores = self._run_beam_for_slots(
+            phase2_slots,
+            beam_stats, beam_gear, beam_used, beam_scores,
+            self.beam_width,
+        )
+
         return self._convert_to_gearset_candidates(beam_stats, beam_gear, beam_used, beam_scores)
     
     def _process_sub_slot(
@@ -815,7 +1345,7 @@ class NumbaBeamSearchOptimizer:
                 item_idx = beam_gear[idx, slot_idx]
                 
                 if item_idx == -2:  # Fixed gear
-                    if slot_name in self._fixed_gear:
+                    if slot_name in self._fixed_gear and self._fixed_gear[slot_name] is not None:
                         candidate.gear[slot_name] = self._fixed_gear[slot_name].copy()
                 elif item_idx >= 0:
                     candidate.gear[slot_name] = self._items[slot_name][item_idx].copy()
@@ -920,3 +1450,66 @@ class NumbaBeamSearchOptimizer:
                 print(f"\n{slot} ({len(items)} items):")
                 for name in names:
                     print(f"  - {name}")
+
+    def prune_item_pools(self, keep_items: Dict[str, Set[str]]):
+        """
+        Prune item pools to only the named items per slot.
+
+        Called between slow-mode iterations to tighten the search space based
+        on GAR analysis of the previous round's simulation results.
+
+        Parameters
+        ----------
+        keep_items : Dict[str, Set[str]]
+            Mapping of wsdist slot name → set of Name2 strings to retain.
+            Any item whose Name2 is NOT in the set is dropped from that slot's
+            pool.  The 'Empty' placeholder is always kept regardless.
+
+        Notes
+        -----
+        - Paired slots (ear1/ear2, ring1/ring2) are mirrored automatically:
+          pruning 'ear1' also updates 'ear2' to keep the arrays in sync.
+        - Only slots present in keep_items are modified; other slots are left
+          untouched so that fixed / weapon slots are never accidentally pruned.
+        """
+        print("\n  [Prune] Applying GAR-based pool reduction...")
+
+        for slot, names_to_keep in keep_items.items():
+            # Never touch the mirrored second slots directly
+            if slot in ('ear2', 'ring2'):
+                continue
+
+            if slot not in self._items:
+                continue
+
+            items  = self._items[slot]
+            stats  = self._item_stats[slot]
+            ids    = self._item_ids[slot]
+
+            keep_indices = []
+            for i, item in enumerate(items):
+                name2 = item.get('Name2', item.get('Name', 'Empty'))
+                if name2 == 'Empty' or name2 in names_to_keep:
+                    keep_indices.append(i)
+
+            before = len(items)
+            after  = len(keep_indices)
+
+            if keep_indices:
+                idx_arr = np.array(keep_indices, dtype=np.int32)
+                self._items[slot]      = [items[i] for i in keep_indices]
+                self._item_stats[slot] = stats[idx_arr]
+                self._item_ids[slot]   = ids[idx_arr]
+            else:
+                # Safety: keep everything if pruning would leave the slot empty
+                print(f"    {slot}: pruning would empty slot — skipping")
+                continue
+
+            print(f"    {slot}: {before} → {after} items")
+
+            # Mirror paired slot
+            partner = {'ear1': 'ear2', 'ring1': 'ring2'}.get(slot)
+            if partner and partner in self._items:
+                self._items[partner]      = self._items[slot]
+                self._item_stats[partner] = self._item_stats[slot]
+                self._item_ids[partner]   = self._item_ids[slot]

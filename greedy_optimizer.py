@@ -359,6 +359,31 @@ def calculate_dt_stats_from_gear(gear: Dict[str, Dict]) -> DTStats:
     return stats
 
 
+def _remaining_dt_caps(
+    fixed_gear,
+    dt_hard_cap_bp: int = -5000,
+):
+    """
+    Compute the remaining DT budget for each pool after accounting for
+    whatever DT/PDT/MDT is already present in ``fixed_gear``.
+
+    FFXI: eff_pdt = DT + PDT (cap -50%), eff_mdt = DT + MDT (cap -50%).
+    Returns the gap left in each stat before those pools hit the cap.
+    """
+    if not fixed_gear:
+        return {'damage_taken': dt_hard_cap_bp, 'physical_dt': dt_hard_cap_bp, 'magical_dt': dt_hard_cap_bp}
+    locked = calculate_dt_stats_from_gear(fixed_gear)
+    eff_pdt_locked = locked.damage_taken + locked.physical_dt
+    eff_mdt_locked = locked.damage_taken + locked.magical_dt
+    phys_room  = max(dt_hard_cap_bp, dt_hard_cap_bp - eff_pdt_locked)
+    magic_room = max(dt_hard_cap_bp, dt_hard_cap_bp - eff_mdt_locked)
+    # DT burns both pools simultaneously — cap it at the tighter pool
+    dt_room  = max(dt_hard_cap_bp, max(phys_room, magic_room))
+    pdt_room = max(dt_hard_cap_bp, phys_room  - dt_room)
+    mdt_room = max(dt_hard_cap_bp, magic_room - dt_room)
+    return {'damage_taken': dt_room, 'physical_dt': pdt_room, 'magical_dt': mdt_room}
+
+
 # =============================================================================
 # Greedy Idle/DT Optimization (No wsdist)
 # =============================================================================
@@ -548,6 +573,7 @@ def run_ja_optimization(
     
     # Use DT profile for remaining slots if not specified
     if secondary_profile is None:
+        remaining_caps = _remaining_dt_caps(fixed_gear)
         secondary_profile = OptimizationProfile(
             name=f"JA:{ja_name} (DT fill)",
             weights={
@@ -557,11 +583,7 @@ def run_ja_optimization(
                 'HP': 3.0,
                 'defense': 1.0,
             },
-            hard_caps={
-                'damage_taken': -5000,
-                'physical_dt': -5000,
-                'magical_dt': -5000,
-            },
+            hard_caps=remaining_caps,
             job=job,
         )
     
@@ -684,3 +706,836 @@ def optimize_set_smart(
             sub_weapon=sub_weapon,
             **kwargs
         )
+
+
+# =============================================================================
+# Greedy Stat + DT Optimization (Enmity / Passive Refresh / Passive Regen)
+# =============================================================================
+
+# Slot enum name -> wsdist gear dict key
+_SLOT_ENUM_TO_WSDIST: Dict[str, str] = {
+    'LEFT_EAR':  'ear1',
+    'RIGHT_EAR': 'ear2',
+    'LEFT_RING':  'ring1',
+    'RIGHT_RING': 'ring2',
+    'HEAD':  'head',
+    'BODY':  'body',
+    'HANDS': 'hands',
+    'LEGS':  'legs',
+    'FEET':  'feet',
+    'NECK':  'neck',
+    'WAIST': 'waist',
+    'BACK':  'back',
+    'AMMO':  'ammo',
+    # Weapon slots intentionally omitted — these sets lock weapons externally
+}
+
+
+def _slot_to_wsdist(slot: 'Slot') -> Optional[str]:
+    """Convert a Slot enum value to its wsdist gear dict key."""
+    return _SLOT_ENUM_TO_WSDIST.get(slot.name.upper())
+
+
+def _find_best_items_by_stat(
+    inventory: 'Inventory',
+    job: 'Job',
+    stat_keys: List[str],
+) -> Dict[str, Tuple[Dict[str, Any], int]]:
+    """
+    Scan inventory and return the best item per gear slot for a given stat.
+
+    Weapon slots (main/sub/range) are skipped — the caller locks weapons.
+
+    Returns:
+        {wsdist_slot_name: (wsdist_item_dict, stat_value)}
+        Only slots where at least one item has stat_value > 0 are included.
+    """
+    from wsdist_converter import to_wsdist_gear
+
+    best: Dict[str, Tuple[Dict[str, Any], int]] = {}
+
+    for item in inventory.items:
+        if not item.can_equip_from():
+            continue
+        if not item.base.can_equip(job):
+            continue
+
+        wsdist_item = to_wsdist_gear(item)
+        if not wsdist_item:
+            continue
+
+        # Sum the target stat across all matching keys
+        stat_val = 0
+        for key in stat_keys:
+            v = wsdist_item.get(key, 0)
+            if isinstance(v, (int, float)):
+                stat_val += int(v)
+
+        if stat_val <= 0:
+            continue
+
+        for slot in item.base.get_slots():
+            slot_name = _slot_to_wsdist(slot)
+            if not slot_name:
+                continue  # weapon slot — skip
+
+            if slot_name not in best or stat_val > best[slot_name][1]:
+                best[slot_name] = (wsdist_item, stat_val)
+
+    return best
+
+
+def _calc_stat_from_gear(
+    gear: Dict[str, Any],
+    stat_keys: List[str],
+) -> int:
+    """Sum a stat across all filled slots in a wsdist gear dict."""
+    total = 0
+    for item in gear.values():
+        if item is None or item.get('Name', 'Empty') == 'Empty':
+            continue
+        for key in stat_keys:
+            v = item.get(key, 0)
+            if isinstance(v, (int, float)):
+                total += int(v)
+    return total
+
+
+def _build_greedy_metrics(
+    full_gear: Dict[str, Any],
+    candidate_score: float,
+    primary_stat_keys: List[str],
+) -> Dict[str, Any]:
+    """
+    Build a metrics dict compatible with the api.py DTGearsetResult format
+    from a completed wsdist gear dict.
+    """
+    dt_stats = calculate_dt_stats_from_gear(full_gear)
+
+    # Raw DT components in basis points (e.g., -3000 = -30%)
+    raw_dt  = dt_stats.damage_taken
+    raw_pdt = dt_stats.physical_dt
+    raw_mdt = dt_stats.magical_dt
+
+    # Apply cap
+    capped_dt  = max(raw_dt,  -5000)
+    capped_pdt = max(raw_pdt, -5000)
+    capped_mdt = max(raw_mdt, -5000)
+
+    # Convert to percentages (e.g., -30.0)
+    dt_pct  = capped_dt  / 100
+    pdt_pct = capped_pdt / 100
+    mdt_pct = capped_mdt / 100
+
+    # Combined damage multipliers
+    phys_mult  = (1 + dt_pct  / 100) * (1 + pdt_pct / 100)
+    magic_mult = (1 + dt_pct  / 100) * (1 + mdt_pct / 100)
+
+    # Primary stat total across the full set
+    primary_total = _calc_stat_from_gear(full_gear, primary_stat_keys)
+
+    return {
+        'score':              candidate_score,
+        'dt_pct':             dt_pct,
+        'pdt_pct':            pdt_pct,
+        'mdt_pct':            mdt_pct,
+        'dt_capped':          dt_stats.is_dt_capped(),
+        'physical_reduction': (1 - phys_mult)  * 100,
+        'magical_reduction':  (1 - magic_mult) * 100,
+        'hp':                 dt_stats.hp,
+        'defense':            dt_stats.defense,
+        'evasion':            0,
+        'magic_evasion':      dt_stats.magic_evasion,
+        'refresh':            dt_stats.refresh,
+        'regen':              dt_stats.regen,
+        'enmity':             _calc_stat_from_gear(full_gear, ['Enmity', 'enmity']),
+        'fast_cast':          0,
+        'fast_cast_capped':   False,
+        'time_to_ws':         None,
+        'tp_per_round':       None,
+        'dps':                None,
+        # Convenience: the primary stat total under its natural key
+        '_primary_total':     primary_total,
+    }
+
+
+def _run_stat_plus_dt_optimization(
+    inventory: 'Inventory',
+    job: 'Job',
+    stat_keys: List[str],
+    stat_label: str,
+    main_weapon: Optional[Dict[str, Any]] = None,
+    sub_weapon: Optional[Dict[str, Any]] = None,
+    beam_width: int = 25,
+    job_gifts: Optional[Any] = None,
+) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    """
+    Generic greedy stat + DT fill optimization.
+
+    Strategy
+    --------
+    1. For each gear slot, find the item that contributes the most of
+       ``stat_keys`` (e.g., Enmity, Refresh, Regen).
+    2. Lock those items as fixed gear so the beam search can't replace them.
+    3. Run beam search on the remaining slots using a pure-DT profile so
+       the rest of the set maintains survivability.
+    4. Merge the two halves and compute summary metrics.
+
+    Returns
+    -------
+    List[Tuple[full_gear_dict, metrics_dict]]
+        ``full_gear_dict`` is in wsdist format (slot -> item dict).
+        ``metrics_dict`` matches the shape expected by api.DTGearsetResult.
+    """
+    from numba_beam_search_optimizer import NumbaBeamSearchOptimizer
+    from beam_search_optimizer import WSDIST_SLOTS
+
+    print(f"\n{'─' * 70}")
+    print(f"Greedy {stat_label.upper()} + DT Optimization")
+    print(f"{'─' * 70}")
+
+    # --- Step 1: Find the best item per slot for the target stat ---
+    best_stat_items = _find_best_items_by_stat(inventory, job, stat_keys)
+
+    if best_stat_items:
+        print(f"  Found {stat_label} items in {len(best_stat_items)} slot(s):")
+        for slot, (item, val) in sorted(best_stat_items.items()):
+            name = item.get('Name2', item.get('Name', '?'))
+            print(f"    {slot:8s}: {name}  (+{val})")
+    else:
+        print(f"  ⚠ No {stat_label} items found in inventory — falling back to pure DT.")
+
+    # --- Step 2: Build fixed gear (stat items + weapons) ---
+    fixed_gear: Dict[str, Any] = {}
+    if main_weapon:
+        fixed_gear['main'] = main_weapon
+    if sub_weapon:
+        fixed_gear['sub'] = sub_weapon
+    for slot_name, (wsdist_item, _) in best_stat_items.items():
+        fixed_gear[slot_name] = wsdist_item
+
+    # --- Step 3: Fill remaining slots with DT using beam search ---
+    remaining_caps = _remaining_dt_caps(fixed_gear)
+    dt_profile = OptimizationProfile(
+        name=f"{stat_label} DT-fill",
+        weights={
+            'damage_taken': -100.0,
+            'physical_dt':  -80.0,
+            'magical_dt':   -60.0,
+            'HP':            3.0,
+            'defense':       1.0,
+        },
+        hard_caps=remaining_caps,
+        job=job,
+    )
+
+    optimizer = NumbaBeamSearchOptimizer(
+        inventory=inventory,
+        profile=dt_profile,
+        beam_width=beam_width,
+        job=job,
+    )
+    contenders = optimizer.search(fixed_gear=fixed_gear)
+    print(f"  ✓ Beam search returned {len(contenders)} contender(s)")
+
+    # --- Step 4: Assemble full gear sets and compute metrics ---
+    results: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
+    for candidate in contenders:
+        # Merge: fixed_gear wins over candidate.gear (beam search
+        # may not have included fixed slots in candidate.gear)
+        full_gear: Dict[str, Any] = {}
+        for slot in WSDIST_SLOTS:
+            if slot in fixed_gear:
+                full_gear[slot] = fixed_gear[slot]
+            elif slot in candidate.gear:
+                full_gear[slot] = candidate.gear[slot]
+
+        metrics = _build_greedy_metrics(full_gear, candidate.score, stat_keys)
+        results.append((full_gear, metrics))
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Public helpers — called by api.py
+# ---------------------------------------------------------------------------
+
+def _run_greedy_stat_optimization(
+    inventory,
+    job,
+    stat_attr: str,
+    stat_label: str,
+    metric_key: str,
+    main_weapon=None,
+    sub_weapon=None,
+    top_n: int = 10,
+):
+    """
+    Generic greedy stat optimizer that reads directly from item.total_stats.
+
+    Reads ``stat_attr`` from each ItemInstance's total_stats so the value is
+    always found regardless of wsdist export key names.  Paired slots
+    (ear1/ear2, ring1/ring2) share a candidate pool and a count check prevents
+    the same unique item from filling both slots.  Only slots that actually
+    carry the stat are included in the returned gear dict.
+
+    Used by run_enmity_optimization, run_passive_refresh_optimization, and
+    run_passive_regen_optimization.
+    """
+    from wsdist_converter import to_wsdist_gear
+
+    print(f"\n{chr(9472) * 70}")
+    print(f"Greedy {stat_label.upper()} Optimization")
+    print(f"{chr(9472) * 70}")
+
+    _SINGLE_SLOTS = ['head', 'neck', 'body', 'hands', 'back', 'waist', 'legs', 'feet', 'ammo']
+    _PAIRED_SLOTS = [('ear1', 'ear2'), ('ring1', 'ring2')]
+
+    gear = {}
+    total_stat = 0
+
+    # ── Single slots ──────────────────────────────────────────────────────────
+    for slot_name in _SINGLE_SLOTS:
+        best_item = None
+        best_val = 0
+        for inv_item in inventory.items:
+            if not inv_item.can_equip_from():
+                continue
+            if not inv_item.base.can_equip(job):
+                continue
+            if not any(_slot_to_wsdist(s) == slot_name for s in inv_item.base.get_slots()):
+                continue
+            val = getattr(inv_item.total_stats, stat_attr, 0) or 0
+            if val > best_val:
+                best_val = val
+                best_item = inv_item
+        if best_item is not None:
+            wsdist_item = to_wsdist_gear(best_item)
+            if wsdist_item:
+                gear[slot_name] = wsdist_item
+                total_stat += best_val
+                name = wsdist_item.get('Name2', wsdist_item.get('Name', '?'))
+                print(f"  {slot_name:8s}: {name}  (+{best_val})")
+
+    # ── Paired slots ──────────────────────────────────────────────────────────
+    for slot_a, slot_b in _PAIRED_SLOTS:
+        pool = []
+        seen = {}
+        for inv_item in inventory.items:
+            if not inv_item.can_equip_from():
+                continue
+            if not inv_item.base.can_equip(job):
+                continue
+            item_wsdist_slots = {_slot_to_wsdist(s) for s in inv_item.base.get_slots()}
+            if slot_a not in item_wsdist_slots and slot_b not in item_wsdist_slots:
+                continue
+            val = getattr(inv_item.total_stats, stat_attr, 0) or 0
+            if val <= 0:
+                continue
+            wsdist_item = to_wsdist_gear(inv_item)
+            if not wsdist_item:
+                continue
+            name = wsdist_item.get('Name', 'Unknown')
+            if name in seen:
+                pool[seen[name]]['count'] = min(2, pool[seen[name]]['count'] + 1)
+            else:
+                seen[name] = len(pool)
+                pool.append({'name': name, 'val': val, 'count': 1, 'wsdist': wsdist_item})
+
+        if not pool:
+            continue
+
+        best_pair = None
+        best_pair_total = 0
+        for i in range(len(pool)):
+            for j in range(i, len(pool)):
+                if i == j and pool[i]['count'] < 2:
+                    continue
+                pair_total = pool[i]['val'] + pool[j]['val']
+                if pair_total > best_pair_total:
+                    best_pair_total = pair_total
+                    best_pair = (i, j)
+
+        if best_pair is not None:
+            i, j = best_pair
+            gear[slot_a] = pool[i]['wsdist']
+            gear[slot_b] = pool[j]['wsdist']
+            total_stat += best_pair_total
+            print(f"  {slot_a:8s}: {pool[i]['name']}  (+{pool[i]['val']})")
+            print(f"  {slot_b:8s}: {pool[j]['name']}  (+{pool[j]['val']})")
+
+    if main_weapon:
+        gear['main'] = main_weapon
+    if sub_weapon:
+        gear['sub'] = sub_weapon
+
+    if not gear:
+        print(f"  ⚠ No {stat_label} items found in inventory.")
+        return []
+
+    print(f"\n  Total {stat_label} from gear: +{total_stat}")
+
+    metrics = _build_greedy_metrics(gear, float(total_stat), [stat_attr])
+    metrics[metric_key] = total_stat
+    metrics['score']    = float(total_stat)
+
+    return [(gear, metrics)]
+
+
+def run_enmity_optimization(
+    inventory: 'Inventory',
+    job: 'Job',
+    main_weapon: Optional[Dict[str, Any]] = None,
+    sub_weapon: Optional[Dict[str, Any]] = None,
+    beam_width: int = 25,
+    job_gifts: Optional[Any] = None,
+    top_n: int = 10,
+) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    """
+    Greedy enmity optimization.
+    Reads enmity from item.total_stats; handles paired slots; returns only
+    slots that carry enmity.
+    """
+    return _run_greedy_stat_optimization(
+        inventory=inventory, job=job,
+        stat_attr='enmity', stat_label='enmity', metric_key='enmity',
+        main_weapon=main_weapon, sub_weapon=sub_weapon,
+    )
+
+
+def run_passive_refresh_optimization(
+    inventory: 'Inventory',
+    job: 'Job',
+    main_weapon: Optional[Dict[str, Any]] = None,
+    sub_weapon: Optional[Dict[str, Any]] = None,
+    beam_width: int = 25,
+    job_gifts: Optional[Any] = None,
+    top_n: int = 10,
+) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    """
+    Greedy passive Refresh optimization.
+    Reads refresh from item.total_stats; handles paired slots; returns only
+    slots that carry passive refresh.
+    """
+    return _run_greedy_stat_optimization(
+        inventory=inventory, job=job,
+        stat_attr='refresh', stat_label='refresh', metric_key='refresh',
+        main_weapon=main_weapon, sub_weapon=sub_weapon,
+    )
+
+
+def run_passive_regen_optimization(
+    inventory: 'Inventory',
+    job: 'Job',
+    main_weapon: Optional[Dict[str, Any]] = None,
+    sub_weapon: Optional[Dict[str, Any]] = None,
+    beam_width: int = 25,
+    job_gifts: Optional[Any] = None,
+    top_n: int = 10,
+) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    """
+    Greedy passive Regen optimization.
+    Reads regen from item.total_stats; handles paired slots; returns only
+    slots that carry passive regen.
+    """
+    return _run_greedy_stat_optimization(
+        inventory=inventory, job=job,
+        stat_attr='regen', stat_label='regen', metric_key='regen',
+        main_weapon=main_weapon, sub_weapon=sub_weapon,
+    )
+
+
+def run_sird_optimization(
+    inventory: 'Inventory',
+    job: 'Job',
+    main_weapon: Optional[Dict[str, Any]] = None,
+    sub_weapon: Optional[Dict[str, Any]] = None,
+    beam_width: int = 25,
+    job_gifts: Optional[Any] = None,
+    top_n: int = 10,
+) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    """
+    Greedy Spell Interruption Rate Down (SIRD) optimization.
+
+    Reads spell_interruption_rate_down from item.total_stats; handles paired
+    slots (ears, rings); returns only slots that carry SIRD.
+
+    The in-game cap is 102%. Once gear totals reach or exceed that value,
+    additional SIRD from more slots provides no further benefit.
+    """
+    SIRD_CAP = 102
+
+    results = _run_greedy_stat_optimization(
+        inventory=inventory, job=job,
+        stat_attr='spell_interruption_rate_down',
+        stat_label='Spell Interruption Rate Down',
+        metric_key='spell_interruption_rate_down',
+        main_weapon=main_weapon, sub_weapon=sub_weapon,
+    )
+
+    if results:
+        _, metrics = results[0]
+        total = metrics.get('spell_interruption_rate_down', 0)
+        if total >= SIRD_CAP:
+            print(f"  ✓ SIRD cap reached: {total}% >= {SIRD_CAP}%")
+        else:
+            print(f"  ⚠ SIRD total: {total}%  (cap is {SIRD_CAP}% — {SIRD_CAP - total}% short)")
+
+    return results
+
+
+# =============================================================================
+# EHP (Effective HP) DP Optimization
+# =============================================================================
+
+def _get_dt_pct_from_wsdist(item: Dict[str, Any], *keys: str) -> int:
+    """
+    Read a DT stat from a wsdist item dict and return it as a positive
+    integer percentage point value (0-50).
+
+    FFXI stores DT values in two formats depending on the source:
+      - Small negative percentage  : -5   → 5%
+      - Negative basis points      : -500 → 5%
+
+    We return a positive integer so the DP can do simple integer arithmetic.
+    """
+    for k in keys:
+        val = item.get(k, 0)
+        if not val:
+            continue
+        val = float(val)
+        if -100.0 <= val <= 0.0:
+            return int(round(abs(val)))           # already a percentage
+        elif val < -100.0:
+            return int(round(abs(val) / 100.0))  # basis-points → percentage
+    return 0
+
+
+def _extract_ehp_items_for_slot(
+    inventory: 'Inventory',
+    job: 'Job',
+    slot_name: str,
+) -> List[Dict[str, Any]]:
+    """
+    Build the candidate item list for one gear slot.
+
+    Returns a list of dicts:
+        { name, wsdist, hp, dt, pdt, mdt }
+    where dt/pdt/mdt are positive integer percentage points (0-50).
+
+    An 'Empty' sentinel is always appended so slots can legitimately be
+    left unfilled during the DP.
+    """
+    from wsdist_converter import to_wsdist_gear
+
+    items: List[Dict[str, Any]] = []
+    seen_names: Set[str] = set()
+
+    for inv_item in inventory.items:
+        if not inv_item.can_equip_from():
+            continue
+        if not inv_item.base.can_equip(job):
+            continue
+
+        # Quickly skip items that don't fit this slot at all
+        if not any(_slot_to_wsdist(s) == slot_name for s in inv_item.base.get_slots()):
+            continue
+
+        wsdist_item = to_wsdist_gear(inv_item)
+        if not wsdist_item:
+            continue
+
+        name = wsdist_item.get('Name', 'Unknown')
+        if name in seen_names:
+            continue
+        seen_names.add(name)
+
+        hp  = int(float(wsdist_item.get('HP', 0) or 0))
+        dt  = _get_dt_pct_from_wsdist(wsdist_item, 'DT', 'Damage Taken',          'damage_taken')
+        pdt = _get_dt_pct_from_wsdist(wsdist_item, 'PDT', 'Physical Damage Taken', 'physical_dt')
+        mdt = _get_dt_pct_from_wsdist(wsdist_item, 'MDT', 'Magical Damage Taken',  'magical_dt',
+                                                            'Magic Damage Taken')
+
+        items.append({
+            'name':   name,
+            'wsdist': wsdist_item,
+            'hp':     hp,
+            'dt':     dt,
+            'pdt':    pdt,
+            'mdt':    mdt,
+        })
+
+    # Sentinel: always allow leaving a slot empty
+    items.append({'name': 'Empty', 'wsdist': None, 'hp': 0, 'dt': 0, 'pdt': 0, 'mdt': 0})
+    return items
+
+
+
+def _extract_ehp_items_for_slot_pair(
+    inventory,
+    job,
+    slot_a: str,
+    slot_b: str,
+):
+    """
+    Shared candidate pool for a paired slot (ear1/ear2 or ring1/ring2).
+    Counts owned copies so the DP can block same-item duplicates.
+    Returns dicts: { name, wsdist, hp, dt, pdt, mdt, count }
+    """
+    from wsdist_converter import to_wsdist_gear
+    name_to_count = {}
+    name_to_wsdist = {}
+    for inv_item in inventory.items:
+        if not inv_item.can_equip_from():
+            continue
+        if not inv_item.base.can_equip(job):
+            continue
+        item_slots = {_slot_to_wsdist(s) for s in inv_item.base.get_slots()}
+        if slot_a not in item_slots and slot_b not in item_slots:
+            continue
+        wsdist_item = to_wsdist_gear(inv_item)
+        if not wsdist_item:
+            continue
+        name = wsdist_item.get('Name', 'Unknown')
+        name_to_count[name] = min(2, name_to_count.get(name, 0) + 1)
+        if name not in name_to_wsdist:
+            name_to_wsdist[name] = wsdist_item
+    items = []
+    for name, wsdist_item in name_to_wsdist.items():
+        hp  = int(float(wsdist_item.get('HP', 0) or 0))
+        dt  = _get_dt_pct_from_wsdist(wsdist_item, 'DT', 'Damage Taken', 'damage_taken')
+        pdt = _get_dt_pct_from_wsdist(wsdist_item, 'PDT', 'Physical Damage Taken', 'physical_dt')
+        mdt = _get_dt_pct_from_wsdist(wsdist_item, 'MDT', 'Magical Damage Taken', 'magical_dt', 'Magic Damage Taken')
+        items.append({'name': name, 'wsdist': wsdist_item, 'hp': hp, 'dt': dt, 'pdt': pdt, 'mdt': mdt, 'count': name_to_count[name]})
+    items.append({'name': 'Empty', 'wsdist': None, 'hp': 0, 'dt': 0, 'pdt': 0, 'mdt': 0, 'count': 2})
+    return items
+
+
+def _build_ehp_metrics(
+    gear: Dict[str, Any],
+    ehp: float,
+    eff_pdt: int,
+    eff_mdt: int,
+    hp: int,
+) -> Dict[str, Any]:
+    """
+    Build a metrics dict for an EHP-optimised set, matching DTGearsetResult shape.
+
+    FFXI DT mechanics (corrected):
+        DT on an item contributes equally to both PDT and MDT pools.
+        PDT and MDT each cap independently at 50%.
+
+    The DP tracks (eff_pdt, eff_mdt) directly — already the combined totals
+    including any DT contribution — so no separate dt value is needed here.
+
+    For display we report:
+        dt_pct  = 0       (DT is not a separate game stat; it feeds pdt/mdt)
+        pdt_pct = -eff_pdt
+        mdt_pct = -eff_mdt
+    """
+    phys_mult  = 1.0 - eff_pdt / 100.0   # already the full physical reduction
+    magic_mult = 1.0 - eff_mdt / 100.0   # already the full magical reduction
+
+    phys_reduction  = eff_pdt  # = (1 - phys_mult) * 100
+    magic_reduction = eff_mdt
+
+    # Pull any other stats (defense, regen, refresh, …) from the gear dict
+    dt_stats = calculate_dt_stats_from_gear(gear)
+
+    return {
+        'score':              ehp,
+        'ehp':                round(ehp, 1),
+        # No separate DT column — fold it all into pdt/mdt for the UI
+        'dt_pct':             0.0,
+        'pdt_pct':            float(-eff_pdt),
+        'mdt_pct':            float(-eff_mdt),
+        'dt_capped':          eff_pdt >= 50 or eff_mdt >= 50,
+        'physical_reduction': float(phys_reduction),
+        'magical_reduction':  float(magic_reduction),
+        'hp':                 hp,
+        'defense':            dt_stats.defense,
+        'evasion':            0,
+        'magic_evasion':      dt_stats.magic_evasion,
+        'refresh':            dt_stats.refresh,
+        'regen':              dt_stats.regen,
+        'enmity':             0,
+        'fast_cast':          0,
+        'fast_cast_capped':   False,
+        'time_to_ws':         None,
+        'tp_per_round':       None,
+        'dps':                None,
+    }
+
+
+def run_ehp_optimization(
+    inventory: 'Inventory',
+    job: 'Job',
+    main_weapon: Optional[Dict[str, Any]] = None,
+    sub_weapon: Optional[Dict[str, Any]] = None,
+    # Accepted for API compatibility with the other greedy optimizers.
+    beam_width: int = 25,
+    job_gifts: Optional[Any] = None,
+    top_n: int = 10,
+) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    """
+    EHP-maximising integer DP optimizer.
+
+    FFXI DT mechanics (corrected)
+    ==============================
+    An item's DT stat contributes to *both* PDT and MDT simultaneously —
+    it is a shorthand, not a third separate pool.  PDT and MDT each cap
+    independently at 50%.
+
+    So for any item:
+        effective PDT contribution = item.dt + item.pdt
+        effective MDT contribution = item.dt + item.mdt
+
+    State space
+    -----------
+    state = (eff_pdt, eff_mdt)
+        Each is the running cumulative PDT or MDT (0–50), already accounting
+        for DT contributions.
+        Theoretical maximum: 51 × 51 = 2,601 states — very manageable.
+
+    DP transition
+    -------------
+        new_eff_pdt = min(50, cur_eff_pdt + item.dt + item.pdt)
+        new_eff_mdt = min(50, cur_eff_mdt + item.dt + item.mdt)
+        new_hp      = cur_hp + item.hp
+        Keep if new_hp > best previously seen for (new_eff_pdt, new_eff_mdt).
+
+    Memory efficiency
+    -----------------
+    Each DP entry stores a backtracking pointer (item_idx, prev_state) instead
+    of a full gear snapshot.  Gear is reconstructed by replaying dp_history
+    after the DP completes — O(slots) per top-N result.
+
+    EHP scoring
+    -----------
+    Physical EHP = HP / (1 − eff_pdt/100)
+    Magical  EHP = HP / (1 − eff_mdt/100)
+    Final    EHP = min(physical EHP, magical EHP)   ← conservative worst-case
+
+    Returns
+    -------
+    List of (gear_dict, metrics_dict) sorted by descending EHP.
+    """
+    SLOT_GROUPS = [
+        'head', 'neck', ('ear1', 'ear2'),
+        'body', 'hands', ('ring1', 'ring2'),
+        'back', 'waist', 'legs', 'feet', 'ammo',
+    ]
+
+    print(f"\n{'─' * 70}")
+    print("EHP Integer DP Optimization")
+    print(f"{'─' * 70}")
+
+    groups_data = []
+    for group in SLOT_GROUPS:
+        if isinstance(group, str):
+            candidates = _extract_ehp_items_for_slot(inventory, job, group)
+            non_empty = [c for c in candidates if c['name'] != 'Empty']
+            print(f"  {group:14s}: {len(non_empty):3d} item(s)")
+            groups_data.append((group, candidates))
+        else:
+            slot_a, slot_b = group
+            pair_pool = _extract_ehp_items_for_slot_pair(inventory, job, slot_a, slot_b)
+            non_empty = [c for c in pair_pool if c['name'] != 'Empty']
+            print(f"  {slot_a}/{slot_b:10s}: {len(non_empty):3d} item(s) in shared pool")
+            groups_data.append((group, pair_pool))
+
+    State = Tuple[int, int]
+    dp = {(0, 0): (0, -1, None)}
+    dp_history = []
+
+    for group_key, pool in groups_data:
+        next_dp = {}
+        if isinstance(group_key, str):
+            for cur_state, (cur_hp, _, _) in dp.items():
+                cur_pdt, cur_mdt = cur_state
+                for item_idx, item in enumerate(pool):
+                    new_pdt   = min(50, cur_pdt + item['dt'] + item['pdt'])
+                    new_mdt   = min(50, cur_mdt + item['dt'] + item['mdt'])
+                    new_state = (new_pdt, new_mdt)
+                    new_hp    = cur_hp + item['hp']
+                    if new_state not in next_dp or new_hp > next_dp[new_state][0]:
+                        next_dp[new_state] = (new_hp, item_idx, cur_state)
+            label = group_key
+        else:
+            slot_a, slot_b = group_key
+            n = len(pool)
+            for cur_state, (cur_hp, _, _) in dp.items():
+                cur_pdt, cur_mdt = cur_state
+                for i in range(n):
+                    for j in range(i, n):
+                        if i == j and pool[i].get('count', 1) < 2:
+                            continue
+                        a, b = pool[i], pool[j]
+                        new_pdt   = min(50, cur_pdt + a['dt'] + a['pdt'] + b['dt'] + b['pdt'])
+                        new_mdt   = min(50, cur_mdt + a['dt'] + a['mdt'] + b['dt'] + b['mdt'])
+                        new_hp    = cur_hp + a['hp'] + b['hp']
+                        new_state = (new_pdt, new_mdt)
+                        if new_state not in next_dp or new_hp > next_dp[new_state][0]:
+                            next_dp[new_state] = (new_hp, (i, j), cur_state)
+            label = f"{slot_a}/{slot_b}"
+        dp = next_dp
+        dp_history.append(dp)
+        print(f"  After {label:14s}: {len(dp):5d} reachable states")
+
+    print(f"\n  Total final states : {len(dp)}")
+
+    scored = []
+    for (eff_pdt, eff_mdt), (hp, _, _) in dp.items():
+        if hp == 0 and eff_pdt == 0 and eff_mdt == 0:
+            continue
+        phys_mult  = 1.0 - eff_pdt / 100.0
+        magic_mult = 1.0 - eff_mdt / 100.0
+        phys_ehp  = hp / phys_mult  if phys_mult  > 0.0 else float('inf')
+        magic_ehp = hp / magic_mult if magic_mult > 0.0 else float('inf')
+        scored.append((min(phys_ehp, magic_ehp), (eff_pdt, eff_mdt)))
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    def _reconstruct_gear(final_state):
+        gear = {}
+        state = final_state
+        for group_idx in reversed(range(len(groups_data))):
+            group_key, pool = groups_data[group_idx]
+            _, item_ref, prev_state = dp_history[group_idx][state]
+            if isinstance(group_key, str):
+                item = pool[item_ref]
+                if item['wsdist'] is not None:
+                    gear[group_key] = item['wsdist']
+            else:
+                s_a, s_b = group_key
+                i, j = item_ref
+                if pool[i]['wsdist'] is not None:
+                    gear[s_a] = pool[i]['wsdist']
+                if pool[j]['wsdist'] is not None:
+                    gear[s_b] = pool[j]['wsdist']
+            state = prev_state
+        return gear
+
+    # ── Assemble results ─────────────────────────────────────────────────────
+    results: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
+
+    for ehp, (eff_pdt, eff_mdt) in scored[:top_n]:
+        gear = _reconstruct_gear((eff_pdt, eff_mdt))
+
+        # Weapons are not part of the DP — attach the player's chosen weapons
+        if main_weapon:
+            gear['main'] = main_weapon
+        if sub_weapon:
+            gear['sub'] = sub_weapon
+
+        hp = dp[(eff_pdt, eff_mdt)][0]
+        metrics = _build_ehp_metrics(gear, ehp, eff_pdt, eff_mdt, hp)
+        results.append((gear, metrics))
+
+    if results:
+        best_m = results[0][1]
+        print(f"  ✓ Best EHP : {best_m['ehp']:,.0f}  "
+              f"(HP={best_m['hp']}, "
+              f"eff_PDT={-best_m['pdt_pct']:.0f}%, "
+              f"eff_MDT={-best_m['mdt_pct']:.0f}%)")
+
+    return results
