@@ -92,7 +92,7 @@ class create_player:
         #
 
         # Define Dual Wield to simplify some code.
-        dual_wield = self.gearset["sub"]["Type"] == "Weapon" or self.gearset["main"]["Skill Type"] == "Hand-to-Hand"
+        dual_wield = self.gearset["sub"].get("Type","None") == "Weapon" or self.gearset["main"].get("Skill Type","None") == "Hand-to-Hand"
 
         # Increase the Evasion stat based on contribution from Evasion Skill and AGI. 
         # Evasion Skill is worth 0.8 Evasion after Evasion Skill > 300.
@@ -160,7 +160,7 @@ class create_player:
         if self.gearset["main"].get("Skill Type","None")!="Hand-to-Hand":
             self.stats["Kick Attacks"] = 0
             self.stats["Martial Arts"] = 0
-        if self.gearset["main"]["Skill Type"] not in two_handed:
+        if self.gearset["main"].get("Skill Type","None") not in two_handed:
             self.stats["Zanshin"] = 0
         if (self.gearset["ranged"].get("Type") not in ["Gun","Bow","Crossbow"]) and (self.gearset["ammo"].get("Type","None") not in ["Bullet","Arrow","Bolt","Shuriken"]):
             self.stats["Ranged Attack"] = 0
@@ -182,10 +182,10 @@ class create_player:
         total_haste = (self.stats["Gear Haste"] if self.stats["Gear Haste"] < 0.25 else 0.25) + (self.stats["JA Haste"] if self.stats["JA Haste"] < 0.25 else 0.25) + (self.stats["Magic Haste"] if self.stats["Magic Haste"] < 448./1024 else 448./1024)
 
         # Deal with the special case of Hand-to-Hand values.
-        if self.gearset["main"]["Skill Type"] == "Hand-to-Hand":
+        if self.gearset["main"].get("Skill Type","None") == "Hand-to-Hand":
             self.stats["Attack2"] = self.stats["Attack1"] - 0.5*self.stats["STR"]*(1+self.stats.get("Attack%",0))*0 # The off-hand H2H Attack might use STR/2 like normal weapons. This is ignored in the main code where I simply set attack1 = attack2 before calculating H2H damage.
             self.stats["Accuracy2"] = self.stats["Accuracy1"]
-            self.gearset["sub"]["Skill Type"] = self.gearset["main"]["Skill Type"]
+            self.gearset["sub"]["Skill Type"] = self.gearset["main"].get("Skill Type","None")
             base_dmg = 3 + int((self.stats.get("Hand-to-Hand Skill",0) + self.stats.get("main Hand-to-Hand Skill",0))*0.11)
             self.stats["DMG1"] = base_dmg + self.stats["DMG1"]
             self.stats["DMG2"] = self.stats["DMG1"]
@@ -315,7 +315,7 @@ class create_player:
             if self.abilities.get("Last Resort",False):
                 self.stats["Attack%"] = self.stats.get("Attack%",0) + 256./1024 + 100./1024*(self.main_job=="drk")
                 self.stats["Attack"] = self.stats.get("Attack",0) + 40*(self.main_job=="drk")
-                self.stats["JA Haste"] = self.stats.get("JA Haste",0) + 15 + 10*(self.main_job=="drk") if self.gearset["main"]["Skill Type"] in two_handed else self.stats.get("JA Haste",0)
+                self.stats["JA Haste"] = self.stats.get("JA Haste",0) + 15 + 10*(self.main_job=="drk") if self.gearset["main"].get("Skill Type","None") in two_handed else self.stats.get("JA Haste",0)
             if self.main_job=="drk":
                 if self.abilities.get("Endark II",False): # https://ffxiclopedia.fandom.com/wiki/Endark_II
                     endark_potency = 0.80
@@ -357,7 +357,7 @@ class create_player:
         # ===========================================================================
         # Samurai abilities
         if "sam" in jobs:
-            if self.abilities.get("Hasso",False) and (self.gearset["main"]["Skill Type"] in two_handed):
+            if self.abilities.get("Hasso",False) and (self.gearset["main"].get("Skill Type","None") in two_handed):
                 if self.main_job=="sam":
                     self.stats["STR"] = self.stats.get("STR",0) + 14 + 20 
                     self.stats["Zanshin"] = 100 if self.stats.get("Zanshin",0) > 100 else self.stats.get("Zanshin",0)
@@ -475,11 +475,11 @@ class create_player:
 
 
         # Add Smite.
-        if self.gearset["main"]["Skill Type"] in (two_handed+["Hand-to-Hand"]):
+        if self.gearset["main"].get("Skill Type","None") in (two_handed+["Hand-to-Hand"]):
             smite_level = self.stats.get("Smite",0)
             self.stats["Attack%"] = self.stats.get("Attack%",0) + {5:304./1024, 4:256./1024, 3:204./1024, 2:152./1024, 1:100./1024, 0:0.}[smite_level]
         # Add Fencer.
-        if (self.gearset["sub"]["Type"] in ["Shield","None"]) and (self.gearset["main"]["Skill Type"]!="Hand-to-Hand") and (self.gearset["main"]["Skill Type"] not in two_handed):
+        if (self.gearset["sub"].get("Type","None") in ["Shield","None"]) and (self.gearset["main"].get("Skill Type","None")!="Hand-to-Hand") and (self.gearset["main"].get("Skill Type","None") not in two_handed):
             fencer_level = 8 if self.stats.get("Fencer",0) > 8 else self.stats.get("Fencer",0)
             fencer_bonuses = {0:[0,0], 1:[200,3], 2:[300,5], 3:[400,7], 4:[450,9], 5:[500,10], 6:[550,11], 7:[600,12], 8:[630,13]}[fencer_level]
             self.stats["TP Bonus"] = self.stats.get("TP Bonus",0) + fencer_bonuses[0] + self.stats.get("Fencer TP Bonus",0)
@@ -677,6 +677,7 @@ class create_player:
                             self.stats[stat] = self.stats.get(stat,0) + self.gearset[slot][stat]
                     else:
                         self.stats[f"{slot} {stat}"] = self.stats.get(f"{slot} {stat}",0) + self.gearset[slot][stat]
+                    # print(f"printing the {stat} value gained from gear: {self.gearset[slot][stat]}")
 
         # Count the number of set-bonus gear equipped.
         mummu_count = 0 # Mummu +2 gives DEX/AGI/VIT/CHR
