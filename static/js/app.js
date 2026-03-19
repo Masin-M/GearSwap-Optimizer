@@ -23,12 +23,24 @@ const AppState = {
     selectedSubJob: 'war',
     selectedMainWeapon: null,
     selectedSubWeapon: null,
+    selectedRangedWeapon: null,
+    selectedAmmo: null,
     selectedWeaponskill: null,
     
     // Data caches
     weapons: [],
     offhand: [],
+    rangedWeapons: [],
+    ammoItems: [],
     weaponskills: [],
+    
+    // Dropdown references (for setting input text programmatically)
+    dropdowns: {
+        mainWeapon: null,
+        subWeapon: null,
+        rangedWeapon: null,
+        ammo: null,
+    },
     
     // Master level
     masterLevel: 0,
@@ -37,6 +49,7 @@ const AppState = {
     // Results
     currentResults: null,
     currentResultType: null,  // 'tp', 'ws', 'dt', or 'magic'
+    currentDTType: 'pure_dt', // tracks which DT sub-type was last run
     currentMagicResult: null,
     currentStats: null,
     currentTab: 'tp',
@@ -70,6 +83,7 @@ const AppState = {
         target: 'apex_toad',
         beamWidth: 10000,
         useSimulation: true,
+        mode: 'melee',  // 'melee' or 'ranged'
     },
     
     // Shared custom physical buffs (used by both TP and WS tabs)
@@ -112,10 +126,15 @@ const AppState = {
         customBuffs: {
             INT: 0,
             MND: 0,
+            VIT: 0,
             magic_attack: 0,
             magic_accuracy: 0,
             magic_damage: 0,
+            cure_potency: 0,
         },
+        slowMode: false,
+        slowMaxIterations: 3,
+        slowTopN: 3,
     },
     
     // Magic caches
@@ -132,6 +151,8 @@ const STORAGE_KEYS = {
     SUBJOB: 'ffxi_selected_subjob',
     MAIN_WEAPON: 'ffxi_main_weapon',
     SUB_WEAPON: 'ffxi_sub_weapon',
+    RANGED_WEAPON: 'ffxi_ranged_weapon',
+    AMMO: 'ffxi_selected_ammo',
     MASTER_LEVEL: 'ffxi_master_level',
     INVENTORY_DATA: 'ffxi_inventory_data',
     INVENTORY_CHAR: 'ffxi_inventory_char',
@@ -310,6 +331,10 @@ const API = {
         return this.fetch(`/api/weapons/${job}`);
     },
     
+    async getRangedWeapons(job) {
+        return this.fetch(`/api/ranged-weapons/${job}`);
+    },
+    
     async getOffhand(job, mainSkill) {
         const params = mainSkill ? `?main_skill=${encodeURIComponent(mainSkill)}` : '';
         return this.fetch(`/api/offhand/${job}${params}`);
@@ -411,6 +436,20 @@ const API = {
     
     async simulateMagic(params) {
         return this.fetch('/api/magic/simulate', {
+            method: 'POST',
+            body: JSON.stringify(params),
+        });
+    },
+
+    async simulateTP(params) {
+        return this.fetch('/api/simulate/tp', {
+            method: 'POST',
+            body: JSON.stringify(params),
+        });
+    },
+
+    async simulateWS(params) {
+        return this.fetch('/api/simulate/ws', {
             method: 'POST',
             body: JSON.stringify(params),
         });
@@ -1280,25 +1319,67 @@ function formatMagicDebuffLabel(name, stats) {
 }
 
 /**
- * Populate magic target selector
+ * Populate magic target selector.
+ * Accepts either an array of target objects (from /api/magic/targets)
+ * or a plain object keyed by id (legacy).
  */
 function populateMagicTargetSelector(targets) {
     const select = document.getElementById('magic-target-select');
     if (!select || !targets) return;
-    
+
+    // Normalise to array
+    const list = Array.isArray(targets)
+        ? targets
+        : Object.entries(targets).map(([id, t]) => ({ id, ...t }));
+
+    if (list.length === 0) return;
+
     select.innerHTML = '';
-    
-    for (const [id, target] of Object.entries(targets)) {
-        const option = document.createElement('option');
-        option.value = id;
-        option.textContent = `${target.name} (M.Eva ${target.magic_evasion})`;
-        select.appendChild(option);
+
+    const SORTIE_FLOOR_IDS    = ['sortie_ghatjot','sortie_leshonn','sortie_skomora','sortie_degei'];
+    const SORTIE_BASEMENT_IDS = ['sortie_dhartok','sortie_gartell','sortie_triboulex','sortie_aita'];
+    const sortieIds = new Set([...SORTIE_FLOOR_IDS, ...SORTIE_BASEMENT_IDS, 'sortie_boss']);
+
+    // Generic targets (non-Sortie), sorted by MEva
+    const generic = list.filter(t => !sortieIds.has(t.id)).sort((a, b) => a.magic_evasion - b.magic_evasion);
+    generic.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = `${t.name} (${t.magic_evasion} MEva)`;
+        select.appendChild(opt);
+    });
+
+    // Sortie floor bosses
+    const floorBosses = list.filter(t => SORTIE_FLOOR_IDS.includes(t.id));
+    if (floorBosses.length > 0) {
+        const grp = document.createElement('optgroup');
+        grp.label = 'Sortie Floor Bosses (2000 Gal)';
+        floorBosses.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.id;
+            opt.textContent = `${t.name} (${t.magic_evasion} MEva)`;
+            grp.appendChild(opt);
+        });
+        select.appendChild(grp);
     }
-    
-    // Set default
-    if (targets['apex_mob']) {
-        select.value = 'apex_mob';
+
+    // Sortie basement bosses
+    const basementBosses = list.filter(t => SORTIE_BASEMENT_IDS.includes(t.id));
+    if (basementBosses.length > 0) {
+        const grp = document.createElement('optgroup');
+        grp.label = 'Sortie Basement Bosses (10000 Gal)';
+        basementBosses.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.id;
+            opt.textContent = `${t.name} (${t.magic_evasion} MEva)`;
+            grp.appendChild(opt);
+        });
+        select.appendChild(grp);
     }
+
+    // Set default to apex_mob
+    const apexOpt = list.find(t => t.id === 'apex_mob');
+    if (apexOpt) select.value = 'apex_mob';
 }
 
 /**
@@ -1444,7 +1525,23 @@ function createSearchableDropdown(containerId, options, onSelect, placeholder = 
     
     input.addEventListener('blur', () => {
         // Delay to allow click on dropdown item
-        setTimeout(() => list.classList.add('hidden'), 200);
+        setTimeout(() => {
+            // Guard: if the input was removed from the DOM (dropdown recreated), do nothing
+            if (!document.contains(input)) return;
+            list.classList.add('hidden');
+            // If the input is empty or doesn't match any option, clear the selection
+            const trimmed = input.value.trim();
+            if (trimmed === '') {
+                onSelect(null);
+            } else {
+                const match = options.find(o => o.label.toLowerCase() === trimmed.toLowerCase());
+                if (!match) {
+                    // Text doesn't match any valid option — clear it
+                    input.value = '';
+                    onSelect(null);
+                }
+            }
+        }, 200);
     });
     
     renderOptions();
@@ -1580,6 +1677,52 @@ async function restoreSelections() {
                         label: weapon.name2 || weapon.name,
                         data: weapon
                     });
+                    // Set the dropdown input text
+                    if (AppState.dropdowns.mainWeapon) {
+                        AppState.dropdowns.mainWeapon.setValue(weapon.name2 || weapon.name);
+                    }
+                }
+            }
+            
+            // Restore ranged weapon selection
+            const savedRanged = loadFromLocalStorage(STORAGE_KEYS.RANGED_WEAPON);
+            if (savedRanged && AppState.rangedWeapons.length > 0) {
+                const ranged = AppState.rangedWeapons.find(w => w.name === savedRanged);
+                if (ranged) {
+                    handleRangedWeaponSelect({
+                        value: ranged.name,
+                        label: ranged.name2 || ranged.name,
+                        data: ranged
+                    });
+                    if (AppState.dropdowns.rangedWeapon) {
+                        AppState.dropdowns.rangedWeapon.setValue(ranged.name2 || ranged.name);
+                    }
+                }
+            }
+            
+            // Restore ammo selection
+            const savedAmmo = loadFromLocalStorage(STORAGE_KEYS.AMMO);
+            if (savedAmmo && AppState.ammoItems.length > 0) {
+                const ammo = AppState.ammoItems.find(a => a.name === savedAmmo);
+                if (ammo) {
+                    handleAmmoSelect({
+                        value: ammo.name,
+                        label: ammo.name2 || ammo.name,
+                        data: {
+                            ...ammo,
+                            _raw: {
+                                Name: ammo.name,
+                                Name2: ammo.name2,
+                                Type: ammo.type,
+                                'Item Level': ammo.item_level,
+                                Jobs: ammo.jobs,
+                                ...ammo.stats,
+                            },
+                        }
+                    });
+                    if (AppState.dropdowns.ammo) {
+                        AppState.dropdowns.ammo.setValue(ammo.name2 || ammo.name);
+                    }
                 }
             }
         }
@@ -1626,6 +1769,8 @@ async function reloadCachedInventory() {
         
         if (result.success) {
             AppState.inventoryLoaded = true;
+            // Clear cached earring abbreviations so they rebuild from new inventory
+            empyreanEarringAbbrevPrefixes.clear();
             updateStatusIndicator('ready');
             updateInventorySummary(result.item_count, cachedChar || 'Cached');
             showToast('Restored inventory from cache', 'success');
@@ -1771,9 +1916,23 @@ function setupEventListeners() {
     document.getElementById('btn-optimize-ws')?.addEventListener('click', runWSOptimization);
     document.getElementById('btn-optimize-magic')?.addEventListener('click', runMagicOptimization);
     document.getElementById('btn-optimize-dt')?.addEventListener('click', runDTOptimization);
+
+    // Slow mode toggles — show/hide advanced settings
+    document.getElementById('tp-slow-mode')?.addEventListener('change', (e) => {
+        document.getElementById('tp-slow-advanced')?.classList.toggle('hidden', !e.target.checked);
+    });
+    document.getElementById('ws-slow-mode')?.addEventListener('change', (e) => {
+        document.getElementById('ws-slow-advanced')?.classList.toggle('hidden', !e.target.checked);
+    });
+    document.getElementById('magic-slow-mode')?.addEventListener('change', (e) => {
+        document.getElementById('magic-slow-advanced')?.classList.toggle('hidden', !e.target.checked);
+    });
     
     // DT type description update
     document.getElementById('dt-set-type')?.addEventListener('change', updateDTTypeDescription);
+    
+    // Populate DT set type dropdown dynamically from API
+    populateDTTypeDropdown();
     
     // Copy Lua button
     document.getElementById('btn-copy-lua')?.addEventListener('click', copyLuaToClipboard);
@@ -2111,9 +2270,11 @@ function setupMagicCustomBuffInputs() {
     const inputMappings = [
         { id: 'magic-custom-int', stat: 'INT' },
         { id: 'magic-custom-mnd', stat: 'MND' },
+        { id: 'magic-custom-vit', stat: 'VIT' },
         { id: 'magic-custom-mab', stat: 'magic_attack' },
         { id: 'magic-custom-macc', stat: 'magic_accuracy' },
         { id: 'magic-custom-mdmg', stat: 'magic_damage' },
+        { id: 'magic-custom-cure-potency', stat: 'cure_potency' },
     ];
     
     inputMappings.forEach(({ id, stat }) => {
@@ -2143,9 +2304,10 @@ function clearPhysicalCustomBuffs() {
 
 function clearMagicCustomBuffs() {
     AppState.magic.customBuffs = {
-        INT: 0, MND: 0,
+        INT: 0, MND: 0, VIT: 0,
         magic_attack: 0, magic_accuracy: 0,
         magic_damage: 0,
+        cure_potency: 0,
     };
 }
 
@@ -2181,9 +2343,11 @@ function syncMagicCustomBuffInputs() {
     const inputMappings = [
         { id: 'magic-custom-int', stat: 'INT' },
         { id: 'magic-custom-mnd', stat: 'MND' },
+        { id: 'magic-custom-vit', stat: 'VIT' },
         { id: 'magic-custom-mab', stat: 'magic_attack' },
         { id: 'magic-custom-macc', stat: 'magic_accuracy' },
         { id: 'magic-custom-mdmg', stat: 'magic_damage' },
+        { id: 'magic-custom-cure-potency', stat: 'cure_potency' },
     ];
     
     inputMappings.forEach(({ id, stat }) => {
@@ -2278,6 +2442,8 @@ async function handleInventoryUpload(file) {
         
         if (result.success) {
             AppState.inventoryLoaded = true;
+            // Clear cached earring abbreviations so they rebuild from new inventory
+            empyreanEarringAbbrevPrefixes.clear();
             updateStatusIndicator('ready');
             updateInventorySummary(result.item_count, result.filename);
             
@@ -2299,6 +2465,8 @@ async function handleInventoryUpload(file) {
             // Reload weapons if job is selected
             if (AppState.selectedJob) {
                 await loadWeapons(AppState.selectedJob);
+                await loadRangedWeapons(AppState.selectedJob);
+                await loadAmmoItems(AppState.selectedJob);
             }
         } else {
             showToast(`Upload failed: ${result.error}`, 'error');
@@ -2421,6 +2589,7 @@ async function handleJobChange(e) {
     // Reset dependent selections
     AppState.selectedMainWeapon = null;
     AppState.selectedSubWeapon = null;
+    AppState.selectedRangedWeapon = null;
     AppState.selectedWeaponskill = null;
     
     // Clear weapon containers
@@ -2451,6 +2620,9 @@ async function handleJobChange(e) {
     
     // Load weapons
     await loadWeapons(job);
+    // Load ranged weapons and ammo
+    await loadRangedWeapons(job);
+    await loadAmmoItems(job);
 }
 
 function handleSubJobChange(e) {
@@ -2491,6 +2663,7 @@ async function loadWeapons(job) {
             handleMainWeaponSelect,
             'Search weapons...'
         );
+        AppState.dropdowns.mainWeapon = dropdown;
         
     } catch (error) {
         showToast(`Failed to load weapons: ${error.message}`, 'error');
@@ -2498,6 +2671,21 @@ async function loadWeapons(job) {
 }
 
 async function handleMainWeaponSelect(option) {
+    // Handle clearing the selection
+    if (!option) {
+        AppState.selectedMainWeapon = null;
+        saveToLocalStorage(STORAGE_KEYS.MAIN_WEAPON, null);
+        const infoDiv = document.getElementById('weapon-info');
+        if (infoDiv) infoDiv.classList.add('hidden');
+        // Hide sub item section since no weapon is selected
+        const subSection = document.getElementById('sub-item-section');
+        if (subSection) subSection.classList.add('hidden');
+        const dwSection = document.getElementById('dw-checkbox-section');
+        if (dwSection) dwSection.classList.add('hidden');
+        AppState.selectedSubWeapon = null;
+        return;
+    }
+
     AppState.selectedMainWeapon = option.data;
     
     // Save to localStorage
@@ -2565,7 +2753,7 @@ async function loadOffhand(job, mainSkill) {
             data: item,
         }));
         
-        createSearchableDropdown(
+        AppState.dropdowns.subWeapon = createSearchableDropdown(
             'sub-item-container',
             options,
             handleSubWeaponSelect,
@@ -2578,7 +2766,204 @@ async function loadOffhand(job, mainSkill) {
 }
 
 function handleSubWeaponSelect(option) {
+    if (!option) {
+        AppState.selectedSubWeapon = null;
+        return;
+    }
     AppState.selectedSubWeapon = option.data;
+}
+
+async function loadRangedWeapons(job) {
+    if (!AppState.inventoryLoaded) return;
+    
+    try {
+        const data = await API.getRangedWeapons(job);
+        AppState.rangedWeapons = data.ranged_weapons || [];
+        
+        const options = AppState.rangedWeapons.map(w => ({
+            value: w.name,
+            label: w.name2 || w.name,
+            sublabel: `${w.skill_type} D${w.damage} Delay${w.delay} iLv${w.item_level}`,
+            data: w,
+        }));
+        
+        // Always include an "Empty" option
+        options.unshift({
+            value: 'Empty',
+            label: 'None',
+            sublabel: 'No ranged weapon',
+            data: { name: 'Empty', name2: 'Empty', type: 'None', _raw: { Name: 'Empty', Name2: 'Empty', Type: 'None' } },
+        });
+        
+        AppState.dropdowns.rangedWeapon = createSearchableDropdown(
+            'ranged-weapon-container',
+            options,
+            handleRangedWeaponSelect,
+            'Search ranged weapons...'
+        );
+        
+    } catch (error) {
+        console.warn(`Failed to load ranged weapons: ${error.message}`);
+    }
+}
+
+function handleRangedWeaponSelect(option) {
+    if (!option) {
+        AppState.selectedRangedWeapon = null;
+        saveToLocalStorage(STORAGE_KEYS.RANGED_WEAPON, null);
+        document.getElementById('ranged-weapon-info')?.classList.add('hidden');
+        return;
+    }
+
+    const isEmpty = option.value === 'Empty' || !option.data?.skill_type;
+    
+    if (isEmpty) {
+        AppState.selectedRangedWeapon = null;
+        saveToLocalStorage(STORAGE_KEYS.RANGED_WEAPON, null);
+        document.getElementById('ranged-weapon-info')?.classList.add('hidden');
+        
+        // If currently in ranged WS mode, reset the WS selector
+        if (AppState.ws.mode === 'ranged') {
+            const wsSelect = document.getElementById('ws-select');
+            if (wsSelect) {
+                wsSelect.innerHTML = '<option value="">Select a ranged weapon first...</option>';
+                wsSelect.disabled = true;
+            }
+        }
+        return;
+    }
+    
+    AppState.selectedRangedWeapon = option.data;
+    saveToLocalStorage(STORAGE_KEYS.RANGED_WEAPON, option.data?.name);
+    
+    // Show ranged weapon info
+    const infoDiv = document.getElementById('ranged-weapon-info');
+    if (infoDiv && option.data) {
+        const w = option.data;
+        infoDiv.innerHTML = `<span class="text-ffxi-text-dim">Type:</span> ${w.skill_type} &nbsp; <span class="text-ffxi-text-dim">DMG:</span> ${w.damage} <span class="text-ffxi-text-dim">Delay:</span> ${w.delay}`;
+        infoDiv.classList.remove('hidden');
+    }
+    
+    // If currently in ranged WS mode, reload the WS dropdown
+    if (AppState.ws.mode === 'ranged') {
+        loadWeaponskills(option.data.skill_type);
+    }
+}
+
+async function loadAmmoItems(job) {
+    if (!AppState.inventoryLoaded) return;
+    
+    try {
+        const data = await API.fetch(`/api/inventory?slot=ammo&job=${job}`);
+        AppState.ammoItems = data.items || [];
+        
+        const options = AppState.ammoItems.map(item => ({
+            value: item.name,
+            label: item.name2 || item.name,
+            sublabel: `iLv${item.item_level || 0}`,
+            data: {
+                ...item,
+                _raw: {
+                    Name: item.name,
+                    Name2: item.name2,
+                    Type: item.type,
+                    'Item Level': item.item_level,
+                    Jobs: item.jobs,
+                    ...item.stats,
+                },
+            },
+        }));
+        
+        options.unshift({
+            value: 'Empty',
+            label: 'None',
+            sublabel: 'No ammo',
+            data: { name: 'Empty', _raw: null },
+        });
+        
+        AppState.dropdowns.ammo = createSearchableDropdown(
+            'ammo-container',
+            options,
+            handleAmmoSelect,
+            'Search ammo...'
+        );
+        
+    } catch (error) {
+        console.warn(`Failed to load ammo items: ${error.message}`);
+    }
+}
+
+function handleAmmoSelect(option) {
+    if (!option) {
+        AppState.selectedAmmo = null;
+        saveToLocalStorage(STORAGE_KEYS.AMMO, null);
+        document.getElementById('ammo-info')?.classList.add('hidden');
+        return;
+    }
+
+    const isEmpty = option.value === 'Empty' || !option.data?._raw;
+    
+    if (isEmpty) {
+        AppState.selectedAmmo = null;
+        saveToLocalStorage(STORAGE_KEYS.AMMO, null);
+        document.getElementById('ammo-info')?.classList.add('hidden');
+        return;
+    }
+    
+    AppState.selectedAmmo = option.data;
+    saveToLocalStorage(STORAGE_KEYS.AMMO, option.data?.name);
+    
+    const infoDiv = document.getElementById('ammo-info');
+    if (infoDiv) {
+        infoDiv.textContent = `iLv${option.data.item_level || 0}`;
+        infoDiv.classList.remove('hidden');
+    }
+}
+
+function handleWSModeToggle(mode) {
+    AppState.ws.mode = mode;
+    
+    const meleeBtn = document.getElementById('ws-mode-melee');
+    const rangedBtn = document.getElementById('ws-mode-ranged');
+    const hint = document.getElementById('ws-mode-hint');
+    
+    const activeStyle = 'background:#c9a227;color:#0a0e14;border-color:#c9a227;';
+    const inactiveStyle = 'background:#12171f;color:#8b9298;border-color:#1e2630;';
+    
+    if (mode === 'melee') {
+        if (meleeBtn) meleeBtn.setAttribute('style', activeStyle);
+        if (rangedBtn) rangedBtn.setAttribute('style', inactiveStyle);
+        if (hint) hint.textContent = 'Optimizing for melee weaponskill';
+        
+        // Repopulate WS dropdown from main weapon
+        if (AppState.selectedMainWeapon?.skill_type) {
+            loadWeaponskills(AppState.selectedMainWeapon.skill_type);
+        } else {
+            const wsSelect = document.getElementById('ws-select');
+            if (wsSelect) {
+                wsSelect.innerHTML = '<option value="">Select a main weapon first...</option>';
+                wsSelect.disabled = true;
+            }
+        }
+    } else {
+        if (meleeBtn) meleeBtn.setAttribute('style', inactiveStyle);
+        if (rangedBtn) rangedBtn.setAttribute('style', activeStyle);
+        if (hint) hint.textContent = 'Optimizing for ranged weaponskill';
+        
+        // Repopulate WS dropdown from ranged weapon
+        if (AppState.selectedRangedWeapon?.skill_type) {
+            loadWeaponskills(AppState.selectedRangedWeapon.skill_type);
+        } else {
+            const wsSelect = document.getElementById('ws-select');
+            if (wsSelect) {
+                wsSelect.innerHTML = '<option value="">Select a ranged weapon first...</option>';
+                wsSelect.disabled = true;
+            }
+        }
+    }
+    
+    // Clear current WS selection since we changed mode
+    AppState.selectedWeaponskill = null;
 }
 
 async function loadWeaponskills(skillType) {
@@ -2722,7 +3107,11 @@ async function runTPOptimization() {
     
     const tpPriority = document.getElementById('tp-priority')?.value || 'hybrid_tp';
     
-    showToast('Running TP optimization...', 'info');
+    const tpSlowMode = document.getElementById('tp-slow-mode')?.checked ?? false;
+    const tpSlowMaxIterations = parseInt(document.getElementById('tp-slow-max-iterations')?.value || 3);
+    const tpSlowTopN = parseInt(document.getElementById('tp-slow-top-n')?.value || 3);
+
+    showToast(tpSlowMode ? 'Running deep TP optimization (slow mode)...' : 'Running TP optimization...', 'info');
     showOptimizationProgress();
     
     // Build buffs object with custom buffs if set
@@ -2738,6 +3127,8 @@ async function runTPOptimization() {
             sub_job: AppState.selectedSubJob,
             main_weapon: AppState.selectedMainWeapon._raw,
             sub_weapon: AppState.selectedSubWeapon?._raw || { Name: 'Empty', Type: 'None' },
+            ranged_weapon: AppState.selectedRangedWeapon?._raw || null,
+            ammo: AppState.selectedAmmo?._raw || null,
             tp_type: tpPriority,
             target: AppState.tp.target,
             use_simulation: true,
@@ -2747,6 +3138,9 @@ async function runTPOptimization() {
             abilities: AppState.tp.abilities,
             food: AppState.tp.food,
             debuffs: AppState.tp.debuffs,
+            slow_mode: tpSlowMode,
+            slow_max_iterations: tpSlowMaxIterations,
+            slow_top_n_per_slot: tpSlowTopN,
         });
         
         if (result.success) {
@@ -2770,7 +3164,24 @@ async function runWSOptimization() {
         return;
     }
     
-    showToast('Running WS optimization...', 'info');
+    // Validate ranged weapon when in ranged mode
+    const isRangedMode = AppState.ws.mode === 'ranged';
+    if (isRangedMode && !AppState.selectedRangedWeapon) {
+        showToast('Please select a ranged weapon for ranged WS optimization', 'warning');
+        return;
+    }
+    
+    // Ammo is required for ranged WS optimization
+    if (isRangedMode && !AppState.selectedAmmo) {
+        showToast('Please select an ammo item in the sidebar for ranged WS optimization', 'warning');
+        return;
+    }
+    
+    const wsSlowMode = document.getElementById('ws-slow-mode')?.checked ?? false;
+    const wsSlowMaxIterations = parseInt(document.getElementById('ws-slow-max-iterations')?.value || 3);
+    const wsSlowTopN = parseInt(document.getElementById('ws-slow-top-n')?.value || 3);
+
+    showToast(wsSlowMode ? 'Running deep WS optimization (slow mode)...' : 'Running WS optimization...', 'info');
     showOptimizationProgress();
     
     // Get TP level from slider
@@ -2789,6 +3200,8 @@ async function runWSOptimization() {
             sub_job: AppState.selectedSubJob,
             main_weapon: AppState.selectedMainWeapon._raw,
             sub_weapon: AppState.selectedSubWeapon?._raw || { Name: 'Empty', Type: 'None' },
+            ranged_weapon: AppState.selectedRangedWeapon?._raw || null,
+            ammo: isRangedMode ? AppState.selectedAmmo._raw : null,
             weaponskill: AppState.selectedWeaponskill.name,
             target: AppState.ws.target,
             use_simulation: AppState.ws.useSimulation,
@@ -2799,11 +3212,19 @@ async function runWSOptimization() {
             abilities: AppState.ws.abilities,
             food: AppState.ws.food,
             debuffs: AppState.ws.debuffs,
+            slow_mode: wsSlowMode,
+            slow_max_iterations: wsSlowMaxIterations,
+            slow_top_n_per_slot: wsSlowTopN,
         });
         
         if (result.success) {
             displayWSResults(result.results);
-            showToast('WS optimization complete!', 'success');
+            if (result.error) {
+                // success=true but error field set means simulation warnings (e.g. zero-damage sets)
+                showToast(`WS optimization complete (with warnings: ${result.error})`, 'warning');
+            } else {
+                showToast('WS optimization complete!', 'success');
+            }
         } else {
             showToast(`Optimization failed: ${result.error}`, 'error');
         }
@@ -2976,7 +3397,89 @@ const DT_TYPE_DESCRIPTIONS = {
     dt_regen: "HP recovery set. Caps DT, then prioritizes Regen and HP for downtime.",
     pdt_only: "Physical damage focus. Maximizes PDT and DT for physical-heavy content.",
     mdt_only: "Magical damage focus. Maximizes MDT and DT for magical-heavy content.",
+    pdt_eva:  "Physical avoidance. Jointly maximizes PDT/DT and Evasion/AGI — reduces how often physical attacks land and how much they hurt.",
+    mdt_meva: "Magical avoidance. Jointly maximizes MDT/DT and Magic Evasion/MND — reduces how often magic lands and how much damage it deals.",
+    enmity: "Greedy enmity set. Locks the highest-enmity item per slot, fills the rest with DT. Combine with your pure DT set for a balanced hate set.",
+    passive_refresh: "Greedy passive refresh set. Locks the highest gear-refresh item per slot, fills the rest with DT. Combine with your DT set.",
+    passive_regen: "Greedy passive regen set. Locks the highest gear-regen item per slot, fills the rest with DT. Combine with your DT set.",
+    sird: "Greedy Spell Interruption Rate Down set. Finds the best SIRD item per slot and maximizes toward the 102% cap.",
+    hp_ehp: "EHP-maximising DP. Jointly optimises HP and DT/PDT/MDT via integer DP over all reachable (DT,PDT,MDT) states. Ranked by min(physical EHP, magical EHP) — the conservative worst-case.",
 };
+
+// Group labels for the DT dropdown optgroups
+const DT_TYPE_GROUPS = {
+    'Standard DT':     ['pure_dt', 'pdt_only', 'mdt_only', 'pdt_eva', 'mdt_meva'],
+    'DT + Offense':    ['dt_tp'],
+    'DT + Sustain':    ['dt_refresh', 'dt_regen'],
+    'HP / EHP':        ['hp_ehp'],
+    'Passive Stats':   ['enmity', 'passive_refresh', 'passive_regen', 'sird'],
+    'Other':           ['fast_cast', 'generic_ws'],
+};
+
+// Human-readable labels for each type
+const DT_TYPE_LABELS = {
+    pure_dt:         'Pure DT',
+    dt_tp:           'DT + TP',
+    dt_refresh:      'DT + Refresh',
+    dt_regen:        'DT + Regen',
+    pdt_only:        'PDT Only',
+    mdt_only:        'MDT Only',
+    pdt_eva:         'PDT-EVA',
+    mdt_meva:        'MDT-MEVA',
+    fast_cast:       'Fast Cast',
+    generic_ws:      'Generic WS',
+    enmity:          'Enmity',
+    passive_refresh: 'Passive Refresh',
+    passive_regen:   'Passive Regen',
+    sird:            'Spell Interruption Rate Down',
+    hp_ehp:          'Effective HP (EHP)',
+};
+
+async function populateDTTypeDropdown() {
+    const select = document.getElementById('dt-set-type');
+    if (!select) return;
+
+    // Try to populate from the API so labels/types always match the backend.
+    // Fall back to the static list if the request fails.
+    let typeIds;
+    try {
+        const data = await API.getDtTypes();
+        typeIds = (data.dt_types || []).map(t => t.id);
+    } catch {
+        typeIds = Object.values(DT_TYPE_GROUPS).flat();
+    }
+
+    // Build a set for quick lookup
+    const available = new Set(typeIds);
+
+    // Preserve the current selection (may have been set via HTML default)
+    const currentVal = select.value || 'pure_dt';
+
+    select.innerHTML = '';
+
+    for (const [groupLabel, ids] of Object.entries(DT_TYPE_GROUPS)) {
+        const groupIds = ids.filter(id => available.has(id));
+        if (groupIds.length === 0) continue;
+
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = groupLabel;
+
+        for (const id of groupIds) {
+            const opt = document.createElement('option');
+            opt.value = id;
+            opt.textContent = DT_TYPE_LABELS[id] || id;
+            optgroup.appendChild(opt);
+        }
+        select.appendChild(optgroup);
+    }
+
+    // Restore selection
+    if ([...select.options].some(o => o.value === currentVal)) {
+        select.value = currentVal;
+    }
+
+    updateDTTypeDescription();
+}
 
 function updateDTTypeDescription() {
     const select = document.getElementById('dt-set-type');
@@ -2996,45 +3499,51 @@ async function runDTOptimization() {
     const dtType = document.getElementById('dt-set-type')?.value || 'pure_dt';
     const includeWeapons = document.getElementById('dt-include-weapons')?.checked || false;
     
+    // Greedy types don't use weapons or TP parameters
+    const GREEDY_TYPES = ['enmity', 'passive_refresh', 'passive_regen', 'sird', 'hp_ehp', 'pdt_eva', 'mdt_meva'];
+    const isGreedy = GREEDY_TYPES.includes(dtType);
+    
     // Get TP-related parameters from TP tab state for TP calculations
     const tpState = AppState.tp;
     
-    // Debug: Log what we're sending
     console.log('=== DT OPTIMIZATION REQUEST ===');
     console.log('Job:', AppState.selectedJob);
+    console.log('DT Type:', dtType, isGreedy ? '(greedy)' : '');
     console.log('Main Weapon:', AppState.selectedMainWeapon);
-    console.log('Main Weapon _raw:', AppState.selectedMainWeapon?._raw);
-    console.log('Sub Weapon:', AppState.selectedSubWeapon);
     console.log('================================');
     
-    showToast('Running DT optimization...', 'info');
+    const typeLabel = {
+        enmity: 'enmity',
+        passive_refresh: 'passive refresh',
+        passive_regen: 'passive regen',
+        sird: 'spell interruption rate down',
+    }[dtType] || 'DT';
+    showToast(`Running ${typeLabel} optimization...`, 'info');
     showOptimizationProgress();
     
     const requestPayload = {
         job: AppState.selectedJob,
         dt_type: dtType,
-        main_weapon: AppState.selectedMainWeapon?._raw || null,
-        sub_weapon: AppState.selectedSubWeapon?._raw || null,
-        include_weapons: includeWeapons,
+        main_weapon: isGreedy ? null : (AppState.selectedMainWeapon?._raw || null),
+        sub_weapon: isGreedy ? null : (AppState.selectedSubWeapon?._raw || null),
+        include_weapons: isGreedy ? false : includeWeapons,
         beam_width: 25,
-        // TP calculation parameters
+        // TP calculation parameters (only relevant for non-greedy types)
         sub_job: AppState.selectedSubJob || 'war',
         master_level: AppState.masterLevel || 0,
-        target: 'apex_leech',  // Use leech for DT sets (common DT farming target)
-        buffs: tpState.buffs || {},
-        abilities: tpState.abilities || [],
-        food: tpState.food || '',
-        debuffs: tpState.debuffs || [],
+        target: 'apex_leech',
+        buffs: isGreedy ? {} : (tpState.buffs || {}),
+        abilities: isGreedy ? [] : (tpState.abilities || []),
+        food: isGreedy ? '' : (tpState.food || ''),
+        debuffs: isGreedy ? [] : (tpState.debuffs || []),
     };
-    
-    console.log('Request payload:', requestPayload);
     
     try {
         const result = await API.optimizeDT(requestPayload);
         
         if (result.success) {
-            displayDTResults(result.results);
-            showToast('DT optimization complete!', 'success');
+            displayDTResults(result.results, dtType);
+            showToast(`${typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1)} optimization complete!`, 'success');
         } else {
             showToast(`Optimization failed: ${result.error}`, 'error');
         }
@@ -3045,14 +3554,15 @@ async function runDTOptimization() {
     hideOptimizationProgress();
 }
 
-function displayDTResults(results) {
-    console.log('displayDTResults called with results:', results);
+function displayDTResults(results, dtType) {
+    console.log('displayDTResults called with results:', results, 'dtType:', dtType);
     if (results && results.length > 0) {
         console.log('First result time_to_ws:', results[0].time_to_ws, 'type:', typeof results[0].time_to_ws);
     }
     
     AppState.currentResults = results;
     AppState.currentResultType = 'dt';
+    AppState.currentDTType = dtType || 'pure_dt';
     
     const content = document.getElementById('results-content');
     if (!content || !results.length) {
@@ -3062,26 +3572,57 @@ function displayDTResults(results) {
         return;
     }
     
+    const GREEDY_TYPES = ['enmity', 'passive_refresh', 'passive_regen', 'sird', 'hp_ehp', 'pdt_eva', 'mdt_meva'];
+    const isGreedy = GREEDY_TYPES.includes(dtType);
+    
+    // Labels for the primary stat on greedy sets
+    const GREEDY_LABELS = {
+        enmity:          { key: 'enmity',  label: 'Enmity',  color: 'text-yellow-400' },
+        passive_refresh: { key: 'refresh', label: 'Refresh', color: 'text-blue-400'   },
+        passive_regen:   { key: 'regen',   label: 'Regen',   color: 'text-green-400'  },
+        sird:            { key: 'spell_interruption_rate_down', label: 'SIRD', color: 'text-teal-400' },
+        hp_ehp:          { key: 'ehp',     label: 'EHP',     color: 'text-purple-400' },
+        pdt_eva:         { key: 'evasion', label: 'Evasion', color: 'text-orange-400' },
+        mdt_meva:        { key: 'magic_evasion', label: 'M.Eva', color: 'text-cyan-400' },
+    };
+    const greedyMeta = GREEDY_LABELS[dtType];
+    
     let html = '<div class="space-y-4">';
     
     for (const result of results) {
-        // Format percentages
         const dtPct = result.dt_pct?.toFixed(1) || '0';
         const pdtPct = result.pdt_pct?.toFixed(1) || '0';
         const mdtPct = result.mdt_pct?.toFixed(1) || '0';
         const physReduction = result.physical_reduction?.toFixed(1) || '0';
         const magReduction = result.magical_reduction?.toFixed(1) || '0';
         
-        // Cap indicators (use dt_capped from backend, fallback to calculation)
         const dtCapped = result.dt_capped || result.dt_pct <= -50;
         const pdtCapped = result.pdt_pct <= -50;
         const mdtCapped = result.mdt_pct <= -50;
         
-        // TP metrics (may be null if no weapons selected) - more robust check
         const hasTPMetrics = typeof result.time_to_ws === 'number' && !isNaN(result.time_to_ws);
         const timeToWS = hasTPMetrics ? result.time_to_ws.toFixed(2) : '?';
         const wsPerMin = hasTPMetrics ? (60 / result.time_to_ws).toFixed(2) : '?';
         const tpPerRound = typeof result.tp_per_round === 'number' ? result.tp_per_round.toFixed(1) : '?';
+        
+        // Primary stat display for greedy sets
+        let primaryBadge = '';
+        if (greedyMeta) {
+            if (dtType === 'hp_ehp') {
+                const ehpVal = result.ehp != null ? Math.round(result.ehp).toLocaleString() : '?';
+                primaryBadge = `<span class="${greedyMeta.color} font-bold">EHP ${ehpVal}</span>
+                                <span class="text-ffxi-text-dim mx-1">|</span>`;
+            } else if (dtType === 'sird') {
+                const sirdVal = result.spell_interruption_rate_down || 0;
+                const sirdCapped = sirdVal >= 102;
+                primaryBadge = `<span class="${sirdCapped ? 'text-ffxi-green' : greedyMeta.color} font-bold">SIRD ${sirdVal}% / 102%${sirdCapped ? ' ✓' : ''}</span>
+                                <span class="text-ffxi-text-dim mx-1">|</span>`;
+            } else {
+                const primaryVal = result[greedyMeta.key] || 0;
+                primaryBadge = `<span class="${greedyMeta.color} font-bold">${greedyMeta.label} +${primaryVal}</span>
+                                <span class="text-ffxi-text-dim mx-1">|</span>`;
+            }
+        }
         
         html += `
             <div class="result-card bg-ffxi-dark rounded-lg p-4 border border-ffxi-border hover:border-ffxi-accent transition-colors cursor-pointer"
@@ -3089,11 +3630,24 @@ function displayDTResults(results) {
                 <div class="flex items-center justify-between mb-3">
                     <span class="text-ffxi-accent font-display text-lg">#${result.rank}</span>
                     <div class="text-right">
+                        ${primaryBadge}
                         <span class="text-ffxi-green font-bold">${physReduction}% Phys</span>
                         <span class="text-ffxi-text-dim mx-1">|</span>
                         <span class="text-ffxi-accent font-bold">${magReduction}% Mag</span>
                     </div>
                 </div>
+                ${dtType === 'hp_ehp' ? `
+                <div class="grid grid-cols-2 gap-2 text-xs mb-3">
+                    <div class="p-2 rounded ${pdtCapped ? 'bg-ffxi-green/20' : 'bg-ffxi-dark-lighter'}">
+                        <span class="block text-ffxi-text font-bold">${pdtPct}%</span>
+                        <span class="text-ffxi-text-dim">eff. PDT ${pdtCapped ? '✓' : ''}</span>
+                    </div>
+                    <div class="p-2 rounded ${mdtCapped ? 'bg-ffxi-green/20' : 'bg-ffxi-dark-lighter'}">
+                        <span class="block text-ffxi-text font-bold">${mdtPct}%</span>
+                        <span class="text-ffxi-text-dim">eff. MDT ${mdtCapped ? '✓' : ''}</span>
+                    </div>
+                </div>
+                ` : `
                 <div class="grid grid-cols-3 gap-2 text-xs mb-3">
                     <div class="p-2 rounded ${dtCapped ? 'bg-ffxi-green/20' : 'bg-ffxi-dark-lighter'}">
                         <span class="block text-ffxi-text font-bold">${dtPct}%</span>
@@ -3108,6 +3662,7 @@ function displayDTResults(results) {
                         <span class="text-ffxi-text-dim">MDT ${mdtCapped ? '✓' : ''}</span>
                     </div>
                 </div>
+                `}
                 ${hasTPMetrics ? `
                 <div class="grid grid-cols-3 gap-2 text-xs text-ffxi-text-dim mb-3 border-t border-ffxi-border pt-3">
                     <div>
@@ -3134,14 +3689,26 @@ function displayDTResults(results) {
                         Defense
                     </div>
                     <div>
-                        <span class="block text-ffxi-text">${result.refresh || 0}</span>
+                        <span class="block ${dtType === 'passive_refresh' ? 'text-blue-400 font-bold' : 'text-ffxi-text'}">${result.refresh || 0}</span>
                         Refresh
                     </div>
                     <div>
-                        <span class="block text-ffxi-text">${result.regen || 0}</span>
+                        <span class="block ${dtType === 'passive_regen' ? 'text-green-400 font-bold' : 'text-ffxi-text'}">${result.regen || 0}</span>
                         Regen
                     </div>
                 </div>
+                ${dtType === 'enmity' ? `
+                <div class="text-xs text-ffxi-text-dim border-t border-ffxi-border pt-2">
+                    <span class="text-ffxi-text-dim">Enmity: </span>
+                    <span class="text-yellow-400 font-bold">+${result.enmity || 0}</span>
+                </div>
+                ` : ''}
+                ${dtType === 'sird' ? `
+                <div class="text-xs text-ffxi-text-dim border-t border-ffxi-border pt-2">
+                    <span class="text-ffxi-text-dim">SIRD: </span>
+                    <span class="${(result.spell_interruption_rate_down || 0) >= 102 ? 'text-ffxi-green' : 'text-teal-400'} font-bold">${result.spell_interruption_rate_down || 0}% / 102%</span>
+                </div>
+                ` : ''}
                 <div class="text-xs text-ffxi-text-dim">
                     ${formatGearSummary(result.gear)}
                 </div>
@@ -3152,16 +3719,15 @@ function displayDTResults(results) {
     html += '</div>';
     content.innerHTML = html;
     
-    // Show Lua section and generate for first result
     if (results.length > 0) {
         document.getElementById('lua-section')?.classList.remove('hidden');
         generateLuaOutput(results[0]);
-        displayDTStats(results[0]);
+        displayDTStats(results[0], dtType);
     }
 }
 
-function displayDTStats(result) {
-    console.log('displayDTStats called with result:', result);
+function displayDTStats(result, dtType) {
+    console.log('displayDTStats called with result:', result, 'dtType:', dtType);
     
     const statsContent = document.getElementById('stats-content');
     if (!statsContent) {
@@ -3169,22 +3735,102 @@ function displayDTStats(result) {
         return;
     }
     
-    // Check if TP metrics are available (more robust check)
     const hasTPMetrics = typeof result.time_to_ws === 'number' && !isNaN(result.time_to_ws);
-    console.log('hasTPMetrics:', hasTPMetrics, 'time_to_ws:', result.time_to_ws, 'tp_per_round:', result.tp_per_round);
-    
     const timeToWS = hasTPMetrics ? result.time_to_ws.toFixed(2) : '?';
     const wsPerMin = hasTPMetrics ? (60 / result.time_to_ws).toFixed(2) : '?';
     const tpPerRound = typeof result.tp_per_round === 'number' ? result.tp_per_round.toFixed(1) : '?';
     const dps = typeof result.dps === 'number' ? result.dps.toFixed(0) : '?';
     
-    // Get weapon name from gear if available
     const mainWeaponName = result.gear?.main?.name2 || result.gear?.main?.name || 'Unknown';
     const hasWeaponInGear = result.gear?.main && result.gear.main.name !== 'Empty';
     
+    // Greedy-type primary stat block
+    const GREEDY_STATS = {
+        enmity:          { key: 'enmity',  label: 'Enmity',  color: 'text-yellow-400' },
+        passive_refresh: { key: 'refresh', label: 'Refresh', color: 'text-blue-400'   },
+        passive_regen:   { key: 'regen',   label: 'Regen',   color: 'text-green-400'  },
+        sird:            { key: 'spell_interruption_rate_down', label: 'SIRD', color: 'text-teal-400' },
+        hp_ehp:          { key: 'ehp',     label: 'EHP',     color: 'text-purple-400' },
+        pdt_eva:         { key: 'evasion', label: 'Evasion', color: 'text-orange-400' },
+        mdt_meva:        { key: 'magic_evasion', label: 'M.Eva', color: 'text-cyan-400' },
+    };
+    const greedyMeta = GREEDY_STATS[dtType];
+
+    let greedyBlock = '';
+    if (greedyMeta) {
+        if (dtType === 'hp_ehp') {
+            const ehpVal = result.ehp != null ? Math.round(result.ehp).toLocaleString() : '?';
+            const physEHP = result.hp && result.physical_reduction != null
+                ? Math.round(result.hp / (1 - result.physical_reduction / 100)).toLocaleString()
+                : '?';
+            const magEHP = result.hp && result.magical_reduction != null
+                ? Math.round(result.hp / (1 - result.magical_reduction / 100)).toLocaleString()
+                : '?';
+            greedyBlock = `
+                <div class="border-t border-ffxi-border my-2 pt-2">
+                    <div class="text-purple-400 font-medium mb-1">Effective HP</div>
+                    <div class="flex justify-between">
+                        <span class="text-ffxi-text-dim">EHP (worst-case):</span>
+                        <span class="text-purple-400 font-bold">${ehpVal}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-ffxi-text-dim">Phys EHP:</span>
+                        <span class="text-ffxi-green">${physEHP}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-ffxi-text-dim">Magic EHP:</span>
+                        <span class="text-ffxi-accent">${magEHP}</span>
+                    </div>
+                    <div class="text-ffxi-text-dim text-xs mt-1">
+                        PDT/MDT include DT contribution.<br>
+                        Ranked by min(Phys EHP, Magic EHP).
+                    </div>
+                </div>
+            `;
+        } else if (dtType === 'sird') {
+            const sirdVal = result.spell_interruption_rate_down || 0;
+            const sirdCapped = sirdVal >= 102;
+            greedyBlock = `
+                <div class="border-t border-ffxi-border my-2 pt-2">
+                    <div class="text-teal-400 font-medium mb-1">Spell Interruption Rate Down</div>
+                    <div class="flex justify-between">
+                        <span class="text-ffxi-text-dim">SIRD:</span>
+                        <span class="${sirdCapped ? 'text-ffxi-green' : 'text-teal-400'} font-bold">${sirdVal}% / 102%${sirdCapped ? ' ✓' : ''}</span>
+                    </div>
+                    <div class="text-ffxi-text-dim text-xs mt-1">
+                        Greedy: best SIRD item per slot.<br>Cap is 102% — spells cannot be interrupted.
+                    </div>
+                </div>
+            `;
+        } else {
+            greedyBlock = `
+                <div class="border-t border-ffxi-border my-2 pt-2">
+                    <div class="${greedyMeta.color} font-medium mb-1">${greedyMeta.label} Stats</div>
+                    <div class="flex justify-between">
+                        <span class="text-ffxi-text-dim">${greedyMeta.label}:</span>
+                        <span class="${greedyMeta.color} font-bold">+${result[greedyMeta.key] || 0}</span>
+                    </div>
+                    <div class="text-ffxi-text-dim text-xs mt-1">
+                        Greedy: best ${greedyMeta.label.toLowerCase()} item per slot,<br>remaining slots filled with DT.
+                    </div>
+                </div>
+            `;
+        }
+    }
     statsContent.innerHTML = `
         <div class="text-xs space-y-1">
             <div class="text-ffxi-accent font-medium mb-2">DT Stats</div>
+            ${dtType === 'hp_ehp' ? `
+            <div class="flex justify-between">
+                <span class="text-ffxi-text-dim">eff. PDT:</span>
+                <span class="text-ffxi-text ${result.pdt_pct <= -50 ? 'text-ffxi-green' : ''}">${result.pdt_pct?.toFixed(1)}%</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-ffxi-text-dim">eff. MDT:</span>
+                <span class="text-ffxi-text ${result.mdt_pct <= -50 ? 'text-ffxi-green' : ''}">${result.mdt_pct?.toFixed(1)}%</span>
+            </div>
+            <div class="text-ffxi-text-dim text-xs mt-1">DT contribution folded into PDT &amp; MDT.</div>
+            ` : `
             <div class="flex justify-between">
                 <span class="text-ffxi-text-dim">DT:</span>
                 <span class="text-ffxi-text ${result.dt_capped || result.dt_pct <= -50 ? 'text-ffxi-green' : ''}">${result.dt_pct?.toFixed(1)}%</span>
@@ -3197,6 +3843,7 @@ function displayDTStats(result) {
                 <span class="text-ffxi-text-dim">MDT:</span>
                 <span class="text-ffxi-text ${result.mdt_pct <= -50 ? 'text-ffxi-green' : ''}">${result.mdt_pct?.toFixed(1)}%</span>
             </div>
+            `}
             <div class="border-t border-ffxi-border my-2 pt-2">
                 <div class="flex justify-between">
                     <span class="text-ffxi-text-dim">Physical Reduction:</span>
@@ -3207,6 +3854,7 @@ function displayDTStats(result) {
                     <span class="text-ffxi-accent font-bold">${result.magical_reduction?.toFixed(1)}%</span>
                 </div>
             </div>
+            ${greedyBlock}
             ${hasTPMetrics ? `
             <div class="border-t border-ffxi-border my-2 pt-2">
                 <div class="text-ffxi-yellow font-medium mb-1">TP vs Apex Leech</div>
@@ -3260,6 +3908,18 @@ function displayDTStats(result) {
                     <span class="text-ffxi-text-dim">Regen:</span>
                     <span class="text-ffxi-text">${result.regen || 0}</span>
                 </div>
+                ${result.enmity ? `
+                <div class="flex justify-between">
+                    <span class="text-ffxi-text-dim">Enmity:</span>
+                    <span class="text-yellow-400">+${result.enmity}</span>
+                </div>
+                ` : ''}
+                ${result.spell_interruption_rate_down ? `
+                <div class="flex justify-between">
+                    <span class="text-ffxi-text-dim">SIRD:</span>
+                    <span class="${result.spell_interruption_rate_down >= 102 ? 'text-ffxi-green' : 'text-teal-400'}">${result.spell_interruption_rate_down}%</span>
+                </div>
+                ` : ''}
             </div>
         </div>
     `;
@@ -3276,7 +3936,7 @@ function showResultDetails(index) {
     // Handle stats display based on result type
     if (AppState.currentResultType === 'dt') {
         // DT results have their own stats format
-        displayDTStats(result);
+        displayDTStats(result, AppState.currentDTType);
     } else {
         // TP/WS results use wsdist calculation
         calculateAndDisplayStats(result);
@@ -3592,14 +4252,23 @@ function generateLuaOutput(result) {
     
     const slotOrder = ['main', 'sub', 'ranged', 'ammo', 'head', 'neck', 'ear1', 'ear2', 
                        'body', 'hands', 'ring1', 'ring2', 'back', 'waist', 'legs', 'feet'];
+
+    // Fix empyrean earring slot order: shallow copy so we don't mutate result.gear
+    const gear = { ...result.gear };
+    const ear1Name = gear['ear1']?.name || '';
+    if (isEmpyreanEarring(ear1Name)) {
+        const tmp = gear['ear1'];
+        gear['ear1'] = gear['ear2'] || null;
+        gear['ear2'] = tmp;
+    }
     
     for (const slot of slotOrder) {
-        if (result.gear[slot] && result.gear[slot].name !== 'Empty') {
+        if (gear[slot] && gear[slot].name !== 'Empty') {
             const luaSlot = slot === 'ear1' ? 'left_ear' : 
                            slot === 'ear2' ? 'right_ear' :
                            slot === 'ring1' ? 'left_ring' :
                            slot === 'ring2' ? 'right_ring' : slot;
-            const itemStr = formatLuaItem(result.gear[slot]);
+            const itemStr = formatLuaItem(gear[slot]);
             lua += `    ${luaSlot}=${itemStr},\n`;
         }
     }
@@ -3763,27 +4432,57 @@ async function setupMagicTab() {
     // Target selection - load dynamically from API
     const targetSelect = document.getElementById('magic-target-select');
     if (targetSelect) {
-        // Load targets from API
+        // Load targets from API and render with Sortie boss grouping
         try {
             const { targets } = await API.getMagicTargets();
             if (targets && targets.length > 0) {
+                const SORTIE_FLOOR_IDS    = ['sortie_ghatjot','sortie_leshonn','sortie_skomora','sortie_degei'];
+                const SORTIE_BASEMENT_IDS = ['sortie_dhartok','sortie_gartell','sortie_triboulex','sortie_aita'];
+                const sortieIds = new Set([...SORTIE_FLOOR_IDS, ...SORTIE_BASEMENT_IDS, 'sortie_boss']);
+
                 targetSelect.innerHTML = '';
-                
-                // Sort by magic_evasion for logical ordering
-                targets.sort((a, b) => a.magic_evasion - b.magic_evasion);
-                
-                targets.forEach(target => {
-                    const option = document.createElement('option');
-                    option.value = target.id;
-                    option.textContent = `${target.name} (${target.magic_evasion} MEva)`;
-                    targetSelect.appendChild(option);
+
+                // Generic targets sorted by MEva
+                const generic = targets.filter(t => !sortieIds.has(t.id)).sort((a, b) => a.magic_evasion - b.magic_evasion);
+                generic.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t.id;
+                    opt.textContent = `${t.name} (${t.magic_evasion} MEva)`;
+                    targetSelect.appendChild(opt);
                 });
-                
+
+                // Sortie floor bosses
+                const floorBosses = targets.filter(t => SORTIE_FLOOR_IDS.includes(t.id));
+                if (floorBosses.length > 0) {
+                    const grp = document.createElement('optgroup');
+                    grp.label = 'Sortie Floor Bosses (2000 Gal)';
+                    floorBosses.forEach(t => {
+                        const opt = document.createElement('option');
+                        opt.value = t.id;
+                        opt.textContent = `${t.name} (${t.magic_evasion} MEva)`;
+                        grp.appendChild(opt);
+                    });
+                    targetSelect.appendChild(grp);
+                }
+
+                // Sortie basement bosses
+                const basementBosses = targets.filter(t => SORTIE_BASEMENT_IDS.includes(t.id));
+                if (basementBosses.length > 0) {
+                    const grp = document.createElement('optgroup');
+                    grp.label = 'Sortie Basement Bosses (10000 Gal)';
+                    basementBosses.forEach(t => {
+                        const opt = document.createElement('option');
+                        opt.value = t.id;
+                        opt.textContent = `${t.name} (${t.magic_evasion} MEva)`;
+                        grp.appendChild(opt);
+                    });
+                    targetSelect.appendChild(grp);
+                }
+
                 // Set default selection
                 if (AppState.magic.target && targets.find(t => t.id === AppState.magic.target)) {
                     targetSelect.value = AppState.magic.target;
                 } else {
-                    // Default to apex_mob if available
                     const defaultTarget = targets.find(t => t.id === 'apex_mob');
                     if (defaultTarget) {
                         targetSelect.value = 'apex_mob';
@@ -3796,7 +4495,7 @@ async function setupMagicTab() {
         } catch (error) {
             console.error('Failed to load magic targets:', error);
         }
-        
+
         // Add change handler
         targetSelect.addEventListener('change', (e) => {
             AppState.magic.target = e.target.value;
@@ -3880,6 +4579,45 @@ async function setupMagicTab() {
     if (debuffSelect) {
         debuffSelect.addEventListener('change', handleMagicDebuffAdd);
     }
+    
+    // Inject the healing-specific custom buff row (VIT + Cure Potency) into the
+    // magic custom buffs panel if it doesn't already exist.
+    // The row stays hidden until a Healing spell is selected.
+    if (!document.getElementById('magic-healing-buffs')) {
+        const panel = document.getElementById('magic-custom-buffs-panel');
+        if (panel) {
+            const healingRow = document.createElement('div');
+            healingRow.id = 'magic-healing-buffs';
+            healingRow.className = 'hidden border-t border-ffxi-border pt-2 mt-2';
+            healingRow.innerHTML = `
+                <div class="text-ffxi-text-dim text-xs font-medium mb-2 flex items-center gap-1">
+                    <span class="text-pink-400">💚</span> Healing Buffs
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="text-ffxi-text-dim text-xs block mb-1">
+                            VIT
+                            <span class="text-ffxi-text-dim ml-1 opacity-60" title="VIT contributes floor(VIT/4) to the cure power formula">(?)</span>
+                        </label>
+                        <input id="magic-custom-vit" type="number" min="0" max="999" value="0"
+                               class="w-full bg-ffxi-dark border border-ffxi-border rounded px-2 py-1 text-xs text-ffxi-text text-right focus:border-pink-400 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="text-ffxi-text-dim text-xs block mb-1">
+                            Cure Potency+
+                            <span class="text-ffxi-text-dim ml-1 opacity-60" title="Cure Potency in basis points, e.g. 3000 = +30% (caps at 5000)">(?)</span>
+                        </label>
+                        <input id="magic-custom-cure-potency" type="number" min="0" max="5000" value="0"
+                               class="w-full bg-ffxi-dark border border-ffxi-border rounded px-2 py-1 text-xs text-ffxi-text text-right focus:border-pink-400 focus:outline-none">
+                    </div>
+                </div>
+            `;
+            panel.appendChild(healingRow);
+            
+            // Wire up the new inputs now that they exist in the DOM
+            setupMagicCustomBuffInputs();
+        }
+    }
 }
 
 async function handleMagicCategoryChange(e) {
@@ -3938,6 +4676,9 @@ async function handleMagicSpellChange(e) {
         
         // Update MB toggle hint based on spell type
         updateMagicBurstHint(spellData);
+        
+        // Show/hide healing-specific buff inputs
+        updateHealingBuffVisibility(spellData);
         
     } catch (error) {
         console.error('Failed to load spell details:', error);
@@ -4014,6 +4755,27 @@ function updateMagicBurstHint(spell) {
     }
 }
 
+function updateHealingBuffVisibility(spell) {
+    const isHealing = spell?.magic_type?.toUpperCase().includes('HEALING');
+    
+    // Show/hide the healing-specific buff row (VIT + Cure Potency)
+    const healingBuffRow = document.getElementById('magic-healing-buffs');
+    if (healingBuffRow) {
+        healingBuffRow.classList.toggle('hidden', !isHealing);
+    }
+    
+    // When switching away from healing, clear the healing-specific fields so they
+    // don't silently affect non-healing optimization runs
+    if (!isHealing) {
+        AppState.magic.customBuffs.VIT = 0;
+        AppState.magic.customBuffs.cure_potency = 0;
+        const vitInput = document.getElementById('magic-custom-vit');
+        const cpInput  = document.getElementById('magic-custom-cure-potency');
+        if (vitInput) vitInput.value = 0;
+        if (cpInput)  cpInput.value  = 0;
+    }
+}
+
 function handleMagicOptTypeChange(e) {
     AppState.magic.optimizationType = e.target.value;
     
@@ -4024,7 +4786,7 @@ function handleMagicOptTypeChange(e) {
         'damage': 'Maximize magic damage output (INT, MAB, Magic Damage)',
         'burst': 'Maximize magic burst damage (MBB, MBB II, MAB)',
         'accuracy': 'Maximize magic accuracy for landing spells (M.Acc, Skill)',
-        'potency': 'Maximize spell effect potency (Skill, Effect+)',
+        'potency': 'Maximize spell effect potency (Cure Potency, HP/MP per tick, Skill, Effect+)',
     };
     
     descEl.textContent = descriptions[e.target.value] || '';
@@ -4226,7 +4988,8 @@ async function runMagicOptimization() {
         return;
     }
     
-    showToast('Running magic optimization...', 'info');
+    showToast(document.getElementById('magic-slow-mode')?.checked ? 'Running deep magic optimization (slow mode)...' : 'Running magic optimization...', 'info');
+    showOptimizationProgress();
     
     // Build buffs object for API
     const buffs = {
@@ -4247,6 +5010,10 @@ async function runMagicOptimization() {
         buffs.custom = customBuffs;
     }
     
+    const magicSlowMode = document.getElementById('magic-slow-mode')?.checked ?? false;
+    const magicSlowMaxIterations = parseInt(document.getElementById('magic-slow-max-iterations')?.value || 3);
+    const magicSlowTopN = parseInt(document.getElementById('magic-slow-top-n')?.value || 3);
+
     // Build request payload
     const payload = {
         job: AppState.selectedJob,
@@ -4261,6 +5028,9 @@ async function runMagicOptimization() {
         buffs: buffs,
         debuffs: AppState.magic.debuffs,
         master_level: AppState.masterLevel,
+        slow_mode: magicSlowMode,
+        slow_max_iterations: magicSlowMaxIterations,
+        slow_top_n_per_slot: magicSlowTopN,
     };
     
     // If not including weapons in optimization, pass the selected weapons as fixed
@@ -4285,6 +5055,8 @@ async function runMagicOptimization() {
     } catch (error) {
         showToast(`Optimization failed: ${error.message}`, 'error');
     }
+    
+    hideOptimizationProgress();
 }
 
 function displayMagicResults(result) {
@@ -4315,8 +5087,14 @@ function displayMagicResults(result) {
             scoreLabel = 'Avg Damage';
             scoreValue = gearset.damage?.toFixed(0) || gearset.score?.toFixed(0) || '-';
         } else if (result.optimization_type === 'potency') {
-            scoreLabel = 'Potency Score';
-            scoreValue = gearset.potency_score?.toFixed(1) || gearset.score?.toFixed(1) || '-';
+            // Use human-readable description when available (e.g. "1,247 HP healed", "12 HP/tick")
+            if (gearset.potency_description) {
+                scoreLabel = 'Potency';
+                scoreValue = gearset.potency_description;
+            } else {
+                scoreLabel = 'Potency Score';
+                scoreValue = gearset.potency_score?.toFixed(1) || gearset.score?.toFixed(1) || '-';
+            }
         }
         
         // Build quick stats summary
@@ -4424,14 +5202,23 @@ function generateMagicLuaOutput(gearset, fullResult) {
     
     const slotOrder = ['main', 'sub', 'ranged', 'ammo', 'head', 'neck', 'ear1', 'ear2', 
                        'body', 'hands', 'ring1', 'ring2', 'back', 'waist', 'legs', 'feet'];
+
+    // Fix empyrean earring slot order: shallow copy so we don't mutate gearset.gear
+    const gear = { ...gearset.gear };
+    const ear1Name = gear['ear1']?.name || '';
+    if (isEmpyreanEarring(ear1Name)) {
+        const tmp = gear['ear1'];
+        gear['ear1'] = gear['ear2'] || null;
+        gear['ear2'] = tmp;
+    }
     
     for (const slot of slotOrder) {
-        if (gearset.gear[slot] && gearset.gear[slot].name !== 'Empty') {
+        if (gear[slot] && gear[slot].name !== 'Empty') {
             const luaSlot = slot === 'ear1' ? 'left_ear' : 
                            slot === 'ear2' ? 'right_ear' :
                            slot === 'ring1' ? 'left_ring' :
                            slot === 'ring2' ? 'right_ring' : slot;
-            const itemStr = formatLuaItem(gearset.gear[slot]);
+            const itemStr = formatLuaItem(gear[slot]);
             lua += `    ${luaSlot}=${itemStr},\n`;
         }
     }
@@ -4457,6 +5244,12 @@ function displayMagicStats(gearset, fullResult) {
     const spellName = fullResult?.spell_name || 'Magic';
     const isBurst = fullResult?.magic_burst;
     
+    // Detect healing spell from stored spell data
+    const isHealing = AppState.magic.spellData?.magic_type?.toUpperCase().includes('HEALING');
+    
+    // Cure Potency: stored as basis points (e.g. 3000 = 30%)
+    const curePotencyPct = stats.cure_potency ? (stats.cure_potency / 100).toFixed(1) : '0.0';
+    
     statsContent.innerHTML = `
         <div class="text-xs space-y-3">
             <!-- Header -->
@@ -4470,16 +5263,27 @@ function displayMagicStats(gearset, fullResult) {
                 <div class="text-ffxi-text-dim mb-1 font-medium">Primary Stats</div>
                 <div class="grid grid-cols-4 gap-1">
                     <div class="flex justify-between bg-ffxi-purple/10 px-1 rounded"><span class="text-ffxi-text-dim">INT</span><span class="text-ffxi-purple font-medium">${stats.INT || 0}</span></div>
-                    <div class="flex justify-between bg-ffxi-purple/10 px-1 rounded"><span class="text-ffxi-text-dim">MND</span><span class="text-ffxi-purple font-medium">${stats.MND || 0}</span></div>
+                    <div class="flex justify-between ${isHealing ? 'bg-pink-500/10' : 'bg-ffxi-purple/10'} px-1 rounded"><span class="text-ffxi-text-dim">MND</span><span class="${isHealing ? 'text-pink-400' : 'text-ffxi-purple'} font-medium">${stats.MND || 0}</span></div>
                     <div class="flex justify-between"><span class="text-ffxi-text-dim">STR</span><span class="text-ffxi-text">${stats.STR || 0}</span></div>
                     <div class="flex justify-between"><span class="text-ffxi-text-dim">DEX</span><span class="text-ffxi-text">${stats.DEX || 0}</span></div>
-                    <div class="flex justify-between"><span class="text-ffxi-text-dim">VIT</span><span class="text-ffxi-text">${stats.VIT || 0}</span></div>
+                    <div class="flex justify-between ${isHealing ? 'bg-pink-500/10' : ''} px-1 rounded"><span class="text-ffxi-text-dim">VIT</span><span class="${isHealing ? 'text-pink-400 font-medium' : 'text-ffxi-text'}">${stats.VIT || 0}</span></div>
                     <div class="flex justify-between"><span class="text-ffxi-text-dim">AGI</span><span class="text-ffxi-text">${stats.AGI || 0}</span></div>
                     <div class="flex justify-between"><span class="text-ffxi-text-dim">CHR</span><span class="text-ffxi-text">${stats.CHR || 0}</span></div>
                 </div>
             </div>
             
-            <!-- Magic Offense -->
+            ${isHealing ? `
+            <!-- Healing Stats (shown instead of Magic Burst for healing spells) -->
+            <div class="border-t border-ffxi-border pt-2">
+                <div class="text-ffxi-text-dim mb-1 font-medium">Healing</div>
+                <div class="grid grid-cols-2 gap-1">
+                    <div class="flex justify-between"><span class="text-ffxi-text-dim">Healing Skill</span><span class="text-pink-400 font-medium">${stats.healing_magic_skill || 0}</span></div>
+                    <div class="flex justify-between"><span class="text-ffxi-text-dim">Cure Potency</span><span class="text-pink-400 font-medium">+${curePotencyPct}%</span></div>
+                    <div class="flex justify-between"><span class="text-ffxi-text-dim">Fast Cast</span><span class="text-ffxi-text">${stats.fast_cast || 0}%</span></div>
+                </div>
+            </div>
+            ` : `
+            <!-- Magic Offense (not shown for healing) -->
             <div class="border-t border-ffxi-border pt-2">
                 <div class="text-ffxi-text-dim mb-1 font-medium">Magic Offense</div>
                 <div class="grid grid-cols-2 gap-1">
@@ -4498,6 +5302,7 @@ function displayMagicStats(gearset, fullResult) {
                     <div class="flex justify-between"><span class="text-ffxi-text-dim">MBB II</span><span class="text-ffxi-text">${stats.magic_burst_damage_ii || 0}%</span></div>
                 </div>
             </div>
+            `}
             
             <!-- Magic Skills -->
             <div class="border-t border-ffxi-border pt-2">
@@ -4507,7 +5312,7 @@ function displayMagicStats(gearset, fullResult) {
                     <div class="flex justify-between"><span class="text-ffxi-text-dim">Dark</span><span class="text-ffxi-text">${stats.dark_magic_skill || 0}</span></div>
                     <div class="flex justify-between"><span class="text-ffxi-text-dim">Enfeebling</span><span class="text-ffxi-text">${stats.enfeebling_magic_skill || 0}</span></div>
                     <div class="flex justify-between"><span class="text-ffxi-text-dim">Enhancing</span><span class="text-ffxi-text">${stats.enhancing_magic_skill || 0}</span></div>
-                    <div class="flex justify-between"><span class="text-ffxi-text-dim">Healing</span><span class="text-ffxi-text">${stats.healing_magic_skill || 0}</span></div>
+                    <div class="flex justify-between ${isHealing ? 'bg-pink-500/10 rounded px-1' : ''}"><span class="text-ffxi-text-dim">Healing</span><span class="${isHealing ? 'text-pink-400 font-medium' : 'text-ffxi-text'}">${stats.healing_magic_skill || 0}</span></div>
                     <div class="flex justify-between"><span class="text-ffxi-text-dim">Divine</span><span class="text-ffxi-text">${stats.divine_magic_skill || 0}</span></div>
                 </div>
             </div>
@@ -4516,6 +5321,17 @@ function displayMagicStats(gearset, fullResult) {
             <div class="border-t border-ffxi-border pt-2">
                 <div class="text-ffxi-text-dim mb-1 font-medium">✨ ${spellName}</div>
                 <div class="space-y-1">
+                    ${isHealing ? `
+                    <div class="text-center py-1 rounded text-xs font-medium bg-pink-500/20 text-pink-400">
+                        💚 Healing Set
+                    </div>
+                    ${gearset.potency_description ? `
+                    <div class="flex justify-between mt-2">
+                        <span class="text-ffxi-text-dim">HP Healed</span>
+                        <span class="text-pink-400 font-bold">${gearset.potency_description}</span>
+                    </div>
+                    ` : ''}
+                    ` : `
                     ${isBurst ? `
                     <div class="text-center py-1 rounded text-xs font-medium bg-ffxi-purple/20 text-ffxi-purple">
                         ✨ Magic Burst Set
@@ -4537,6 +5353,7 @@ function displayMagicStats(gearset, fullResult) {
                         <span class="text-ffxi-text">${(gearset.hit_rate * 100).toFixed(1)}%</span>
                     </div>
                     ` : ''}
+                    `}
                 </div>
             </div>
         </div>
@@ -4561,6 +5378,7 @@ const InventoryBrowser = {
     selectedStatFilters: [],  // Array of stat names to filter by (AND logic)
     selectedEffectFilters: [], // Array of effect types to filter by (OR logic)
     availableEffectTypes: [],  // Effect types found in inventory
+    sortMode: 'alpha',         // 'alpha' or 'value'
     
     async init() {
         this.setupEventListeners();
@@ -4653,6 +5471,12 @@ const InventoryBrowser = {
         document.getElementById('btn-add-compare-a')?.addEventListener('click', () => this.addToCompare('a'));
         document.getElementById('btn-add-compare-b')?.addEventListener('click', () => this.addToCompare('b'));
         
+        // Sort mode toggle
+        document.getElementById('btn-inventory-sort-toggle')?.addEventListener('change', (e) => {
+            this.sortMode = e.target.value;
+            this.filterAndDisplay();
+        });
+
         // Close modal on backdrop click
         const modal = document.getElementById('item-modal');
         if (modal) {
@@ -4748,7 +5572,7 @@ const InventoryBrowser = {
         sortedStats.forEach(stat => {
             const option = document.createElement('option');
             option.value = stat;
-            option.textContent = stat;
+            option.textContent = SetBuilder.normalizePathStatKey(stat);
             statFilter.appendChild(option);
         });
         
@@ -4770,9 +5594,11 @@ const InventoryBrowser = {
         
         if (wrapper) wrapper.classList.remove('hidden');
         
-        container.innerHTML = this.selectedStatFilters.map(stat => `
+        container.innerHTML = this.selectedStatFilters.map(stat => {
+            const displayName = SetBuilder.normalizePathStatKey(stat);
+            return `
             <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-ffxi-accent/20 text-ffxi-accent text-sm">
-                ${stat}
+                ${displayName}
                 <button onclick="InventoryBrowser.removeStatFilter('${stat.replace(/'/g, "\\'")}')" 
                         class="hover:text-ffxi-red ml-1" title="Remove filter">
                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4780,7 +5606,7 @@ const InventoryBrowser = {
                     </svg>
                 </button>
             </span>
-        `).join('');
+        `}).join('');
     },
     
     // Remove a stat from the filter list
@@ -4865,6 +5691,12 @@ const InventoryBrowser = {
         this.renderEffectTags();
         this.filterAndDisplay();
     },
+
+    // Toggle between alphabetical and value-based sorting
+    toggleSortMode() {
+        this.sortMode = this.sortMode === 'alpha' ? 'value' : 'alpha';
+        this.filterAndDisplay();
+    },
     
     filterAndDisplay() {
         const search = document.getElementById('inventory-search')?.value?.toLowerCase().trim() || '';
@@ -4928,6 +5760,29 @@ const InventoryBrowser = {
             
             return true;
         });
+        
+        // Sort filtered results based on current sort mode
+        if (this.sortMode === 'value' && this.selectedStatFilters.length > 0) {
+            // Sort descending by sum of selected stat values
+            this.filteredItems.sort((a, b) => {
+                const aVal = this.selectedStatFilters.reduce((sum, stat) => {
+                    const v = a.stats?.[stat];
+                    return sum + (typeof v === 'number' ? v : 0);
+                }, 0);
+                const bVal = this.selectedStatFilters.reduce((sum, stat) => {
+                    const v = b.stats?.[stat];
+                    return sum + (typeof v === 'number' ? v : 0);
+                }, 0);
+                return bVal - aVal;
+            });
+        } else {
+            // Default alphabetical sort
+            this.filteredItems.sort((a, b) => {
+                const nameA = (a.name2 || a.name).toLowerCase();
+                const nameB = (b.name2 || b.name).toLowerCase();
+                return nameA.localeCompare(nameB);
+            });
+        }
         
         this.displayItems();
     },
@@ -5102,7 +5957,12 @@ const InventoryBrowser = {
             if (used.has(key)) return;
             if (magicStats.includes(key) || key.includes('Magic') || key.includes('Ninjutsu') || 
                 key.includes('Singing') || key.includes('Instrument') || key.includes('Geomancy') ||
-                key.includes('Handbell') || key.includes('Summoning') || key.includes('Blue Magic')) {
+                key.includes('Handbell') || key.includes('Summoning') || key.includes('Blue Magic') ||
+                key === 'cure_potency' || key === 'cure_potency_ii' ||
+                key === 'regen_potency' || key === 'regen_effect_duration' ||
+                key === 'refresh_potency' || key === 'refresh_effect_duration' ||
+                key === 'drain_aspir_potency' || key === 'enfeebling_effect' ||
+                key === 'refresh' || key === 'regen') {
                 magic.push(key);
                 used.add(key);
             }
@@ -5133,16 +5993,10 @@ const InventoryBrowser = {
         
         const html = keys.map(key => {
             const value = stats[key];
-            let displayValue;
-            if (typeof value === 'number') {
-                displayValue = value > 0 ? `+${value}` : value;
-            } else if (Array.isArray(value)) {
-                displayValue = value.join(', ');
-            } else {
-                displayValue = value;
-            }
+            const displayKey = SetBuilder.normalizePathStatKey(key);
+            const displayValue = SetBuilder.formatStatValue(key, value);
             return `<div class="flex justify-between">
-                <span class="text-ffxi-text-dim">${key}</span>
+                <span class="text-ffxi-text-dim">${displayKey}</span>
                 <span class="text-ffxi-text">${displayValue}</span>
             </div>`;
         }).join('');
@@ -5174,45 +6028,16 @@ const InventoryBrowser = {
         if (!slot || !item) return;
         
         const iconUrl = `/static/icons/${item.id}.png`;
-        const stats = item.stats || {};
-        
-        // Get key stats
-        const statLines = [];
-        
-        // For weapons, show DMG and Delay
-        if (stats['DMG']) statLines.push(`DMG:${stats['DMG']}`);
-        if (stats['Delay']) statLines.push(`Dly:${stats['Delay']}`);
-        
-        // Weapon skills
-        const weaponSkills = ['Sword Skill', 'Great Sword Skill', 'Axe Skill', 'Great Axe Skill',
-            'Polearm Skill', 'Scythe Skill', 'Katana Skill', 'Great Katana Skill',
-            'Club Skill', 'Staff Skill', 'Dagger Skill', 'Hand-to-Hand Skill',
-            'Marksmanship Skill', 'Archery Skill'];
-        weaponSkills.forEach(skill => {
-            if (stats[skill]) {
-                const shortName = skill.replace(' Skill', '').replace('Great ', 'G.');
-                statLines.push(`${shortName}+${stats[skill]}`);
-            }
-        });
-        
-        ['STR', 'DEX', 'VIT', 'AGI', 'INT', 'MND'].forEach(s => {
-            if (stats[s]) statLines.push(`${s}+${stats[s]}`);
-        });
-        if (stats['Attack']) statLines.push(`Atk+${stats['Attack']}`);
-        if (stats['Accuracy']) statLines.push(`Acc+${stats['Accuracy']}`);
-        if (stats['Magic Attack']) statLines.push(`MAB+${stats['Magic Attack']}`);
-        if (stats['Magic Accuracy']) statLines.push(`M.Acc+${stats['Magic Accuracy']}`);
         
         slot.innerHTML = `
-            <div class="flex items-start gap-3">
-                <div class="w-12 h-12 bg-ffxi-darker rounded flex items-center justify-center">
-                    <img src="${iconUrl}" alt="" class="w-10 h-10 object-contain"
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-ffxi-darker rounded flex items-center justify-center flex-shrink-0">
+                    <img src="${iconUrl}" alt="" class="w-8 h-8 object-contain"
                          onerror="this.parentElement.innerHTML='<span class=\\'text-ffxi-text-dim text-xs\\'>?</span>'">
                 </div>
-                <div class="flex-1">
-                    <div class="text-sm font-medium text-ffxi-text">${item.name2 || item.name}</div>
+                <div class="min-w-0">
+                    <div class="text-sm font-medium text-ffxi-text truncate">${item.name2 || item.name}</div>
                     <div class="text-xs text-ffxi-text-dim">iLvl ${item.item_level || 0}</div>
-                    <div class="text-xs text-ffxi-text-dim mt-1">${statLines.join(' • ') || 'No stats'}</div>
                 </div>
             </div>
         `;
@@ -5221,10 +6046,105 @@ const InventoryBrowser = {
     },
     
     updateCompareHighlights() {
-        // If both slots filled, highlight stat differences
-        if (!this.compareSlotA || !this.compareSlotB) return;
-        
-        // Could add visual diff highlighting here in future
+        const diffTable = document.getElementById('compare-diff-table');
+        if (!diffTable) return;
+
+        if (!this.compareSlotA || !this.compareSlotB) {
+            diffTable.classList.add('hidden');
+            return;
+        }
+
+        const statsA = this.compareSlotA.stats || {};
+        const statsB = this.compareSlotB.stats || {};
+
+        // Collect all stat keys from both items
+        const allKeys = new Set([...Object.keys(statsA), ...Object.keys(statsB)]);
+
+        // Group stats the same way the item modal does
+        const primaryStats = ['HP', 'MP', 'STR', 'DEX', 'VIT', 'AGI', 'INT', 'MND', 'CHR'];
+        const combatStats = ['DMG', 'Delay', 'Attack', 'Accuracy', 'Ranged Attack', 'Ranged Accuracy',
+            'DA', 'TA', 'QA', 'Crit Rate', 'Crit Damage', 'Store TP', 'Weapon Skill Damage', 'PDL',
+            'Skillchain Bonus', 'TP Bonus'];
+        const magicStats = ['Magic Attack', 'Magic Accuracy', 'Magic Damage', 'Magic Burst Bonus',
+            'Magic Burst Bonus II', 'Fast Cast', 'Quick Magic'];
+
+        const groups = { 'Primary': [], 'Combat': [], 'Magic': [], 'Other': [] };
+        const used = new Set();
+
+        primaryStats.forEach(k => { if (allKeys.has(k)) { groups['Primary'].push(k); used.add(k); } });
+        allKeys.forEach(k => {
+            if (used.has(k)) return;
+            if (combatStats.includes(k) || k.endsWith(' Skill')) { groups['Combat'].push(k); used.add(k); }
+        });
+        allKeys.forEach(k => {
+            if (used.has(k)) return;
+            if (magicStats.includes(k) || k.includes('Magic') || k.includes('Ninjutsu') ||
+                k.includes('Singing') || k.includes('Instrument') || k.includes('Geomancy') ||
+                k.includes('Handbell') || k.includes('Summoning') || k.includes('Blue Magic'))
+            { groups['Magic'].push(k); used.add(k); }
+        });
+        allKeys.forEach(k => { if (!used.has(k)) groups['Other'].push(k); });
+
+        // Sort each group alphabetically
+        Object.values(groups).forEach(arr => arr.sort((a, b) => a.localeCompare(b)));
+
+        // Build the diff table HTML
+        let html = '<table class="w-full text-xs border-collapse">';
+        html += '<thead><tr class="border-b border-ffxi-border">';
+        html += '<th class="text-left py-1.5 px-2 text-ffxi-text-dim font-normal w-[45%]">Stat</th>';
+        html += '<th class="text-right py-1.5 px-2 text-ffxi-text-dim font-normal w-[22%]">Slot A</th>';
+        html += '<th class="text-right py-1.5 px-2 text-ffxi-text-dim font-normal w-[22%]">Slot B</th>';
+        html += '<th class="text-right py-1.5 px-2 text-ffxi-text-dim font-normal w-[11%]">Diff</th>';
+        html += '</tr></thead><tbody>';
+
+        let hasAnyRow = false;
+        for (const [groupName, keys] of Object.entries(groups)) {
+            const visibleKeys = keys.filter(k => {
+                const a = statsA[k] ?? 0;
+                const b = statsB[k] ?? 0;
+                return a !== 0 || b !== 0;
+            });
+            if (visibleKeys.length === 0) continue;
+
+            // Group header
+            html += `<tr><td colspan="4" class="pt-2.5 pb-1 px-2 text-ffxi-accent font-medium text-xs uppercase tracking-wider">${groupName}</td></tr>`;
+
+            for (const key of visibleKeys) {
+                hasAnyRow = true;
+                const a = statsA[key] ?? 0;
+                const b = statsB[key] ?? 0;
+                const diff = b - a;
+
+                // For Delay, lower is better; for everything else, higher is better
+                const lowerIsBetter = key === 'Delay';
+                let diffClass = 'text-ffxi-text-dim';
+                let diffStr = '—';
+                if (diff !== 0) {
+                    const isGood = lowerIsBetter ? diff < 0 : diff > 0;
+                    diffClass = isGood ? 'text-green-400' : 'text-red-400';
+                    diffStr = (diff > 0 ? '+' : '') + diff;
+                }
+
+                const aClass = a !== 0 ? 'text-ffxi-text' : 'text-ffxi-text-dim';
+                const bClass = b !== 0 ? 'text-ffxi-text' : 'text-ffxi-text-dim';
+
+                html += `<tr class="border-b border-ffxi-border/30 hover:bg-ffxi-darker/50">`;
+                html += `<td class="py-1 px-2 text-ffxi-text-dim">${key}</td>`;
+                html += `<td class="py-1 px-2 text-right ${aClass}">${a || '—'}</td>`;
+                html += `<td class="py-1 px-2 text-right ${bClass}">${b || '—'}</td>`;
+                html += `<td class="py-1 px-2 text-right font-medium ${diffClass}">${diffStr}</td>`;
+                html += '</tr>';
+            }
+        }
+
+        html += '</tbody></table>';
+
+        if (!hasAnyRow) {
+            html = '<p class="text-ffxi-text-dim text-sm text-center py-4">No stats to compare</p>';
+        }
+
+        diffTable.innerHTML = html;
+        diffTable.classList.remove('hidden');
     },
     
     clearCompare() {
@@ -5233,16 +6153,21 @@ const InventoryBrowser = {
         
         const slotA = document.getElementById('compare-slot-a');
         const slotB = document.getElementById('compare-slot-b');
+        const diffTable = document.getElementById('compare-diff-table');
         
         if (slotA) {
-            slotA.innerHTML = '<p class="text-ffxi-text-dim text-sm text-center py-8">Click an item to add to Slot A</p>';
+            slotA.innerHTML = '<p class="text-ffxi-text-dim text-sm text-center py-6">Click an item to add to Slot A</p>';
             slotA.classList.add('border-dashed');
             slotA.classList.remove('border-solid');
         }
         if (slotB) {
-            slotB.innerHTML = '<p class="text-ffxi-text-dim text-sm text-center py-8">Click an item to add to Slot B</p>';
+            slotB.innerHTML = '<p class="text-ffxi-text-dim text-sm text-center py-6">Click an item to add to Slot B</p>';
             slotB.classList.add('border-dashed');
             slotB.classList.remove('border-solid');
+        }
+        if (diffTable) {
+            diffTable.innerHTML = '';
+            diffTable.classList.add('hidden');
         }
     },
     
@@ -5325,6 +6250,123 @@ const SLOT_DISPLAY_NAMES = {
     feet: 'Feet'
 };
 
+/**
+ * Extract the substring enclosed in balanced braces starting at `start`.
+ * Returns the full "{...}" string, or null if unbalanced.
+ */
+function extractBalancedBraces(str, start) {
+    let depth = 0;
+    for (let i = start; i < str.length; i++) {
+        if (str[i] === '{') depth++;
+        else if (str[i] === '}') {
+            depth--;
+            if (depth === 0) return str.slice(start, i + 1);
+        }
+    }
+    return null;
+}
+
+/**
+ * Parse a GearSwap Lua gear set into a plain object keyed by internal slot names.
+ * Handles both simple `slot="Name"` and augmented `slot={ name="Name", augments={...} }` forms.
+ * Returns { slotName: { name, augments: [] } } or null on failure.
+ */
+function parseLuaGearSet(luaText) {
+    // Strip single-line Lua comments
+    const text = luaText.replace(/--[^\n]*/g, '');
+
+    // Find the outermost { } block
+    const braceStart = text.indexOf('{');
+    if (braceStart === -1) return null;
+    const body = extractBalancedBraces(text, braceStart);
+    if (!body) return null;
+    const inner = body.slice(1, -1);
+
+    // Reverse mapping: GearSwap slot name → internal slot key
+    const LUA_TO_SLOT = {
+        main: 'main', sub: 'sub', range: 'range', ammo: 'ammo',
+        head: 'head', neck: 'neck', left_ear: 'ear1', right_ear: 'ear2',
+        body: 'body', hands: 'hands', left_ring: 'ring1', right_ring: 'ring2',
+        back: 'back', waist: 'waist', legs: 'legs', feet: 'feet',
+    };
+
+    const result = {};
+    let pos = 0;
+
+    while (pos < inner.length) {
+        // Skip whitespace and commas
+        while (pos < inner.length && /[\s,]/.test(inner[pos])) pos++;
+        if (pos >= inner.length) break;
+
+        // Match identifier=
+        const identMatch = inner.slice(pos).match(/^(\w+)\s*=\s*/);
+        if (!identMatch) { pos++; continue; }
+        const luaSlot = identMatch[1];
+        const slot = LUA_TO_SLOT[luaSlot];
+        pos += identMatch[0].length;
+
+        if (inner[pos] === '"') {
+            // Simple string: "Item Name"
+            const strMatch = inner.slice(pos).match(/^"([^"]*)"/);
+            if (strMatch) {
+                if (slot) result[slot] = { name: strMatch[1], augments: [] };
+                pos += strMatch[0].length;
+            } else { pos++; }
+        } else if (inner[pos] === '{') {
+            // Table: { name="...", augments={'a', 'b'} }
+            const tableStr = extractBalancedBraces(inner, pos);
+            if (tableStr) {
+                if (slot) {
+                    const nameM = tableStr.match(/name\s*=\s*"([^"]+)"/);
+                    const augments = [];
+                    // augments table is always flat, so [^}]* is safe here
+                    const augM = tableStr.match(/augments\s*=\s*\{([^}]*)\}/);
+                    if (augM) {
+                        const augPat = /'([^']*)'/g;
+                        let am;
+                        while ((am = augPat.exec(augM[1])) !== null) {
+                            if (am[1]) augments.push(am[1]);
+                        }
+                    }
+                    if (nameM) result[slot] = { name: nameM[1], augments };
+                }
+                pos += tableStr.length;
+            } else { pos++; }
+        } else {
+            pos++;
+        }
+    }
+
+    return Object.keys(result).length > 0 ? result : null;
+}
+
+/**
+ * Parse augments out of an inventory item's name2 field.
+ * name2 format: "Item Name (aug1; aug2; aug3)"
+ * Returns { baseName, augments } where augments is an array (may be empty).
+ */
+function parseItemName2(item) {
+    const name2 = item.name2 || item.name || '';
+    const baseName = item.name || name2;
+
+    // Check for an explicit augments array first (optimizer results have these)
+    const existing = item._augments || item.augments || item.Augments;
+    if (Array.isArray(existing) && existing.length > 0) {
+        const filtered = existing.filter(a => a && a !== 'none' && a !== '');
+        if (filtered.length > 0) return { baseName, augments: filtered };
+    }
+
+    // Fall back to parsing from name2: "Base Name (aug1; aug2; aug3)"
+    const match = name2.match(/^(.+?)\s*\((.+)\)$/);
+    if (match) {
+        const augStr = match[2];
+        const augments = augStr.split(';').map(a => a.trim()).filter(a => a.length > 0);
+        if (augments.length > 0) return { baseName, augments };
+    }
+
+    return { baseName, augments: [] };
+}
+
 // GearSwap slot name mapping
 const SLOT_TO_LUA = {
     main: 'main',
@@ -5372,7 +6414,13 @@ const SetBuilder = {
         }
     },
     activeSet: 'A',  // Which set is currently being edited
-    
+
+    // Per-set custom stats (set bonuses / augments not tracked by the optimizer)
+    customStats: {
+        A: { store_tp: 0, tp_bonus: 0, double_attack: 0, triple_attack: 0, quad_attack: 0, ws_damage: 0, ws_accuracy: 0, crit_rate: 0, crit_damage: 0 },
+        B: { store_tp: 0, tp_bonus: 0, double_attack: 0, triple_attack: 0, quad_attack: 0, ws_damage: 0, ws_accuracy: 0, crit_rate: 0, crit_damage: 0 },
+    },
+
     // Convenience getters for backward compatibility
     get currentSet() { return this.sets[this.activeSet].items; },
     get currentPathConfig() { return this.sets[this.activeSet].pathConfig; },
@@ -5387,8 +6435,101 @@ const SetBuilder = {
     filteredPickerItems: [],    // Filtered items for display
     
     // === Path Configuration (Dream Mode - Phase 2) ===
-    pathDatabase: null,         // Cached augment_tables.json
+    pathDatabase: null,
     pathDatabaseLoading: false,
+
+    // Maps every known augment-table key variant to the canonical wsdist key used
+    // by item.stats.  Without this, e.g. path key "attack" and item key "Attack"
+    // land in separate rows of the comparison panel.
+    PATH_STAT_KEY_MAP: {
+        damage:'DMG', Damage:'DMG', dmg:'DMG',
+        delay:'Delay',
+        str:'STR', dex:'DEX', vit:'VIT', agi:'AGI',
+        int:'INT', mnd:'MND', chr:'CHR', hp:'HP', mp:'MP',
+        attack:'Attack', atk:'Attack',
+        accuracy:'Accuracy', acc:'Accuracy',
+        ranged_attack:'Ranged Attack', ranged_accuracy:'Ranged Accuracy',
+        store_tp:'Store TP', stp:'Store TP',
+        da:'DA', double_attack:'DA',
+        ta:'TA', triple_attack:'TA',
+        qa:'QA', quad_attack:'QA',
+        crit_rate:'Crit Rate', crit:'Crit Rate',
+        crit_damage:'Crit Damage',
+        ws_damage:'Weapon Skill Damage', weapon_skill_damage:'Weapon Skill Damage',
+        ws_accuracy:'WS Accuracy', weapon_skill_accuracy:'WS Accuracy',
+        pdl:'PDL',
+        skillchain_bonus:'Skillchain Bonus', sc_bonus:'Skillchain Bonus',
+        tp_bonus:'TP Bonus',
+        dt:'DT', pdt:'PDT', mdt:'MDT',
+        gear_haste:'Gear Haste', haste:'Gear Haste',
+        dual_wield:'Dual Wield', dw:'Dual Wield',
+        magic_attack:'Magic Attack', mab:'Magic Attack',
+        magic_accuracy:'Magic Accuracy', macc:'Magic Accuracy',
+        magic_damage:'Magic Damage',
+        magic_burst_bonus:'Magic Burst Bonus', mbb:'Magic Burst Bonus',
+        magic_burst_bonus_ii:'Magic Burst Bonus II',
+        fast_cast:'Fast Cast', fc:'Fast Cast',
+        quick_magic:'Quick Magic',
+        // Cure / healing
+        cure_potency:'Cure Potency',
+        cure_potency_ii:'Cure Potency II',
+        // Passive resource recovery (idle/DT sets)
+        refresh:'Refresh',
+        regen:'Regen',
+        // Midcast spell potency / duration
+        regen_potency:'"Regen" Potency',
+        regen_effect_duration:'"Regen" Effect Duration',
+        refresh_potency:'"Refresh" Potency',
+        refresh_effect_duration:'"Refresh" Effect Duration',
+        // Dark magic
+        drain_aspir_potency:'"Drain"/"Aspir" Potency',
+        enmity:'Enmity',
+        spell_interruption_rate_down:"Spell Interruption Rate Down",
+        enfeebling_effect:"Enfeebling Magic Effect",
+        enhancing_duration: "Enhancing Magic Duration",
+        enfeebling_duration: "Enfeebling Magic Duration",
+    },
+    /** Normalize a single path stat key to its canonical wsdist form. */
+    normalizePathStatKey(key) {
+        if (this.PATH_STAT_KEY_MAP[key]) return this.PATH_STAT_KEY_MAP[key];
+        // Generic snake_case → Title Case fallback for any unmapped key
+        if (key.includes('_')) {
+            return key.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        }
+        return key;
+    },
+
+    /** Apply key normalization to a raw path stats object, summing any collisions. */
+    normalizePathStats(rawStats) {
+        if (!rawStats) return null;
+        const out = {};
+        for (const [k, v] of Object.entries(rawStats)) {
+            const canonical = this.normalizePathStatKey(k);
+            if (typeof v === 'number') {
+                out[canonical] = (out[canonical] || 0) + v;
+            } else {
+                out[canonical] = v;
+            }
+        }
+        return out;
+    },
+
+    // Stats stored in basis points (100 = 1%) that should display as percentages
+    BASIS_POINT_STATS: new Set([
+        'enhancing_duration', 'enfeebling_duration',
+    ]),
+
+    /** Format a stat value for display, converting basis-point stats to percentages. */
+    formatStatValue(key, value) {
+        if (typeof value !== 'number') {
+            return Array.isArray(value) ? value.join(', ') : value;
+        }
+        if (this.BASIS_POINT_STATS.has(key)) {
+            const pct = value / 100;
+            return (pct > 0 ? '+' : '') + pct + '%';
+        }
+        return value > 0 ? `+${value}` : `${value}`;
+    },
     
     // === Path Database Methods ===
     async ensurePathDatabase() {
@@ -5516,6 +6657,12 @@ const SetBuilder = {
         if (exportSetName) {
             exportSetName.addEventListener('input', () => this.updateLuaPreview());
         }
+        
+        // Initialize WS dropdown
+        this.refreshWSDropdown();
+
+        // Setup per-set custom stats panel
+        this.setupCustomStatsPanel();
     },
     
     // === Set Switching (Phase 3) ===
@@ -5716,9 +6863,10 @@ const SetBuilder = {
             await this.ensurePathDatabase();
         }
         
-        // Update displays
+        // Update displays — await the path panel so configs are initialized
+        // before calculateStatsForSet reads them
         this.renderAllSlots();
-        this.renderPathConfigPanel();
+        await this.renderPathConfigPanel();
         this.calculateStatsForSet(this.activeSet);
         this.renderComparisonStats();
         
@@ -5776,6 +6924,9 @@ const SetBuilder = {
         if (modal) {
             modal.classList.remove('hidden');
         }
+        
+        // Inject hover preview panel
+        this.initPickerPreview();
         
         // Load items for this slot
         await this.loadSlotItems(slot);
@@ -5927,7 +7078,7 @@ const SetBuilder = {
             if (stats['Accuracy']) statPreview.push(`Acc+${stats['Accuracy']}`);
             
             return `
-                <div class="picker-item-card" onclick="SetBuilder.selectItem(${index})">
+                <div class="picker-item-card" onclick="SetBuilder.selectItem(${index})" onmouseenter="SetBuilder.showPickerPreview(${index})" onmouseleave="SetBuilder.hidePickerPreview()">
                     <div class="flex items-start gap-2">
                         <div class="w-10 h-10 bg-ffxi-darker rounded flex items-center justify-center flex-shrink-0">
                             <img src="${iconUrl}" alt="" class="w-8 h-8 object-contain" 
@@ -6044,6 +7195,8 @@ const SetBuilder = {
         this.calculateStatsForSet(this.activeSet);
         this.renderComparisonStats();
         this.renderPathConfigPanel();
+        // Refresh WS dropdown if main or range slot changed (skill type may differ)
+        if (slotToRender === 'main' || slotToRender === 'range') this.refreshWSDropdown();
     },
     
     isTwoHandedWeapon(item) {
@@ -6165,9 +7318,133 @@ const SetBuilder = {
         if (modal) {
             modal.classList.add('hidden');
         }
+        this.destroyPickerPreview();
         this.activeSlot = null;
     },
     
+    initPickerPreview() {
+        this.destroyPickerPreview();
+        const panel = document.createElement('div');
+        panel.id = 'picker-hover-preview';
+        panel.style.cssText = `
+            position: fixed;
+            width: 260px;
+            max-height: 80vh;
+            overflow-y: auto;
+            background: #12171f;
+            border: 1px solid #1e2630;
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+            z-index: 1001;
+            display: none;
+            pointer-events: none;
+        `;
+        document.body.appendChild(panel);
+    },
+
+    destroyPickerPreview() {
+        const panel = document.getElementById('picker-hover-preview');
+        if (panel) panel.remove();
+    },
+
+    showPickerPreview(index) {
+        const panel = document.getElementById('picker-hover-preview');
+        if (!panel) return;
+
+        const item = this.filteredPickerItems[index];
+        if (!item) return;
+
+        // Position to the left of the modal content
+        const modalContent = document.querySelector('#set-builder-picker-modal .modal-content');
+        if (!modalContent) return;
+        const rect = modalContent.getBoundingClientRect();
+
+        // Only show if there's at least 280px of space to the left
+        if (rect.left < 280) return;
+
+        panel.style.left = `${rect.left - 268}px`;
+        panel.style.top = `${rect.top}px`;
+
+        // Build content
+        const displayName = item.name2 || item.name;
+        const ilvl = item.item_level || item.stats?.['Item Level'] || 0;
+        const stats = item.stats || {};
+        const map = SetBuilder.PATH_STAT_KEY_MAP || {};
+
+        const primaryKeys = ['HP', 'MP', 'STR', 'DEX', 'VIT', 'AGI', 'INT', 'MND', 'CHR'];
+        const combatKeys  = ['DMG', 'Delay', 'Attack', 'Accuracy', 'Ranged Attack', 'Ranged Accuracy',
+                              'DA', 'TA', 'QA', 'Crit Rate', 'Crit Damage', 'Store TP',
+                              'Weapon Skill Damage', 'PDL', 'Skillchain Bonus', 'TP Bonus'];
+        const magicKeys   = ['Magic Attack', 'Magic Accuracy', 'Magic Damage', 'Magic Burst Bonus',
+                              'Magic Burst Bonus II', 'Fast Cast', 'Quick Magic'];
+
+        const allKeys = Object.keys(stats).filter(k =>
+            stats[k] !== undefined && stats[k] !== 0 && stats[k] !== '' && stats[k] !== null
+            && !k.startsWith('_') && k !== 'Item Level'
+        );
+
+        const used = new Set();
+        const primary = [], combat = [], magic = [], other = [];
+
+        primaryKeys.forEach(k => { if (allKeys.includes(k)) { primary.push(k); used.add(k); } });
+        allKeys.forEach(k => {
+            if (used.has(k)) return;
+            if (combatKeys.includes(k) || k.endsWith(' Skill')) { combat.push(k); used.add(k); }
+        });
+        allKeys.forEach(k => {
+            if (used.has(k)) return;
+            if (magicKeys.includes(k) || k.includes('Magic') || k.includes('Ninjutsu') ||
+                k.includes('Singing') || k.includes('Geomancy') || k.includes('Summoning') ||
+                k === 'cure_potency' || k === 'cure_potency_ii' ||
+                k === 'regen_potency' || k === 'regen_effect_duration' ||
+                k === 'refresh_potency' || k === 'refresh_effect_duration' ||
+                k === 'drain_aspir_potency' || k === 'enfeebling_effect' ||
+                k === 'refresh' || k === 'regen') {
+                magic.push(k); used.add(k);
+            }
+        });
+        allKeys.forEach(k => { if (!used.has(k)) other.push(k); });
+
+        const renderGroup = (label, keys) => {
+            if (keys.length === 0) return '';
+            const rows = keys.map(k => {
+                const val = stats[k];
+                const displayVal = SetBuilder.formatStatValue(k, val);
+                const displayKey = SetBuilder.normalizePathStatKey(k);
+                return `<div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:2px">
+                            <span style="color:#8b9298;font-size:11px">${displayKey}</span>
+                            <span style="color:#e8e6e3;font-size:11px;white-space:nowrap">${displayVal}</span>
+                        </div>`;
+            }).join('');
+            return `<div style="margin-bottom:8px">
+                        <div style="color:#8b9298;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;border-bottom:1px solid #1e2630;padding-bottom:2px">${label}</div>
+                        ${rows}
+                    </div>`;
+        };
+
+        const iconUrl = `/static/icons/${item.id}.png`;
+        panel.innerHTML = `
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;border-bottom:1px solid #1e2630;padding-bottom:8px">
+                <img src="${iconUrl}" style="width:32px;height:32px;object-fit:contain" onerror="this.style.display='none'">
+                <div>
+                    <div style="color:#e8e6e3;font-size:13px;font-weight:600">${displayName}</div>
+                    <div style="color:#8b9298;font-size:11px">iLvl ${ilvl} • ${item.type || 'Unknown'}</div>
+                </div>
+            </div>
+            ${renderGroup('Primary', primary)}
+            ${renderGroup('Combat', combat)}
+            ${renderGroup('Magic', magic)}
+            ${renderGroup('Other', other)}
+        `;
+
+        panel.style.display = 'block';
+    },
+
+    hidePickerPreview() {
+        const panel = document.getElementById('picker-hover-preview');
+        if (panel) panel.style.display = 'none';
+    },
+
     // === Rendering ===
     renderAllSlots() {
         for (const slot of EQUIPMENT_SLOTS) {
@@ -6267,8 +7544,9 @@ const SetBuilder = {
             if (set.mode === 'dream' && set.pathConfig[slot]) {
                 const config = set.pathConfig[slot];
                 // Only apply if config matches current item
-                if (config.itemId === item.id) {
-                    const pathStats = this.getPathStats(config.itemId, config.path, config.rank);
+                if (String(config.itemId) === String(item.id)) {
+                    const rawPathStats = this.getPathStats(config.itemId, config.path, config.rank);
+                    const pathStats = this.normalizePathStats(rawPathStats);
                     if (pathStats) {
                         for (const [stat, value] of Object.entries(pathStats)) {
                             if (typeof value === 'number') {
@@ -6279,12 +7557,132 @@ const SetBuilder = {
                 }
             }
         }
+
+        // Apply reforged artifact set bonus (accuracy / ranged acc / magic acc)
+        this._applyArtifactSetBonus(setId);
+
+        // Apply derived stat contributions (STR→Attack, DEX→Acc, AGI→Ranged Acc)
+        this._applyDerivedStats(setId);
+
+        // Apply per-set custom stats entered by the user
+        this._mergeCustomStats(setId);
     },
-    
+
+    // -------------------------------------------------------------------------
+    // Derived Stat Contributions
+    // -------------------------------------------------------------------------
+    // Applies standard FFXI base-stat contributions to combat stats:
+    //   Attack        += STR  (1:1)
+    //   Ranged Attack += STR  (1:1)
+    //   Accuracy      += floor(DEX * 0.75)
+    //   Ranged Accuracy += floor(AGI * 0.75)
+    // These are added on top of any gear-direct values so the displayed totals
+    // reflect what the game actually uses. A disclaimer is shown in the stats
+    // panel so users know these contributions are already included.
+    _applyDerivedStats(setId) {
+        const stats = this.sets[setId].stats;
+
+        const str = stats['STR'] || 0;
+        const dex = stats['DEX'] || 0;
+        const agi = stats['AGI'] || 0;
+
+        if (str !== 0) {
+            stats['Attack']        = (stats['Attack']        || 0) + str;
+            stats['Ranged Attack'] = (stats['Ranged Attack'] || 0) + str;
+        }
+        if (dex !== 0) {
+            stats['Accuracy'] = (stats['Accuracy'] || 0) + Math.floor(dex * 0.75);
+        }
+        if (agi !== 0) {
+            stats['Ranged Accuracy'] = (stats['Ranged Accuracy'] || 0) + Math.floor(agi * 0.75);
+        }
+    },
+
+    // -------------------------------------------------------------------------
+    // Reforged Artifact Set Bonus
+    // -------------------------------------------------------------------------
+    // Rules:
+    //   - Count equipped reforged artifact armor pieces (head/body/hands/legs/feet)
+    //     whose name starts with the job's set prefix, plus Regal Earring / Regal Ring
+    //     in any ear or ring slot.
+    //   - Cap the count at 5.
+    //   - If count >= 2: add (count * 15) to Accuracy, Ranged Accuracy, Magic Accuracy.
+    //   - Examples: 2 pcs → +30, 3 pcs → +45, 4 pcs → +60, 5 pcs → +75.
+    _ARTIFACT_PREFIXES: {
+        WAR: "pummeler's",
+        MNK: "anchorite's",
+        WHM: "theophany",
+        BLM: "spaekona's",
+        RDM: "atrophy",
+        THF: "pillager's",
+        PLD: "reverence",
+        DRK: "ignominy",
+        BST: "totemic",
+        BRD: "brioso",
+        RNG: "orion",
+        SAM: "wakido",
+        NIN: "hachiya",
+        DRG: "vishap",
+        SMN: "convoker's",
+        BLU: "assimilator's",
+        COR: "laksamana's",
+        PUP: "foire",
+        DNC: "maxixi",
+        SCH: "academic's",
+        GEO: "azimuth",
+        RUN: "runeist",
+    },
+
+    _applyArtifactSetBonus(setId) {
+        const set = this.sets[setId];
+        const job = (AppState.selectedJob || '').toUpperCase();
+        const prefix = (this._ARTIFACT_PREFIXES[job] || '').toLowerCase();
+
+        let pieceCount = 0;
+
+        // Count matching artifact armor pieces in the five body-armor slots.
+        if (prefix) {
+            for (const slot of ['head', 'body', 'hands', 'legs', 'feet']) {
+                const item = set.items[slot];
+                if (!item) continue;
+                const name = (item.name_log || item.name2 || item.name || '').toLowerCase();
+                if (name.startsWith(prefix)) pieceCount++;
+            }
+        }
+
+        // Count Regal Earring / Regal Ring across both ear and ring slots.
+        const regalItems = new Set(['regal earring', 'regal ring']);
+        for (const slot of ['ear1', 'ear2', 'ring1', 'ring2']) {
+            const item = set.items[slot];
+            if (!item) continue;
+            const name = (item.name_log || item.name2 || item.name || '').toLowerCase();
+            if (regalItems.has(name)) pieceCount++;
+        }
+
+        if (pieceCount < 2) return;
+
+        const bonus = Math.min(pieceCount, 5) * 15;
+        set.stats['Accuracy']         = (set.stats['Accuracy']         || 0) + bonus;
+        set.stats['Ranged Accuracy']  = (set.stats['Ranged Accuracy']  || 0) + bonus;
+        set.stats['Magic Accuracy']   = (set.stats['Magic Accuracy']   || 0) + bonus;
+    },
+
     // Calculate stats for both sets
     calculateAllStats() {
         this.calculateStatsForSet('A');
         this.calculateStatsForSet('B');
+    },
+
+    // Merge customStats[setId] into set.stats — called at end of calculateStatsForSet
+    _mergeCustomStats(setId) {
+        const set = this.sets[setId];
+        const custom = this.customStats[setId];
+        if (!custom) return;
+        for (const [key, value] of Object.entries(custom)) {
+            if (typeof value !== 'number' || value === 0) continue;
+            const canonical = this.normalizePathStatKey(key);
+            set.stats[canonical] = (set.stats[canonical] || 0) + value;
+        }
     },
     
     // === Stats Comparison Rendering (Phase 3) ===
@@ -6301,10 +7699,12 @@ const SetBuilder = {
         // Categorize stats
         const primaryStats = ['HP', 'MP', 'STR', 'DEX', 'VIT', 'AGI', 'INT', 'MND', 'CHR'];
         const combatStats = ['DMG', 'Delay', 'Attack', 'Accuracy', 'Ranged Attack', 'Ranged Accuracy',
-            'DA', 'TA', 'QA', 'Crit Rate', 'Crit Damage', 'Store TP', 'Weapon Skill Damage', 'PDL',
-            'Skillchain Bonus', 'TP Bonus', 'DT', 'PDT', 'MDT', 'Gear Haste', 'Dual Wield'];
+            'DA', 'TA', 'QA', 'Crit Rate', 'Crit Damage', 'Store TP', 'TP Bonus', 'Weapon Skill Damage', 'WS Accuracy', 'PDL',
+            'Skillchain Bonus', 'DT', 'PDT', 'MDT', 'Gear Haste', 'Dual Wield'];
         const magicStats = ['Magic Attack', 'Magic Accuracy', 'Magic Damage', 'Magic Burst Bonus', 
-            'Magic Burst Bonus II', 'Fast Cast', 'Quick Magic', 'Cure Potency', 'Enmity'];
+            'Magic Burst Bonus II', 'Fast Cast', 'Quick Magic', 'Cure Potency', 'Cure Potency II',
+            '"Regen" Potency', '"Regen" Effect Duration', '"Refresh" Potency', '"Refresh" Effect Duration',
+            '"Drain"/"Aspir" Potency', 'Refresh', 'Regen', 'Enmity'];
         
         const used = new Set();
         const categories = {
@@ -6374,6 +7774,18 @@ const SetBuilder = {
         
         if (allKeys.size === 0) {
             html = '<p class="text-ffxi-text-dim text-center py-4">No stats to compare. Select items in Set A or Set B.</p>';
+        } else {
+            html += `
+                <div class="mt-4 px-2 py-2 rounded bg-ffxi-dark border border-ffxi-accent border-opacity-30 text-xs text-ffxi-text-dim leading-relaxed">
+                    <span class="text-ffxi-accent font-semibold">Note: </span>
+                    Displayed Attack and Ranged Attack include a +STR contribution (1:1).
+                    Accuracy includes +&#x230A;DEX&nbsp;&times;&nbsp;0.75&#x230B; and
+                    Ranged Accuracy includes +&#x230A;AGI&nbsp;&times;&nbsp;0.75&#x230B;.
+                    Reforged artifact set bonuses (+15 per piece, 2–5 pieces) are also applied to
+                    Accuracy, Ranged Accuracy, and Magic Accuracy automatically.
+                    Do not add these manually.
+                </div>
+            `;
         }
         
         container.innerHTML = html;
@@ -6385,6 +7797,7 @@ const SetBuilder = {
         const diff = b - a;
         
         // Determine if this stat is "better" when higher or lower
+        const displayName = SetBuilder.normalizePathStatKey(statName);
         const lowerIsBetter = ['Delay', 'DT', 'PDT', 'MDT'].includes(statName);
         
         let diffClass = 'text-ffxi-text-dim';
@@ -6393,16 +7806,16 @@ const SetBuilder = {
         if (diff !== 0) {
             const isBetter = lowerIsBetter ? diff < 0 : diff > 0;
             diffClass = isBetter ? 'text-green-400' : 'text-red-400';
-            diffText = diff > 0 ? `+${diff}` : `${diff}`;
+            diffText = SetBuilder.formatStatValue(statName, diff);
         }
         
         // Format display values
-        const displayA = typeof valueA === 'number' ? (valueA > 0 ? `+${valueA}` : valueA) : (valueA || '-');
-        const displayB = typeof valueB === 'number' ? (valueB > 0 ? `+${valueB}` : valueB) : (valueB || '-');
+        const displayA = typeof valueA === 'number' ? SetBuilder.formatStatValue(statName, valueA) : (valueA || '-');
+        const displayB = typeof valueB === 'number' ? SetBuilder.formatStatValue(statName, valueB) : (valueB || '-');
         
         return `
             <div class="grid grid-cols-4 gap-2 text-xs bg-ffxi-dark px-2 py-1 rounded">
-                <span class="text-ffxi-text-dim truncate" title="${statName}">${statName}</span>
+                <span class="text-ffxi-text-dim truncate" title="${displayName}">${displayName}</span>
                 <span class="text-ffxi-text text-right">${displayA}</span>
                 <span class="text-ffxi-text text-right">${displayB}</span>
                 <span class="${diffClass} text-right font-medium">${diffText}</span>
@@ -6410,6 +7823,462 @@ const SetBuilder = {
         `;
     },
     
+    // ==========================================================================
+    // TP Simulation
+    // ==========================================================================
+
+    buildGearsetPayload(setId) {
+        const set = this.sets[setId];
+        const items = set.items;
+        const payload = {};
+        for (const slot of EQUIPMENT_SLOTS) {
+            if (!items[slot]) continue;
+
+            // Deep-clone so we never mutate stored set state
+            const item = JSON.parse(JSON.stringify(items[slot]));
+
+            // In dream mode, merge normalized path augment stats into item.stats
+            // so the simulator sees the fully-augmented version of each piece
+            if (set.mode === 'dream' && set.pathConfig[slot]) {
+                const config = set.pathConfig[slot];
+                if (String(config.itemId) === String(item.id)) {
+                    const rawPathStats = this.getPathStats(config.itemId, config.path, config.rank);
+                    const pathStats = this.normalizePathStats(rawPathStats);
+                    if (pathStats) {
+                        item.stats = item.stats || {};
+                        for (const [stat, value] of Object.entries(pathStats)) {
+                            if (typeof value === 'number') {
+                                item.stats[stat] = (item.stats[stat] || 0) + value;
+                            }
+                        }
+                    }
+                }
+            }
+
+            payload[slot] = item;
+        }
+        return payload;
+    },
+
+    // Returns a display label for a set, appending "(Dream)" in dream mode
+    getSetLabel(setId) {
+        return this.sets[setId].mode === 'dream'
+            ? `Set ${setId} (Dream)`
+            : `Set ${setId}`;
+    },
+
+    // ==========================================================================
+    // Custom Stats Panel (per-set)
+    // ==========================================================================
+
+    setupCustomStatsPanel() {
+        // Toggle panel visibility
+        const toggleBtn  = document.getElementById('sb-custom-stats-toggle');
+        const panel      = document.getElementById('sb-custom-stats-panel');
+        const toggleText = document.getElementById('sb-custom-stats-toggle-text');
+        if (toggleBtn && panel && toggleText) {
+            toggleBtn.addEventListener('click', () => {
+                panel.classList.toggle('hidden');
+                toggleText.textContent = panel.classList.contains('hidden') ? 'Show' : 'Hide';
+            });
+        }
+
+        // Input definitions for each set
+        const statInputs = [
+            { id: 'stp',         stat: 'store_tp' },
+            { id: 'tp-bonus',    stat: 'tp_bonus' },
+            { id: 'da',          stat: 'double_attack' },
+            { id: 'ta',          stat: 'triple_attack' },
+            { id: 'qa',          stat: 'quad_attack' },
+            { id: 'ws-damage',   stat: 'ws_damage' },
+            { id: 'ws-accuracy', stat: 'ws_accuracy' },
+            { id: 'crit',        stat: 'crit_rate' },
+            { id: 'crit-damage', stat: 'crit_damage' },
+        ];
+
+        ['A', 'B'].forEach(setId => {
+            const prefix = `sb-${setId.toLowerCase()}-custom`;
+            statInputs.forEach(({ id, stat }) => {
+                const input = document.getElementById(`${prefix}-${id}`);
+                if (input) {
+                    input.addEventListener('change', (e) => {
+                        const max = parseFloat(input.max) || 9999;
+                        const val = Math.min(Math.max(0, parseFloat(e.target.value) || 0), max);
+                        e.target.value = val;
+                        this.customStats[setId][stat] = val;
+                        this.calculateStatsForSet(setId);
+                        this.renderComparisonStats();
+                    });
+                }
+            });
+        });
+    },
+
+    clearCustomStats(setId) {
+        const blank = { store_tp: 0, tp_bonus: 0, double_attack: 0, triple_attack: 0, quad_attack: 0, ws_damage: 0, ws_accuracy: 0, crit_rate: 0, crit_damage: 0 };
+        this.customStats[setId] = { ...blank };
+
+        const prefix = `sb-${setId.toLowerCase()}-custom`;
+        const inputIds = ['stp', 'tp-bonus', 'da', 'ta', 'qa', 'ws-damage', 'ws-accuracy', 'crit', 'crit-damage'];
+        inputIds.forEach(id => {
+            const input = document.getElementById(`${prefix}-${id}`);
+            if (input) input.value = 0;
+        });
+
+        this.calculateStatsForSet(setId);
+        this.renderComparisonStats();
+    },
+
+    getCustomStatsForPayload(setId) {
+        const stats = this.customStats[setId];
+        const nonZero = {};
+        for (const [key, value] of Object.entries(stats)) {
+            if (value !== 0) nonZero[key] = value;
+        }
+        return Object.keys(nonZero).length > 0 ? nonZero : null;
+    },
+
+    async runTPSimulation() {
+        const btn  = document.getElementById('btn-simulate-tp');
+        const panel = document.getElementById('tp-sim-results');
+
+        if (!AppState.selectedJob) { showToast('Select a job first.', 'warning'); return; }
+        if (!this.sets.A.items.main && !this.sets.B.items.main) {
+            showToast('Equip a weapon in the main slot of at least one set.', 'warning'); return;
+        }
+
+        if (btn) { btn.disabled = true; btn.innerHTML = `<svg class="w-4 h-4 inline mr-1 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>Simulating…`; }
+        if (panel) { panel.classList.remove('hidden'); panel.innerHTML = `<div class="text-ffxi-text-dim text-center py-6 text-sm animate-pulse">Running TP simulation…</div>`; }
+
+        try {
+            const resp = await API.simulateTP({
+                job: AppState.selectedJob,
+                sub_job: AppState.selectedSubJob || 'war',
+                master_level: AppState.masterLevel || 0,
+                set_a: this.buildGearsetPayload('A'),
+                set_b: this.buildGearsetPayload('B'),
+                set_a_label: this.getSetLabel('A'),
+                set_b_label: this.getSetLabel('B'),
+                set_a_custom_stats: this.getCustomStatsForPayload('A'),
+                set_b_custom_stats: this.getCustomStatsForPayload('B'),
+            });
+            this.renderTPSimResults(resp);
+        } catch (err) {
+            if (panel) panel.innerHTML = `<div class="text-ffxi-red text-center py-4 text-sm">Simulation failed: ${err.message}</div>`;
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = `<svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>Simulate TP`; }
+        }
+    },
+
+    renderTPSimResults(response) {
+        const panel = document.getElementById('tp-sim-results');
+        if (!panel) return;
+
+        if (!response.success) {
+            panel.innerHTML = `<div class="flex items-start gap-2 text-ffxi-red text-sm p-4 bg-ffxi-dark rounded-lg border border-red-500/30"><svg class="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span>${response.error || 'Unknown error'}</span></div>`;
+            return;
+        }
+
+        const a = response.set_a, b = response.set_b;
+        const cond = response.conditions || {};
+        let winnerA = false, winnerB = false;
+        if (!a.skipped && !b.skipped) {
+            if (a.time_to_ws < b.time_to_ws) winnerA = true;
+            else if (b.time_to_ws < a.time_to_ws) winnerB = true;
+        }
+
+        const buildCard = (set, isWinner) => {
+            if (set.skipped) return `<div class="flex-1 bg-ffxi-dark rounded-lg border border-ffxi-border p-4 opacity-60"><div class="text-xs uppercase tracking-wider text-ffxi-text-dim mb-1">${set.label}</div><div class="text-ffxi-text-dim text-sm italic">${set.error || 'No weapon equipped'}</div></div>`;
+            const border = isWinner ? 'border-ffxi-accent' : 'border-ffxi-border';
+            const badge  = isWinner ? `<span class="ml-2 text-xs bg-ffxi-accent text-ffxi-dark px-2 py-0.5 rounded-full font-semibold">Faster</span>` : '';
+            const timeColor = isWinner ? 'text-ffxi-accent' : 'text-ffxi-text';
+            return `<div class="flex-1 bg-ffxi-dark rounded-lg border ${border} p-4">
+                <div class="flex items-center justify-between mb-1"><span class="text-xs uppercase tracking-wider text-ffxi-text-dim">${set.label}</span>${badge}</div>
+                <div class="text-xs text-ffxi-text-dim mb-3 truncate" title="${set.weapon}">${set.weapon}</div>
+                <div class="space-y-2">
+                    <div class="flex justify-between items-center"><span class="text-xs text-ffxi-text-dim">Time to WS</span><span class="text-lg font-mono font-bold ${timeColor}">${set.time_to_ws.toFixed(2)}s</span></div>
+                    <div class="flex justify-between items-center"><span class="text-xs text-ffxi-text-dim">TP / Round</span><span class="text-sm font-mono text-ffxi-text">${set.tp_per_round.toFixed(1)}</span></div>
+                    <div class="flex justify-between items-center"><span class="text-xs text-ffxi-text-dim">DPS</span><span class="text-sm font-mono text-ffxi-text">${Math.round(set.dps).toLocaleString()}</span></div>
+                </div>
+            </div>`;
+        };
+
+        let deltaHtml = '';
+        if (!a.skipped && !b.skipped) {
+            const delta = b.time_to_ws - a.time_to_ws;
+            const sign = delta > 0 ? '+' : '';
+            const col  = delta === 0 ? 'text-ffxi-text-dim' : (delta > 0 ? 'text-ffxi-accent' : 'text-red-400');
+            const who  = delta > 0 ? 'Set A is faster' : (delta < 0 ? 'Set B is faster' : 'identical');
+            deltaHtml = `<div class="mt-3 pt-3 border-t border-ffxi-border flex items-center justify-center gap-3 text-sm"><span class="text-ffxi-text-dim">Difference:</span><span class="font-mono font-semibold ${col}">${sign}${delta.toFixed(2)}s</span><span class="text-ffxi-text-dim">(${who})</span></div>`;
+        }
+
+        panel.innerHTML = `<div class="border-t border-ffxi-border pt-4 mt-4">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-xs uppercase tracking-wider text-ffxi-accent font-semibold">TP Simulation Results</h3>
+                <span class="text-xs text-ffxi-text-dim">${cond.target || 'Training Dummy'} · ${cond.magic_haste || '43.75% M.Haste'} · No JA Haste</span>
+            </div>
+            <div class="flex gap-3">${buildCard(a, winnerA)}${buildCard(b, winnerB)}</div>
+            ${deltaHtml}
+        </div>`;
+    },
+
+    // ==========================================================================
+    // WS Simulation
+    // ==========================================================================
+
+    /** Detect the skill type of the weapon in main slot of the given set. */
+    getMainWeaponSkillType(setId) {
+        const main = this.sets[setId].items.main;
+        if (!main) return null;
+        return main.stats?.['Skill Type'] || main.skill_type || null;
+    },
+
+    /** Detect the skill type of the weapon in the range slot of the given set. */
+    getRangedWeaponSkillType(setId) {
+        const range = this.sets[setId].items.range;
+        if (!range) return null;
+        return range.stats?.['Skill Type'] || range.skill_type || null;
+    },
+
+    /**
+     * Build the WS option list for the Set Builder dropdown.
+     * Prefers the weapon in Set A's main slot, falls back to Set B.
+     * Caches the last list to avoid redundant rebuilds.
+     */
+    async refreshWSDropdown() {
+        const select = document.getElementById('sb-ws-select');
+        if (!select) return;
+
+        // Collect all relevant skill types from BOTH main and range slots of both sets
+        const skillTypes = new Set();
+        for (const setId of ['A', 'B']) {
+            const mainST  = this.getMainWeaponSkillType(setId);
+            const rangeST = this.getRangedWeaponSkillType(setId);
+            if (mainST)  skillTypes.add(mainST);
+            if (rangeST) skillTypes.add(rangeST);
+        }
+
+        if (skillTypes.size === 0) {
+            select.innerHTML = '<option value="">— equip a weapon first —</option>';
+            select.disabled = true;
+            return;
+        }
+
+        // Fetch WS for any skill types not yet in the cache
+        for (const st of skillTypes) {
+            const cached = AppState.weaponskills.filter(ws => ws.weapon_type === st);
+            if (cached.length === 0) {
+                try {
+                    const data = await API.getWeaponskills(st);
+                    (data.weaponskills || []).forEach(ws => {
+                        if (!AppState.weaponskills.find(w => w.name === ws.name)) {
+                            AppState.weaponskills.push(ws);
+                        }
+                    });
+                } catch (e) { /* ignore */ }
+            }
+        }
+
+        const filtered = AppState.weaponskills
+            .filter(ws => skillTypes.has(ws.weapon_type))
+            .sort((a, b) => a.name.localeCompare(b.name));
+
+        select.innerHTML = '<option value="">Select weaponskill…</option>';
+        filtered.forEach(ws => {
+            const opt = document.createElement('option');
+            opt.value = ws.name;
+            opt.textContent = `${ws.name} (${ws.ws_type})`;
+            // Pre-select if user already chose one in the WS tab
+            if (AppState.selectedWeaponskill?.name === ws.name) opt.selected = true;
+            select.appendChild(opt);
+        });
+        select.disabled = filtered.length === 0;
+    },
+
+    async runWSSimulation() {
+        const btn    = document.getElementById('btn-simulate-ws');
+        const panel  = document.getElementById('ws-sim-results');
+        const select = document.getElementById('sb-ws-select');
+        const wsName = select?.value;
+
+        if (!AppState.selectedJob) { showToast('Select a job first.', 'warning'); return; }
+        if (!wsName) { showToast('Select a weaponskill from the dropdown.', 'warning'); return; }
+
+        // Look up the selected WS to determine if it's a ranged weaponskill
+        const RANGED_WEAPON_TYPES = ['Archery', 'Marksmanship'];
+        const selectedWS = AppState.weaponskills.find(ws => ws.name === wsName);
+        const isRangedWS = selectedWS && RANGED_WEAPON_TYPES.includes(selectedWS.weapon_type);
+
+        if (isRangedWS) {
+            // Ranged WS requires a ranged weapon + ammo in at least one set
+            const setAHasRanged = this.sets.A.items.range && this.sets.A.items.ammo;
+            const setBHasRanged = this.sets.B.items.range && this.sets.B.items.ammo;
+            if (!setAHasRanged && !setBHasRanged) {
+                showToast('Ranged weaponskill requires a ranged weapon and ammo equipped in at least one set.', 'warning');
+                return;
+            }
+        } else {
+            const hasAnyWeapon = this.sets.A.items.main || this.sets.B.items.main;
+            if (!hasAnyWeapon) {
+                showToast('Equip a weapon in the main slot of at least one set.', 'warning');
+                return;
+            }
+        }
+
+        if (btn) { btn.disabled = true; btn.innerHTML = `<svg class="w-4 h-4 inline mr-1 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>Simulating…`; }
+        if (panel) { panel.classList.remove('hidden'); panel.innerHTML = `<div class="text-ffxi-text-dim text-center py-6 text-sm animate-pulse">Running WS simulation (low buff + high buff)…</div>`; }
+
+        try {
+            const tpVal = parseInt(document.getElementById('sb-ws-tp')?.value || 1000);
+            const resp = await API.simulateWS({
+                job: AppState.selectedJob,
+                sub_job: AppState.selectedSubJob || 'war',
+                master_level: AppState.masterLevel || 0,
+                weaponskill: wsName,
+                tp: tpVal,
+                set_a: this.buildGearsetPayload('A'),
+                set_b: this.buildGearsetPayload('B'),
+                set_a_label: this.getSetLabel('A'),
+                set_b_label: this.getSetLabel('B'),
+                set_a_custom_stats: this.getCustomStatsForPayload('A'),
+                set_b_custom_stats: this.getCustomStatsForPayload('B'),
+            });
+            this.renderWSSimResults(resp, wsName);
+        } catch (err) {
+            if (panel) panel.innerHTML = `<div class="text-ffxi-red text-center py-4 text-sm">Simulation failed: ${err.message}</div>`;
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = `<svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>Simulate WS`; }
+        }
+    },
+
+    renderWSSimResults(response, wsName) {
+        const panel = document.getElementById('ws-sim-results');
+        if (!panel) return;
+
+        if (!response.success) {
+            panel.innerHTML = `<div class="flex items-start gap-2 text-ffxi-red text-sm p-4 bg-ffxi-dark rounded-lg border border-red-500/30"><svg class="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span>${response.error || 'Unknown error'}</span></div>`;
+            return;
+        }
+
+        const a = response.set_a, b = response.set_b;
+
+        const fmtDmg = v => v != null ? Math.round(v).toLocaleString() : '—';
+        const fmtHR  = v => v != null ? `${(v * 100).toFixed(1)}%` : '—';
+
+        const deltaBadge = (dA, dB) => {
+            if (dA == null || dB == null) return '';
+            const diff = dB - dA;
+            const pct  = dA > 0 ? ((diff / dA) * 100).toFixed(1) : '—';
+            const sign = diff >= 0 ? '+' : '';
+            const col  = diff > 0 ? 'text-ffxi-accent' : (diff < 0 ? 'text-red-400' : 'text-ffxi-text-dim');
+            return `<span class="text-xs font-mono ${col}">${sign}${Math.round(diff).toLocaleString()} (${sign}${pct}%)</span>`;
+        };
+
+        const winClass = (dA, dB) => {
+            if (dA == null || dB == null) return ['', ''];
+            if (dA > dB) return ['text-ffxi-accent font-bold', 'text-ffxi-text'];
+            if (dB > dA) return ['text-ffxi-text', 'text-ffxi-accent font-bold'];
+            return ['text-ffxi-text', 'text-ffxi-text'];
+        };
+
+        const rowLow  = (a.low_buff  || {}), rowHigh = (a.high_buff || {});
+        const bLow    = (b.low_buff  || {}), bHigh  = (b.high_buff || {});
+
+        const [lcA, lcB] = winClass(rowLow.damage,  bLow.damage);
+        const [hcA, hcB] = winClass(rowHigh.damage, bHigh.damage);
+
+        const skipA = a.skipped, skipB = b.skipped;
+
+        const cellA_low  = skipA ? `<td class="px-3 py-2 text-ffxi-text-dim italic text-xs" colspan="1">${a.error || 'No weapon'}</td>` : `<td class="px-3 py-2 text-right font-mono ${lcA}">${fmtDmg(rowLow.damage)}</td>`;
+        const cellB_low  = skipB ? `<td class="px-3 py-2 text-ffxi-text-dim italic text-xs" colspan="1">${b.error || 'No weapon'}</td>` : `<td class="px-3 py-2 text-right font-mono ${lcB}">${fmtDmg(bLow.damage)}</td>`;
+        const cellA_high = skipA ? `<td class="px-3 py-2 text-ffxi-text-dim italic text-xs" colspan="1">—</td>` : `<td class="px-3 py-2 text-right font-mono ${hcA}">${fmtDmg(rowHigh.damage)}</td>`;
+        const cellB_high = skipB ? `<td class="px-3 py-2 text-ffxi-text-dim italic text-xs" colspan="1">—</td>` : `<td class="px-3 py-2 text-right font-mono ${hcB}">${fmtDmg(bHigh.damage)}</td>`;
+
+        const deltaLow  = (!skipA && !skipB) ? `<td class="px-3 py-2 text-right">${deltaBadge(rowLow.damage,  bLow.damage)}</td>`  : `<td class="px-3 py-2 text-ffxi-text-dim text-right">—</td>`;
+        const deltaHigh = (!skipA && !skipB) ? `<td class="px-3 py-2 text-right">${deltaBadge(rowHigh.damage, bHigh.damage)}</td>` : `<td class="px-3 py-2 text-ffxi-text-dim text-right">—</td>`;
+
+        // Hit-rate row
+        const hrLowA  = skipA ? '—' : fmtHR(rowLow.hit_rate);
+        const hrLowB  = skipB ? '—' : fmtHR(bLow.hit_rate);
+        const hrHighA = skipA ? '—' : fmtHR(rowHigh.hit_rate);
+        const hrHighB = skipB ? '—' : fmtHR(bHigh.hit_rate);
+
+        const condLow  = response.conditions?.low_buff  || {};
+        const condHigh = response.conditions?.high_buff || {};
+
+        panel.innerHTML = `
+        <div class="border-t border-ffxi-border pt-4 mt-4">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-xs uppercase tracking-wider text-ffxi-accent font-semibold">WS Simulation — ${wsName}</h3>
+                <span class="text-xs text-ffxi-text-dim">vs ${condLow.target || 'Apex Toad (ilvl 132)'}</span>
+            </div>
+
+            <!-- Weapons in use -->
+            <div class="flex gap-4 mb-3 text-xs text-ffxi-text-dim">
+                <span><span class="text-ffxi-text">Set A:</span> ${a.weapon || 'No weapon'}</span>
+                <span><span class="text-ffxi-text">Set B:</span> ${b.weapon || 'No weapon'}</span>
+            </div>
+
+            <!-- Result table -->
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm border-collapse">
+                    <thead>
+                        <tr class="border-b border-ffxi-border">
+                            <th class="px-3 py-2 text-left text-xs uppercase tracking-wider text-ffxi-text-dim w-28">Condition</th>
+                            <th class="px-3 py-2 text-right text-xs uppercase tracking-wider text-ffxi-text-dim">Set A</th>
+                            <th class="px-3 py-2 text-right text-xs uppercase tracking-wider text-ffxi-text-dim">Set B</th>
+                            <th class="px-3 py-2 text-right text-xs uppercase tracking-wider text-ffxi-text-dim">B vs A</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-ffxi-border/50">
+                        <!-- Low buff row -->
+                        <tr class="bg-ffxi-dark/40">
+                            <td class="px-3 py-3">
+                                <div class="text-ffxi-text font-medium text-xs">Low Buff</div>
+                                <div class="text-ffxi-text-dim text-xs mt-0.5">No buffs / bare gear</div>
+                            </td>
+                            ${cellA_low}${cellB_low}${deltaLow}
+                        </tr>
+                        <!-- Low buff hit rate -->
+                        <tr class="bg-ffxi-dark/20">
+                            <td class="px-3 py-1.5 pl-5 text-xs text-ffxi-text-dim">Hit Rate</td>
+                            <td class="px-3 py-1.5 text-right text-xs text-ffxi-text-dim font-mono">${hrLowA}</td>
+                            <td class="px-3 py-1.5 text-right text-xs text-ffxi-text-dim font-mono">${hrLowB}</td>
+                            <td class="px-3 py-1.5"></td>
+                        </tr>
+                        <!-- High buff row -->
+                        <tr class="bg-ffxi-dark/40">
+                            <td class="px-3 py-3">
+                                <div class="text-ffxi-text font-medium text-xs">High Buff</div>
+                                <div class="text-ffxi-text-dim text-xs mt-0.5">BRD/COR/GEO + Berserk/Warcry</div>
+                            </td>
+                            ${cellA_high}${cellB_high}${deltaHigh}
+                        </tr>
+                        <!-- High buff hit rate -->
+                        <tr class="bg-ffxi-dark/20">
+                            <td class="px-3 py-1.5 pl-5 text-xs text-ffxi-text-dim">Hit Rate</td>
+                            <td class="px-3 py-1.5 text-right text-xs text-ffxi-text-dim font-mono">${hrHighA}</td>
+                            <td class="px-3 py-1.5 text-right text-xs text-ffxi-text-dim font-mono">${hrHighB}</td>
+                            <td class="px-3 py-1.5"></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Buff legend -->
+            <div class="mt-3 grid grid-cols-2 gap-2 text-xs text-ffxi-text-dim border-t border-ffxi-border pt-3">
+                <div>
+                    <div class="text-ffxi-text mb-1">High Buff stack:</div>
+                    <div>${(condHigh.buffs_summary || []).join(' · ') || 'Minuet V+IV · Blade Madrigal · Chaos Roll · Hunter\'s Roll · Geo-Fury · Berserk · Warcry'}</div>
+                </div>
+                <div>
+                    <div class="text-ffxi-text mb-1">Debuffs:</div>
+                    <div>${(condHigh.debuffs_summary || []).join(' · ') || 'Dia III · Geo-Frailty'}</div>
+                </div>
+            </div>
+        </div>`;
+    },
+
     // === Path Configuration (Phase 2) ===
     async renderPathConfigPanel() {
         const btn = document.getElementById('set-builder-path-config-btn');
@@ -6457,17 +8326,22 @@ const SetBuilder = {
         
         let html = '';
         
+        let configsWereInitialized = false;
+
         for (const { slot, item } of pathItems) {
             const pathInfo = this.getItemPathInfo(item.id);
             if (!pathInfo) continue;
             
-            // Get or initialize config for this slot
-            if (!this.currentPathConfig[slot] || this.currentPathConfig[slot].itemId !== item.id) {
+            // Get or initialize config for this slot; use String() to guard against
+            // number/string id type mismatches across JSON serialization
+            if (!this.currentPathConfig[slot] ||
+                String(this.currentPathConfig[slot].itemId) !== String(item.id)) {
                 this.currentPathConfig[slot] = {
                     itemId: item.id,
                     path: pathInfo.paths[0],
                     rank: pathInfo.maxRank
                 };
+                configsWereInitialized = true;
             }
             const config = this.currentPathConfig[slot];
             const currentStats = this.getPathStats(item.id, config.path, config.rank);
@@ -6519,7 +8393,7 @@ const SetBuilder = {
                         <div class="text-xs text-ffxi-text-dim mb-1">Path ${config.path} R${config.rank} Stats:</div>
                         <div class="flex flex-wrap gap-x-3 gap-y-1 text-sm">
                             ${currentStats 
-                                ? Object.entries(currentStats).map(([k,v]) => 
+                                ? Object.entries(this.normalizePathStats(currentStats)).map(([k,v]) => 
                                     `<span class="text-ffxi-green">${k}: ${v > 0 ? '+' : ''}${v}</span>`
                                   ).join('') 
                                 : '<span class="text-ffxi-text-dim">No stats at this rank</span>'}
@@ -6530,6 +8404,13 @@ const SetBuilder = {
         }
         
         container.innerHTML = html;
+
+        // If we auto-initialized any new configs, recalculate so the comparison
+        // panel immediately reflects the path augments
+        if (configsWereInitialized) {
+            this.calculateStatsForSet(this.activeSet);
+            this.renderComparisonStats();
+        }
     },
     
     openPathConfigModal() {
@@ -6591,24 +8472,216 @@ const SetBuilder = {
             modal.classList.add('hidden');
         }
     },
+
+    showImportModal() {
+        const modal = document.getElementById('set-builder-import-modal');
+        if (!modal) return;
+
+        // Pre-select the inactive set as the default import target
+        const targetSel = document.getElementById('import-target-set');
+        if (targetSel) targetSel.value = this.activeSet === 'A' ? 'B' : 'A';
+
+        // Reset textarea and results
+        const ta = document.getElementById('import-lua-textarea');
+        if (ta) ta.value = '';
+        const results = document.getElementById('import-lua-results');
+        if (results) { results.classList.add('hidden'); results.innerHTML = ''; }
+
+        modal.classList.remove('hidden');
+        if (ta) ta.focus();
+    },
+
+    closeImportModal() {
+        const modal = document.getElementById('set-builder-import-modal');
+        if (modal) modal.classList.add('hidden');
+    },
+
+    async importFromLua() {
+        const luaText = document.getElementById('import-lua-textarea')?.value || '';
+        const targetSetId = document.getElementById('import-target-set')?.value || this.activeSet;
+
+        if (!luaText.trim()) {
+            showToast('Paste a Lua gear set first.', 'warning');
+            return;
+        }
+
+        const parsed = parseLuaGearSet(luaText);
+        if (!parsed) {
+            showToast('Could not parse any gear slots — check the format.', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('btn-do-import-lua');
+        if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+
+        const targetSet = this.sets[targetSetId];
+        const isDream = targetSet.mode === 'dream';
+        const job = AppState.selectedJob;
+
+        const found = [], notFound = [];
+
+        // Cache API responses by (apiSlot, isDream) to minimise round-trips
+        const apiCache = {};
+
+        for (const [slot, parsedItem] of Object.entries(parsed)) {
+            const apiSlot = SLOT_TO_API_FILTER[slot];
+            if (!apiSlot) continue;
+
+            const cacheKey = `${apiSlot}-${isDream}`;
+            if (!apiCache[cacheKey]) {
+                try {
+                    let url = `/api/inventory?slot=${apiSlot}`;
+                    if (job) url += `&job=${job}`;
+                    if (isDream) url += '&show_all=true';
+                    const resp = await API.fetch(url);
+                    apiCache[cacheKey] = resp.items || [];
+                } catch (e) {
+                    apiCache[cacheKey] = [];
+                }
+            }
+
+            // For the sub slot, also search Main-hand weapons (dual-wield offhands
+            // like Tauret are stored under slot=Main, not slot=Sub)
+            if (slot === 'sub') {
+                const mainCacheKey = `Main-${isDream}`;
+                if (!apiCache[mainCacheKey]) {
+                    try {
+                        let url = `/api/inventory?slot=Main`;
+                        if (job) url += `&job=${job}`;
+                        if (isDream) url += '&show_all=true';
+                        const resp = await API.fetch(url);
+                        apiCache[mainCacheKey] = resp.items || [];
+                    } catch (e) {
+                        apiCache[mainCacheKey] = [];
+                    }
+                }
+                // Merge in one-handed main weapons, deduped by id
+                const existingIds = new Set(apiCache[cacheKey].map(i => i.id));
+                const oneHanders = apiCache[mainCacheKey].filter(
+                    i => !existingIds.has(i.id) && this.isOneHandedWeapon(i)
+                );
+                apiCache[cacheKey] = [...apiCache[cacheKey], ...oneHanders];
+            }
+
+            const items = apiCache[cacheKey];
+            const targetName = parsedItem.name.toLowerCase().trim();
+            const match = items.find(i => (i.name || '').toLowerCase().trim() === targetName);
+
+            if (match) {
+                const item = JSON.parse(JSON.stringify(match));
+
+                if (parsedItem.augments.length > 0) {
+                    // Path augment (dream mode): wire up pathConfig
+                    const pathAug = parsedItem.augments.find(a => /^Path:\s*[A-Z]$/i.test(a.trim()));
+                    if (pathAug && isDream) {
+                        const path = pathAug.trim().replace(/^Path:\s*/i, '');
+                        await this.ensurePathDatabase();
+                        if (this.hasPathAugment(item.id)) {
+                            const pathInfo = this.getItemPathInfo(item.id);
+                            targetSet.pathConfig[slot] = {
+                                itemId: item.id,
+                                path,
+                                rank: pathInfo?.maxRank ?? 15,
+                            };
+                        }
+                    } else {
+                        // Regular augments — store for Lua export and display
+                        item._augments = parsedItem.augments;
+                    }
+                }
+
+                targetSet.items[slot] = item;
+                found.push({ slot, name: match.name2 || match.name });
+            } else {
+                notFound.push({ slot, name: parsedItem.name });
+            }
+        }
+
+        // Switch to the imported set and refresh everything
+        this.switchSet(targetSetId);
+        this.calculateAllStats();
+        this.renderAllSlots();
+        this.renderComparisonStats();
+        this.refreshWSDropdown();
+        this.renderPathConfigPanel();
+
+        // Render results summary inside the modal
+        const resultsDiv = document.getElementById('import-lua-results');
+        if (resultsDiv) {
+            resultsDiv.classList.remove('hidden');
+            let html = '';
+            if (found.length > 0) {
+                html += `<div class="text-ffxi-green text-xs font-medium mb-1">✓ ${found.length} item${found.length !== 1 ? 's' : ''} equipped</div>`;
+            }
+            if (notFound.length > 0) {
+                const hint = !isDream ? ' — try switching to <strong>Dream Set</strong> mode' : '';
+                html += `<div class="text-ffxi-red text-xs font-medium mb-1">✗ ${notFound.length} item${notFound.length !== 1 ? 's' : ''} not found${hint}:</div>`;
+                html += '<ul class="text-xs text-ffxi-text-dim ml-3 space-y-0.5">';
+                for (const { slot, name } of notFound) {
+                    html += `<li>${SLOT_DISPLAY_NAMES[slot] || slot}: ${name}</li>`;
+                }
+                html += '</ul>';
+            }
+            resultsDiv.innerHTML = html;
+        }
+
+        if (btn) { btn.disabled = false; btn.textContent = 'Import'; }
+
+        if (notFound.length === 0) {
+            showToast(`Set ${targetSetId} imported from Lua!`, 'success');
+            this.closeImportModal();
+        } else {
+            showToast(`${found.length} equipped, ${notFound.length} not found.`, 'warning');
+        }
+    },
     
     generateLuaCode() {
         const setNameInput = document.getElementById('export-set-name');
         const setName = setNameInput?.value || 'my_set';
-        
+
+        // Determine the active set's mode and pathConfig
+        const activeSet = this.sets[this.activeSet];
+        const isDream = activeSet?.mode === 'dream';
+        const pathConfig = activeSet?.pathConfig || {};
+
         const lines = [`sets.${setName} = {`];
-        
-        for (const slot of EQUIPMENT_SLOTS) {
-            const item = this.currentSet[slot];
-            if (item) {
-                const luaSlot = SLOT_TO_LUA[slot];
-                const itemName = item.name2 || item.name;
-                // Escape quotes in item names
-                const escapedName = itemName.replace(/"/g, '\\"');
-                lines.push(`    ${luaSlot}="${escapedName}",`);
-            }
+
+        // Fix empyrean earring slot order: these are right-ear only items.
+        // Work on a shallow copy so we never mutate the live set state.
+        const exportItems = { ...this.currentSet };
+        const ear1Name = exportItems['ear1']?.name || '';
+        if (isEmpyreanEarring(ear1Name)) {
+            const tmp = exportItems['ear1'];
+            exportItems['ear1'] = exportItems['ear2'] || null;
+            exportItems['ear2'] = tmp;
         }
-        
+
+        for (const slot of EQUIPMENT_SLOTS) {
+            const item = exportItems[slot];
+            if (!item || item.name === 'Empty' || !item.name) continue;
+
+            const luaSlot = SLOT_TO_LUA[slot];
+
+            // Dream mode path config takes priority over name2 augments
+            let augments = null;
+            if (isDream && pathConfig[slot] && String(pathConfig[slot].itemId) === String(item.id)) {
+                augments = [`Path: ${pathConfig[slot].path}`];
+            } else {
+                const parsed = parseItemName2(item);
+                if (parsed.augments.length > 0) augments = parsed.augments;
+            }
+
+            let itemStr;
+            if (augments && augments.length > 0) {
+                const augStr = augments.map(a => `'${a}'`).join(', ');
+                itemStr = `{ name="${item.name}", augments={${augStr}} }`;
+            } else {
+                itemStr = `"${item.name}"`;
+            }
+
+            lines.push(`    ${luaSlot}=${itemStr},`);
+        }
+
         lines.push('}');
         return lines.join('\n');
     },
@@ -6655,18 +8728,112 @@ const SetBuilder = {
 // LUA TEMPLATE OPTIMIZATION
 // =============================================================================
 
+// =============================================================================
+// EMPYREAN EARRING HELPERS
+// Job-specific empyrean earrings (named after the reforged 119+ set) are
+// right-ear only. Detect them so we can swap any wrongly-ordered ear pairs.
+// =============================================================================
+
+const EMPYREAN_EARRING_PREFIXES = new Set([
+    'boii', 'bhikku', 'ebers', 'wicce', 'lethargy',
+    "skulker's", "chevalier's", "heathen's", 'nukumi',
+    'fili', 'amini', 'kasuga', 'hattori', "peltast's",
+    "beckoner's", 'hashishin', "chasseur's", 'karagoz',
+    'maculele', 'arbatel', 'azimuth', 'erilaz',
+]);
+
+// Abbreviated first-words discovered from inventory (e.g. "chas." for "chasseur's").
+// Populated by buildEmpyreanEarringAbbrevs() before optimization runs.
+const empyreanEarringAbbrevPrefixes = new Set();
+
+/**
+ * Scan the user's inventory for earring items whose full name (name_log)
+ * matches an empyrean earring prefix.  For each match, record the first word
+ * of the abbreviated name so isEmpyreanEarring() can recognise both forms.
+ *
+ * Example: name_log="Chasseur's Earring +2", name="Chas. Earring +2"
+ *   → "chasseur's" matches EMPYREAN_EARRING_PREFIXES
+ *   → "chas." is added to empyreanEarringAbbrevPrefixes
+ */
+async function buildEmpyreanEarringAbbrevs() {
+    // Skip if we already built the set (inventory hasn't changed)
+    if (empyreanEarringAbbrevPrefixes.size > 0) return;
+
+    try {
+        const response = await API.fetch('/api/inventory?slot=Ear&search=earring');
+        const items = response?.items || [];
+
+        for (const item of items) {
+            const nameLog = (item.name_log || '').toLowerCase();
+            const name = (item.name || '').toLowerCase();
+            if (!nameLog.includes('earring') || !name.includes('earring')) continue;
+
+            // Check if the full (unabbreviated) name matches a known empyrean prefix
+            const fullFirstWord = nameLog.split(/\s+/)[0];
+            if (!EMPYREAN_EARRING_PREFIXES.has(fullFirstWord)) continue;
+
+            // The abbreviated first word is a new alias for this empyrean earring
+            const abbrevFirstWord = name.split(/\s+/)[0];
+            if (abbrevFirstWord && !EMPYREAN_EARRING_PREFIXES.has(abbrevFirstWord)) {
+                empyreanEarringAbbrevPrefixes.add(abbrevFirstWord);
+            }
+        }
+    } catch (err) {
+        console.warn('Failed to build empyrean earring abbreviations:', err);
+    }
+}
+
+function isEmpyreanEarring(name) {
+    if (!name || !name.toLowerCase().includes('earring')) return false;
+    const firstWord = name.toLowerCase().split(/\s+/)[0];
+    return EMPYREAN_EARRING_PREFIXES.has(firstWord)
+        || empyreanEarringAbbrevPrefixes.has(firstWord);
+}
+
+/**
+ * Given a content string, swap every left_ear/ear1 that holds an empyrean
+ * earring with its paired right_ear/ear2.  Used to fix non-placeholder sets
+ * that are preserved verbatim from the original template.
+ */
+function fixEmpyreanEarsInContent(content) {
+    // Match: (left_ear|ear1) = "Name" or { name="Name", augments={...} }
+    // We need to capture both the left and right ear values and potentially swap them.
+    // Strategy: find all set blocks and within each fix the ear order.
+    return content.replace(
+        // Match a set block from opening { to its closing }
+        // We'll do a line-pair approach instead: find left_ear/ear1 lines where
+        // the value is an empyrean earring and swap with the adjacent right_ear/ear2 line.
+        /([ \t]*)(left_ear|ear1)([ \t]*=[ \t]*)(\{[^}]*\}|"[^"]*")(,?)(\r?\n)([ \t]*)(right_ear|ear2)([ \t]*=[ \t]*)(\{[^}]*\}|"[^"]*")(,?)/g,
+        (match, li, lKey, lEq, lVal, lComma, nl, ri, rKey, rEq, rVal, rComma) => {
+            // Extract name from lVal
+            let lName = '';
+            if (lVal.startsWith('"')) {
+                lName = lVal.slice(1, -1);
+            } else {
+                const nm = lVal.match(/name\s*=\s*"([^"]+)"/);
+                lName = nm ? nm[1] : '';
+            }
+            if (!isEmpyreanEarring(lName)) return match; // not an empyrean earring, leave as-is
+            // Swap: put left value in right slot and vice versa
+            return `${li}${lKey}${lEq}${rVal}${lComma}${nl}${ri}${rKey}${rEq}${lVal}${rComma}`;
+        }
+    );
+}
+
 const LuaOptimizer = {
     selectedFile: null,
     optimizedContent: null,
     optimizedSets: null,  // Store results for details view
     parsedData: null,     // Store parsed Lua data
     originalContent: null, // Store original Lua file content for template replacement
-    selectedWeapons: {    // Store selected weapons - separate melee and magic
+    selectedWeapons: {    // Store selected weapons - separate melee and magic (legacy static inputs)
         melee: { main: null, sub: null },
         magic: { main: null, sub: null },
         ranged: null,
         ammo: null
     },
+    weaponSelections: {}, // Dynamic weapon selections from the parsed weapon section
+                          // Shape: { typeKey: { main, sub, range, ammo } }
     weaponCache: {},      // Cache for weapon search results
     
     init() {
@@ -6925,6 +9092,7 @@ const LuaOptimizer = {
         this.selectedFile = file;
         this.parsedData = null;
         this.originalContent = null;  // Reset original content
+        this.weaponSelections = {};
         this.selectedWeapons = {
             melee: { main: null, sub: null },
             magic: { main: null, sub: null },
@@ -7095,18 +9263,18 @@ const LuaOptimizer = {
         const section = document.getElementById('lua-weapon-section');
         if (!section) return;
         
-        // Build dynamic weapon selection HTML
-        let html = `
-            <h4 class="font-semibold text-ffxi-text mb-3">Weapon Configuration</h4>
-        `;
+        let html = `<h4 class="font-semibold text-ffxi-text mb-3">Weapon Configuration</h4>`;
         
-        // If there are WS sets, show weapon type selections
+        const RANGED_WS_TYPES = ['Archery', 'Marksmanship'];
+        
+        // ── WS weapon type blocks ──────────────────────────────────────────────
         if (requiredWeaponTypes && requiredWeaponTypes.length > 0) {
-            // Check if there are also DT sets that will use these weapons
-            const hasDTSetsForNote = this.parsedData?.sets?.some(s => 
+            const hasDTSetsForNote = this.parsedData?.sets?.some(s =>
                 s.is_placeholder && (s.set_type === 'dt' || s.set_type === 'fc' || s.set_type === 'other')
             );
-            const dtNote = hasDTSetsForNote ? '<span class="text-xs text-ffxi-text-dim ml-2">(Also used for DT/Idle TP simulation)</span>' : '';
+            const dtNote = hasDTSetsForNote
+                ? '<span class="text-xs text-ffxi-text-dim ml-2">(Also used for DT/Idle TP simulation)</span>'
+                : '';
             
             html += `
                 <div class="mb-4">
@@ -7115,8 +9283,10 @@ const LuaOptimizer = {
             `;
             
             for (const weaponType of requiredWeaponTypes) {
-                const wsNames = requiredWeapons[weaponType] || [];
-                const wsLabel = wsNames.length > 0 ? wsNames.join(', ') : '';
+                const wsNames  = requiredWeapons[weaponType] || [];
+                const wsLabel  = wsNames.join(', ');
+                const slotKey  = weaponType.toLowerCase().replace(/ /g, '-');
+                const isRanged = RANGED_WS_TYPES.includes(weaponType);
                 
                 html += `
                     <div class="bg-ffxi-dark p-3 rounded">
@@ -7125,67 +9295,62 @@ const LuaOptimizer = {
                             <span class="text-xs text-ffxi-text-dim">${wsLabel}</span>
                         </div>
                         <div class="grid grid-cols-2 gap-2">
-                            <div class="relative">
-                                <input type="text" 
-                                    id="lua-weapon-${weaponType.toLowerCase().replace(/ /g, '-')}-main"
-                                    placeholder="Main Hand"
-                                    class="w-full bg-ffxi-darker border border-ffxi-border rounded px-2 py-1 text-sm text-ffxi-text focus:border-ffxi-accent focus:outline-none"
-                                    data-weapon-type="${weaponType}"
-                                    data-slot="main">
-                                <input type="hidden" id="lua-weapon-${weaponType.toLowerCase().replace(/ /g, '-')}-main-id">
-                                <div id="lua-weapon-${weaponType.toLowerCase().replace(/ /g, '-')}-main-dropdown" class="dropdown-menu hidden"></div>
+                            <div>
+                                <label class="text-xs text-ffxi-text-dim block mb-0.5">
+                                    Main Hand${isRanged ? ' <span class="text-ffxi-text-dim">(optional)</span>' : ''}
+                                </label>
+                                <div id="lua-ws-${slotKey}-main-container"></div>
                             </div>
-                            <div class="relative">
-                                <input type="text" 
-                                    id="lua-weapon-${weaponType.toLowerCase().replace(/ /g, '-')}-sub"
-                                    placeholder="Sub/Grip"
-                                    class="w-full bg-ffxi-darker border border-ffxi-border rounded px-2 py-1 text-sm text-ffxi-text focus:border-ffxi-accent focus:outline-none"
-                                    data-weapon-type="${weaponType}"
-                                    data-slot="sub">
-                                <input type="hidden" id="lua-weapon-${weaponType.toLowerCase().replace(/ /g, '-')}-sub-id">
-                                <div id="lua-weapon-${weaponType.toLowerCase().replace(/ /g, '-')}-sub-dropdown" class="dropdown-menu hidden"></div>
+                            <div>
+                                <label class="text-xs text-ffxi-text-dim block mb-0.5">Sub / Grip</label>
+                                <div id="lua-ws-${slotKey}-sub-container"></div>
                             </div>
+                            <div>
+                                <label class="text-xs text-ffxi-text-dim block mb-0.5">
+                                    Range${isRanged
+                                        ? ' <span class="text-ffxi-red text-xs">*required</span>'
+                                        : ' <span class="text-ffxi-text-dim">(optional)</span>'}
+                                </label>
+                                <div id="lua-ws-${slotKey}-range-container"></div>
+                            </div>
+                            <div>
+                                <label class="text-xs text-ffxi-text-dim block mb-0.5">
+                                    Ammo${isRanged
+                                        ? ' <span class="text-ffxi-red text-xs">*required</span>'
+                                        : ' <span class="text-ffxi-text-dim">(optional)</span>'}
+                                </label>
+                                <div id="lua-ws-${slotKey}-ammo-container"></div>
+                            </div>
+                        </div>
+                        <div class="text-xs text-ffxi-text-dim mt-1.5">
+                            ${isRanged
+                                ? '* Range and Ammo are required for ranged weaponskills'
+                                : 'Range/Ammo lock those slots if provided; leave empty to let optimizer fill them freely'}
                         </div>
                     </div>
                 `;
             }
             
-            html += `
-                    </div>
-                </div>
-            `;
+            html += `</div></div>`;
         }
         
-        // Check if there are magic sets
-        const hasMagicSets = this.parsedData?.sets?.some(s => 
+        // ── Magic weapons ──────────────────────────────────────────────────────
+        const hasMagicSets = this.parsedData?.sets?.some(s =>
             s.is_placeholder && ['magic_damage', 'magic_burst', 'magic_accuracy'].includes(s.set_type)
         );
-        
         if (hasMagicSets) {
             html += `
                 <div class="mb-4">
                     <div class="text-sm text-ffxi-text-dim mb-2">Weapons for Magic Sets:</div>
                     <div class="bg-ffxi-dark p-3 rounded">
                         <div class="grid grid-cols-2 gap-2">
-                            <div class="relative">
-                                <input type="text" 
-                                    id="lua-weapon-magic-main"
-                                    placeholder="Main Hand (Staff/Club)"
-                                    class="w-full bg-ffxi-darker border border-ffxi-border rounded px-2 py-1 text-sm text-ffxi-text focus:border-ffxi-accent focus:outline-none"
-                                    data-weapon-type="magic"
-                                    data-slot="main">
-                                <input type="hidden" id="lua-weapon-magic-main-id">
-                                <div id="lua-weapon-magic-main-dropdown" class="dropdown-menu hidden"></div>
+                            <div>
+                                <label class="text-xs text-ffxi-text-dim block mb-0.5">Main Hand (Staff/Club)</label>
+                                <div id="lua-ws-magic-main-container"></div>
                             </div>
-                            <div class="relative">
-                                <input type="text" 
-                                    id="lua-weapon-magic-sub"
-                                    placeholder="Sub (Grip/Shield)"
-                                    class="w-full bg-ffxi-darker border border-ffxi-border rounded px-2 py-1 text-sm text-ffxi-text focus:border-ffxi-accent focus:outline-none"
-                                    data-weapon-type="magic"
-                                    data-slot="sub">
-                                <input type="hidden" id="lua-weapon-magic-sub-id">
-                                <div id="lua-weapon-magic-sub-dropdown" class="dropdown-menu hidden"></div>
+                            <div>
+                                <label class="text-xs text-ffxi-text-dim block mb-0.5">Sub (Grip/Shield)</label>
+                                <div id="lua-ws-magic-sub-container"></div>
                             </div>
                         </div>
                     </div>
@@ -7193,21 +9358,13 @@ const LuaOptimizer = {
             `;
         }
         
-        // Check if there are TP sets (need melee weapons)
-        const hasTPSets = this.parsedData?.sets?.some(s => 
-            s.is_placeholder && s.set_type === 'tp'
-        );
-        
-        // Check if there are DT/idle sets (also benefit from melee weapons for TP simulation)
-        const hasDTSets = this.parsedData?.sets?.some(s => 
+        // ── DT-alongside-WS weapons ────────────────────────────────────────────
+        const hasWSWeapons = requiredWeaponTypes && requiredWeaponTypes.length > 0;
+        const hasTPSets    = this.parsedData?.sets?.some(s => s.is_placeholder && s.set_type === 'tp');
+        const hasDTSets    = this.parsedData?.sets?.some(s =>
             s.is_placeholder && (s.set_type === 'dt' || s.set_type === 'fc' || s.set_type === 'other')
         );
         
-        // Check if we already have WS weapon inputs shown
-        const hasWSWeapons = requiredWeaponTypes && requiredWeaponTypes.length > 0;
-        
-        // If there are DT sets AND WS weapons are shown, add a separate DT weapon section
-        // This allows users to specify different weapons for DT sets if desired
         if (hasDTSets && hasWSWeapons) {
             html += `
                 <div class="mb-4">
@@ -7215,25 +9372,13 @@ const LuaOptimizer = {
                     <div class="text-xs text-ffxi-text-dim mb-2">(Leave empty to use WS weapons above)</div>
                     <div class="bg-ffxi-dark p-3 rounded">
                         <div class="grid grid-cols-2 gap-2">
-                            <div class="relative">
-                                <input type="text" 
-                                    id="lua-weapon-dt-main"
-                                    placeholder="Main Hand (optional)"
-                                    class="w-full bg-ffxi-darker border border-ffxi-border rounded px-2 py-1 text-sm text-ffxi-text focus:border-ffxi-accent focus:outline-none"
-                                    data-weapon-type="dt"
-                                    data-slot="main">
-                                <input type="hidden" id="lua-weapon-dt-main-id">
-                                <div id="lua-weapon-dt-main-dropdown" class="dropdown-menu hidden"></div>
+                            <div>
+                                <label class="text-xs text-ffxi-text-dim block mb-0.5">Main Hand (optional)</label>
+                                <div id="lua-ws-dt-main-container"></div>
                             </div>
-                            <div class="relative">
-                                <input type="text" 
-                                    id="lua-weapon-dt-sub"
-                                    placeholder="Sub Hand (optional)"
-                                    class="w-full bg-ffxi-darker border border-ffxi-border rounded px-2 py-1 text-sm text-ffxi-text focus:border-ffxi-accent focus:outline-none"
-                                    data-weapon-type="dt"
-                                    data-slot="sub">
-                                <input type="hidden" id="lua-weapon-dt-sub-id">
-                                <div id="lua-weapon-dt-sub-dropdown" class="dropdown-menu hidden"></div>
+                            <div>
+                                <label class="text-xs text-ffxi-text-dim block mb-0.5">Sub Hand (optional)</label>
+                                <div id="lua-ws-dt-sub-container"></div>
                             </div>
                         </div>
                     </div>
@@ -7241,47 +9386,29 @@ const LuaOptimizer = {
             `;
         }
         
-        // Show melee weapon selection if:
-        // 1. There are TP or DT sets (and no WS weapons already shown), OR
-        // 2. There are ANY placeholder sets and no other weapon inputs (fallback)
+        // ── Melee fallback (no WS weapons shown) ──────────────────────────────
         const hasAnyPlaceholders = this.parsedData?.sets?.some(s => s.is_placeholder);
-        const needsMeleeWeapons = ((hasTPSets || hasDTSets) && !hasWSWeapons) || 
-                                  (hasAnyPlaceholders && !hasWSWeapons && !hasMagicSets);
-        
+        const needsMeleeWeapons  = ((hasTPSets || hasDTSets) && !hasWSWeapons) ||
+                                   (hasAnyPlaceholders && !hasWSWeapons && !hasMagicSets);
         if (needsMeleeWeapons) {
-            // Build label based on what sets need the weapons
             let setTypeLabels = [];
             if (hasTPSets) setTypeLabels.push('TP');
             if (hasDTSets) setTypeLabels.push('DT/Idle');
-            if (setTypeLabels.length === 0) setTypeLabels.push('TP/DT'); // Fallback label
-            const label = `Weapons for ${setTypeLabels.join(' & ')} Sets`;
-            const sublabel = '(Optional - used for TP simulation)';
+            if (setTypeLabels.length === 0) setTypeLabels.push('TP/DT');
             
             html += `
                 <div class="mb-4">
-                    <div class="text-sm text-ffxi-text-dim mb-1">${label}:</div>
-                    <div class="text-xs text-ffxi-text-dim mb-2">${sublabel}</div>
+                    <div class="text-sm text-ffxi-text-dim mb-1">Weapons for ${setTypeLabels.join(' & ')} Sets:</div>
+                    <div class="text-xs text-ffxi-text-dim mb-2">(Optional - used for TP simulation)</div>
                     <div class="bg-ffxi-dark p-3 rounded">
                         <div class="grid grid-cols-2 gap-2">
-                            <div class="relative">
-                                <input type="text" 
-                                    id="lua-weapon-melee-main"
-                                    placeholder="Main Hand"
-                                    class="w-full bg-ffxi-darker border border-ffxi-border rounded px-2 py-1 text-sm text-ffxi-text focus:border-ffxi-accent focus:outline-none"
-                                    data-weapon-type="melee"
-                                    data-slot="main">
-                                <input type="hidden" id="lua-weapon-melee-main-id">
-                                <div id="lua-weapon-melee-main-dropdown" class="dropdown-menu hidden"></div>
+                            <div>
+                                <label class="text-xs text-ffxi-text-dim block mb-0.5">Main Hand</label>
+                                <div id="lua-ws-melee-main-container"></div>
                             </div>
-                            <div class="relative">
-                                <input type="text" 
-                                    id="lua-weapon-melee-sub"
-                                    placeholder="Sub Hand"
-                                    class="w-full bg-ffxi-darker border border-ffxi-border rounded px-2 py-1 text-sm text-ffxi-text focus:border-ffxi-accent focus:outline-none"
-                                    data-weapon-type="melee"
-                                    data-slot="sub">
-                                <input type="hidden" id="lua-weapon-melee-sub-id">
-                                <div id="lua-weapon-melee-sub-dropdown" class="dropdown-menu hidden"></div>
+                            <div>
+                                <label class="text-xs text-ffxi-text-dim block mb-0.5">Sub Hand</label>
+                                <div id="lua-ws-melee-sub-container"></div>
                             </div>
                         </div>
                     </div>
@@ -7289,7 +9416,7 @@ const LuaOptimizer = {
             `;
         }
         
-        // Add the Optimize button at the end
+        // ── Optimize button ────────────────────────────────────────────────────
         html += `
             <button id="btn-lua-optimize" class="btn-primary w-full mt-4">
                 <svg class="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -7302,118 +9429,123 @@ const LuaOptimizer = {
         section.innerHTML = html;
         section.classList.remove('hidden');
         
-        // Re-attach the optimize button event listener since it was recreated
         const optimizeBtn = document.getElementById('btn-lua-optimize');
         if (optimizeBtn) {
             optimizeBtn.addEventListener('click', () => this.runOptimization());
         }
         
-        // Setup search handlers for the new inputs
-        this.setupDynamicWeaponSearch();
-    },
-    
-    setupDynamicWeaponSearch() {
-        // Find all weapon inputs and setup search
-        const inputs = document.querySelectorAll('[id^="lua-weapon-"][id$="-main"], [id^="lua-weapon-"][id$="-sub"]');
-        
-        inputs.forEach(input => {
-            if (input.type === 'hidden') return;
-            
-            const weaponType = input.dataset.weaponType;
-            const slot = input.dataset.slot;
-            const dropdownId = input.id + '-dropdown';
-            const dropdown = document.getElementById(dropdownId);
-            
-            if (!dropdown) return;
-            
-            let debounceTimer;
-            
-            input.addEventListener('input', (e) => {
-                clearTimeout(debounceTimer);
-                debounceTimer = setTimeout(() => {
-                    this.searchWeaponsForSlot(input.id, slot, e.target.value);
-                }, 200);
-            });
-            
-            input.addEventListener('focus', () => {
-                if (input.value.length >= 2) {
-                    this.searchWeaponsForSlot(input.id, slot, input.value);
-                }
-            });
-            
-            // Close dropdown when clicking outside
-            document.addEventListener('click', (e) => {
-                if (!input.contains(e.target) && !dropdown.contains(e.target)) {
-                    dropdown.classList.add('hidden');
-                }
-            });
-        });
-    },
-    
-    async searchWeaponsForSlot(inputId, slot, query) {
-        const dropdown = document.getElementById(inputId + '-dropdown');
-        if (!dropdown) return;
-        
-        if (query.length < 2) {
-            dropdown.classList.add('hidden');
-            return;
+        // Populate all container divs with job-filtered, show-on-focus dropdowns
+        const job = document.getElementById('lua-job-override')?.value || this.parsedData?.job || '';
+        if (job) {
+            this.populateLuaWeaponDropdowns(job, requiredWeaponTypes || [], requiredWeapons || {});
         }
-        
+    },
+    
+    async populateLuaWeaponDropdowns(job, requiredWeaponTypes, requiredWeapons) {
+        // Fetch all four data sets in parallel for this job
+        let weapons = [], offhand = [], rangedWeapons = [], ammoItems = [];
         try {
-            const response = await fetch(`/api/inventory/search?q=${encodeURIComponent(query)}&slot=${slot}&limit=15`);
-            
-            if (!response.ok) {
-                dropdown.classList.add('hidden');
-                return;
-            }
-            
-            const data = await response.json();
-            this.renderWeaponDropdownDynamic(inputId, data.items || []);
-            
-        } catch (error) {
-            console.error('Weapon search error:', error);
-            dropdown.classList.add('hidden');
-        }
-    },
-    
-    renderWeaponDropdownDynamic(inputId, items) {
-        const dropdown = document.getElementById(inputId + '-dropdown');
-        if (!dropdown) return;
-        
-        if (items.length === 0) {
-            dropdown.innerHTML = '<div class="dropdown-item text-ffxi-text-dim">No items found</div>';
-            dropdown.classList.remove('hidden');
+            const [wRes, oRes, rRes, aRes] = await Promise.all([
+                fetch(`/api/weapons/${job}`).then(r => r.json()),
+                fetch(`/api/offhand/${job}`).then(r => r.json()),
+                fetch(`/api/ranged-weapons/${job}`).then(r => r.json()),
+                fetch(`/api/inventory?slot=ammo&job=${job}`).then(r => r.json()),
+            ]);
+            weapons      = wRes.weapons      || [];
+            offhand      = oRes.offhand       || [];
+            rangedWeapons = rRes.ranged_weapons || [];
+            // /api/inventory items don't carry _raw — construct it like loadAmmoItems does
+            ammoItems = (aRes.items || []).map(item => ({
+                ...item,
+                _raw: {
+                    Name: item.name,
+                    Name2: item.name2,
+                    Type: item.type,
+                    'Item Level': item.item_level,
+                    Jobs: item.jobs,
+                    ...(item.stats || {}),
+                },
+            }));
+        } catch (e) {
+            console.error('Failed to load weapons for Lua weapon section:', e);
             return;
         }
         
-        dropdown.innerHTML = items.map(item => `
-            <div class="dropdown-item" onclick="LuaOptimizer.selectWeaponDynamic('${inputId}', ${JSON.stringify(item).replace(/"/g, '&quot;')})">
-                <div class="font-medium text-sm">${item.name || item.Name}</div>
-                <div class="text-xs text-ffxi-text-dim">
-                    ${item.skill || item['Skill Type'] || ''} 
-                    ${item.damage ? `DMG:${item.damage}` : item.Damage ? `DMG:${item.Damage}` : ''}
-                </div>
-            </div>
-        `).join('');
+        // Option-list builders
+        const weaponOpts = (items) => items.map(w => ({
+            value: w.name,
+            label: w.name2 || w.name,
+            sublabel: [
+                w.skill_type,
+                w.damage  ? `D${w.damage}`     : '',
+                w.delay   ? `Dly${w.delay}`    : '',
+                w.item_level ? `iLv${w.item_level}` : '',
+            ].filter(Boolean).join(' '),
+            data: w,
+        }));
+        const ammoOpts = (items) => items.map(item => ({
+            value: item.name,
+            label: item.name2 || item.name,
+            sublabel: item.item_level ? `iLv${item.item_level}` : '',
+            data: item,
+        }));
         
-        dropdown.classList.remove('hidden');
+        const RANGED_WS_TYPES = ['Archery', 'Marksmanship'];
+        
+        // ── WS weapon type blocks ────────────────────────────────────────────
+        for (const weaponType of requiredWeaponTypes) {
+            const slotKey  = weaponType.toLowerCase().replace(/ /g, '-');
+            const isRanged = RANGED_WS_TYPES.includes(weaponType);
+            
+            // Main: filter to the specific weapon type for melee; all weapons for ranged WS
+            const mainItems = isRanged
+                ? weapons
+                : weapons.filter(w => w.skill_type === weaponType);
+            
+            // Range: filter by skill type for ranged WS; all ranged weapons for melee
+            const rangeItems = isRanged
+                ? rangedWeapons.filter(w => w.skill_type === weaponType)
+                : rangedWeapons;
+            
+            this._createLuaSlotDropdown(`lua-ws-${slotKey}-main-container`,  weaponOpts(mainItems),   'main',  weaponType, isRanged ? 'Main Hand (optional)' : 'Main Hand');
+            this._createLuaSlotDropdown(`lua-ws-${slotKey}-sub-container`,   weaponOpts(offhand),     'sub',   weaponType, 'Sub / Grip');
+            this._createLuaSlotDropdown(`lua-ws-${slotKey}-range-container`, weaponOpts(rangeItems),  'range', weaponType, isRanged ? 'Range (required)' : 'Range (optional)');
+            this._createLuaSlotDropdown(`lua-ws-${slotKey}-ammo-container`,  ammoOpts(ammoItems),     'ammo',  weaponType, isRanged ? 'Ammo (required)' : 'Ammo (optional)');
+        }
+        
+        // ── Magic weapons ────────────────────────────────────────────────────
+        if (document.getElementById('lua-ws-magic-main-container')) {
+            this._createLuaSlotDropdown('lua-ws-magic-main-container', weaponOpts(weapons), 'main', 'magic', 'Main Hand (Staff/Club)');
+            this._createLuaSlotDropdown('lua-ws-magic-sub-container',  weaponOpts(offhand), 'sub',  'magic', 'Sub (Grip/Shield)');
+        }
+        
+        // ── DT weapons ───────────────────────────────────────────────────────
+        if (document.getElementById('lua-ws-dt-main-container')) {
+            this._createLuaSlotDropdown('lua-ws-dt-main-container', weaponOpts(weapons), 'main', 'dt', 'Main Hand (optional)');
+            this._createLuaSlotDropdown('lua-ws-dt-sub-container',  weaponOpts(offhand), 'sub',  'dt', 'Sub Hand (optional)');
+        }
+        
+        // ── Melee fallback weapons ───────────────────────────────────────────
+        if (document.getElementById('lua-ws-melee-main-container')) {
+            this._createLuaSlotDropdown('lua-ws-melee-main-container', weaponOpts(weapons), 'main', 'melee', 'Main Hand');
+            this._createLuaSlotDropdown('lua-ws-melee-sub-container',  weaponOpts(offhand), 'sub',  'melee', 'Sub Hand');
+        }
     },
     
-    selectWeaponDynamic(inputId, item) {
-        const input = document.getElementById(inputId);
-        const hiddenInput = document.getElementById(inputId + '-id');
-        const dropdown = document.getElementById(inputId + '-dropdown');
+    _createLuaSlotDropdown(containerId, options, slot, weaponType, placeholder) {
+        const typeKey = weaponType.toLowerCase().replace(/ /g, '-');
         
-        if (input) {
-            input.value = item.name || item.Name;
-            input.classList.add('text-ffxi-accent');
+        // Ensure the selections map has an entry for this weapon type
+        if (!this.weaponSelections[typeKey]) {
+            this.weaponSelections[typeKey] = { main: null, sub: null, range: null, ammo: null };
         }
-        if (hiddenInput) {
-            hiddenInput.value = JSON.stringify(item);
-        }
-        if (dropdown) {
-            dropdown.classList.add('hidden');
-        }
+        
+        createSearchableDropdown(containerId, options, (opt) => {
+            if (!this.weaponSelections[typeKey]) {
+                this.weaponSelections[typeKey] = { main: null, sub: null, range: null, ammo: null };
+            }
+            this.weaponSelections[typeKey][slot] = opt ? opt.data : null;
+        }, placeholder);
     },
     
     getSetTypeBadgeFromType(setType) {
@@ -7455,6 +9587,10 @@ const LuaOptimizer = {
         this.hideResults();
         
         try {
+            // Build abbreviated empyrean earring prefixes from inventory so
+            // isEmpyreanEarring() can recognise short names like "Chas. Earring"
+            await buildEmpyreanEarringAbbrevs();
+            
             const jobOverride = document.getElementById('lua-job-override')?.value;
             const beamWidth = parseInt(document.getElementById('lua-beam-width')?.value || '50');
             const masterLevel = parseInt(document.getElementById('lua-master-level')?.value || '50');
@@ -7522,35 +9658,9 @@ const LuaOptimizer = {
     },
     
     collectSelectedWeapons() {
-        // Collect weapons from all dynamic inputs
-        const weapons = {};
-        
-        // Check for weapon type-specific inputs
-        const inputs = document.querySelectorAll('[id^="lua-weapon-"][id$="-main-id"], [id^="lua-weapon-"][id$="-sub-id"]');
-        
-        inputs.forEach(input => {
-            if (!input.value) return;
-            
-            try {
-                const item = JSON.parse(input.value);
-                const id = input.id;
-                
-                // Parse the input ID to get weapon type and slot
-                // Format: lua-weapon-{type}-{slot}-id
-                const parts = id.replace('lua-weapon-', '').replace('-id', '').split('-');
-                const slot = parts.pop(); // 'main' or 'sub'
-                const weaponType = parts.join('-'); // e.g., 'sword', 'great-sword', 'magic', 'melee'
-                
-                if (!weapons[weaponType]) {
-                    weapons[weaponType] = {};
-                }
-                weapons[weaponType][slot] = item;
-            } catch (e) {
-                // Invalid JSON, skip
-            }
-        });
-        
-        return weapons;
+        // weaponSelections is populated directly by _createLuaSlotDropdown callbacks
+        // Shape: { typeKey: { main, sub, range, ammo } }
+        return this.weaponSelections;
     },
     
     async optimizeSet(set, options) {
@@ -7593,6 +9703,9 @@ const LuaOptimizer = {
             case 'healing':
                 // Healing magic - use cure potency profile
                 return this.optimizeHealingSet(set, options);
+            case 'sird':
+                // SIRD overlay - Spell Interruption Rate Down (set_combine with base midcast set)
+                return this.optimizeSIRDSet(set, options);
             case 'fc':
                 // Fast Cast precast sets - use FC optimizer
                 return this.optimizeFCSet(set, options);
@@ -7616,30 +9729,127 @@ const LuaOptimizer = {
     DEFAULT_TARGET: 'apex_toad',
     
     async optimizeWSSet(set, options) {
-        const { job, beamWidth, masterLevel, weaponsByType } = options;
+        const { job, beamWidth, masterLevel, subJob, weaponsByType } = options;
         
-        // Get weapon for this WS's weapon type
+        // Get weapons for this WS's weapon type
         const weaponType = set.weapon_type?.toLowerCase().replace(/ /g, '-') || 'melee';
         const weapons = weaponsByType[weaponType] || weaponsByType['melee'] || {};
         
-        // Skip if no main weapon is selected
+        // Ranged WS (Archery / Marksmanship): requires range+ammo, main/sub are ignored
+        if (set.is_ranged_ws) {
+            if (!weapons.range) {
+                console.log(`Skipping ranged WS set ${set.name}: no ranged weapon selected for type ${set.weapon_type}`);
+                return null;
+            }
+            if (!weapons.ammo) {
+                console.log(`Skipping ranged WS set ${set.name}: no ammo selected for type ${set.weapon_type}`);
+                return null;
+            }
+            
+            const rangedWeapon = weapons.range._raw || weapons.range;
+            const ammo = weapons.ammo._raw || weapons.ammo;
+            // Use real melee weapons if available — they contribute stats even during ranged WS
+            // (e.g. COR with sword equipped while firing a gun WS)
+            // Fall back to a safe empty weapon dict that includes Skill Type
+            const emptyWeapon = { Name: 'Empty', Name2: 'Empty', Type: 'None', 'Skill Type': 'None' };
+            let meleeMain = emptyWeapon;
+            let meleeSub = emptyWeapon;
+            // Check for melee weapons in weaponsByType
+            if (weaponsByType['melee']?.main) {
+                meleeMain = weaponsByType['melee'].main._raw || weaponsByType['melee'].main;
+                meleeSub = weaponsByType['melee'].sub?._raw || weaponsByType['melee'].sub || emptyWeapon;
+            } else {
+                // Fall back to any weapon type that has a main weapon
+                for (const [typeName, typeWeapons] of Object.entries(weaponsByType)) {
+                    if (typeName !== weaponType && typeWeapons?.main) {
+                        meleeMain = typeWeapons.main._raw || typeWeapons.main;
+                        meleeSub = typeWeapons.sub?._raw || typeWeapons.sub || emptyWeapon;
+                        break;
+                    }
+                }
+            }
+            
+            const response = await fetch('/api/optimize/ws', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    job: job,
+                    sub_job: subJob || 'war',
+                    weaponskill: set.ws_name,
+                    main_weapon: meleeMain,
+                    sub_weapon: meleeSub,
+                    ranged_weapon: rangedWeapon,
+                    ammo: ammo,
+                    target: this.DEFAULT_TARGET,
+                    use_simulation: true,
+                    beam_width: beamWidth,
+                    master_level: masterLevel,
+                    min_tp: 2000,
+                    buffs: this.DEFAULT_BUFFS,
+                    abilities: [],
+                    food: this.DEFAULT_FOOD,
+                    debuffs: this.DEFAULT_DEBUFFS,
+                }),
+            });
+            
+            const result = await response.json();
+            
+            if (result.success && result.results?.length > 0) {
+                const best = result.results[0];
+                return {
+                    name: set.name,
+                    profile_type: set.inferred_profile_type,
+                    items: this.extractGearItems(best.gear),
+                    score: best.beam_score || best.score || 0,
+                    is_ranged_ws: true,
+                    optimization_type: 'ws_simulation',
+                    simulation_value: best.damage,
+                    simulation_details: {
+                        damage: best.damage,
+                        ws_name: set.ws_name,
+                        hit_rate: best.hit_rate,
+                    },
+                };
+            }
+            
+            if (!result.success) {
+                console.error(`Ranged WS optimization failed for ${set.name}:`, result.error);
+            }
+            return null;
+        }
+        
+        // Melee WS: main weapon is required
         if (!weapons.main) {
             console.log(`Skipping WS set ${set.name}: no weapon selected for type ${weaponType}`);
             return null;
         }
         
-        // Use _raw if available (pure wsdist dict), otherwise use the item directly
         const mainWeapon = weapons.main._raw || weapons.main;
         const subWeapon = weapons.sub?._raw || weapons.sub || { Name: 'Empty', Name2: 'Empty', Type: 'None' };
+        
+        // Ranged/ammo locking logic for melee WS:
+        // - Neither provided  → null/null  (optimizer fills ammo freely)
+        // - One or both provided → lock both (pass whatever was given, or null for the missing one)
+        const hasRange = !!weapons.range;
+        const hasAmmo = !!weapons.ammo;
+        let rangedWeapon = null;
+        let lockedAmmo = null;
+        if (hasRange || hasAmmo) {
+            rangedWeapon = hasRange ? (weapons.range._raw || weapons.range) : null;
+            lockedAmmo = hasAmmo ? (weapons.ammo._raw || weapons.ammo) : null;
+        }
         
         const response = await fetch('/api/optimize/ws', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 job: job,
+                sub_job: subJob || 'war',
                 weaponskill: set.ws_name,
                 main_weapon: mainWeapon,
                 sub_weapon: subWeapon,
+                ranged_weapon: rangedWeapon,
+                ammo: lockedAmmo,
                 target: this.DEFAULT_TARGET,
                 use_simulation: true,
                 beam_width: beamWidth,
@@ -7661,6 +9871,7 @@ const LuaOptimizer = {
                 profile_type: set.inferred_profile_type,
                 items: this.extractGearItems(best.gear),
                 score: best.beam_score || best.score || 0,
+                is_ranged_ws: false,
                 optimization_type: 'ws_simulation',
                 simulation_value: best.damage,
                 simulation_details: { 
@@ -7722,7 +9933,7 @@ const LuaOptimizer = {
     },
     
     async optimizeTPSet(set, options) {
-        const { job, beamWidth, masterLevel, weaponsByType } = options;
+        const { job, beamWidth, masterLevel, subJob, weaponsByType } = options;
         
         // Find first available weapon set for TP
         // Priority: 'melee' key, then any weapon type that has a main weapon
@@ -7774,6 +9985,7 @@ const LuaOptimizer = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 job: job,
+                sub_job: subJob || 'war',
                 tp_type: tpType,
                 main_weapon: mainWeapon,
                 sub_weapon: subWeapon,
@@ -7821,20 +10033,12 @@ const LuaOptimizer = {
         // Use magic weapons
         const weapons = weaponsByType['magic'] || {};
         
-        // Determine optimization type based on set type AND spell type
-        let optType = 'damage';
-        if (set.set_type === 'magic_burst') {
-            optType = 'burst';
-        } else if (set.set_type === 'magic_accuracy') {
-            // For enfeebling spells, use potency (skill-based optimization)
-            // This prioritizes Enfeebling Magic Skill, INT/MND, and Enfeebling Effect
-            if (set.spell_type === 'enfeebling_int' || set.spell_type === 'enfeebling_mnd') {
-                optType = 'potency';
-                console.log(`Enfeebling set ${set.name}: using potency optimization for skill stacking`);
-            } else {
-                optType = 'accuracy';
-            }
-        }
+        // Use the backend-provided optimization_type directly — it accounts for
+        // spell category AND path suffix (.Resistant, .MaxDuration, .MB, etc.).
+        // Do NOT re-derive this from set_type + spell_type; that logic was the
+        // source of the api/frontend disagreement (e.g. .Resistant enfeeble sets
+        // always getting 'potency' instead of 'accuracy').
+        const optType = set.optimization_type || 'damage';
         
         const response = await fetch('/api/optimize/magic', {
             method: 'POST',
@@ -7873,6 +10077,45 @@ const LuaOptimizer = {
                     optimization_mode: optType,
                 },
             };
+        }
+        return null;
+    },
+    
+    async optimizeSIRDSet(set, options) {
+        const { job, beamWidth } = options;
+        
+        const response = await fetch('/api/optimize/dt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                job: job,
+                dt_type: 'sird',
+                beam_width: beamWidth,
+                include_weapons: false,
+            }),
+        });
+        
+        const result = await response.json();
+        
+        if (result.success && result.results?.length > 0) {
+            const best = result.results[0];
+            return {
+                name: set.name,
+                profile_type: set.inferred_profile_type,
+                items: this.extractGearItems(best.gear),
+                score: best.score || 0,
+                base_set_name: set.base_set_name,
+                optimization_type: 'sird',
+                simulation_value: best.spell_interruption_rate_down || 0,
+                simulation_details: {
+                    sird_pct: best.spell_interruption_rate_down || 0,
+                    sird_capped: (best.spell_interruption_rate_down || 0) >= 102,
+                },
+            };
+        }
+        
+        if (!result.success) {
+            console.error(`SIRD optimization failed for ${set.name}:`, result.error);
         }
         return null;
     },
@@ -7968,9 +10211,11 @@ const LuaOptimizer = {
     async optimizeEnhancingSkillSet(set, options) {
         const { job, beamWidth } = options;
         
-        // Enhancing magic skill sets - use magic API with potency optimization
-        // Use a representative enhancing spell (Phalanx benefits most from skill)
+        // Use backend-provided spell and optimization_type.
+        // Backend always provides representative_spell for enhancing sets now;
+        // fall back to 'Phalanx' only as a last-resort safety net.
         const representativeSpell = set.representative_spell || 'Phalanx';
+        const optType = set.optimization_type || 'potency';
         
         const response = await fetch('/api/optimize/magic', {
             method: 'POST',
@@ -7978,7 +10223,7 @@ const LuaOptimizer = {
             body: JSON.stringify({
                 job: job,
                 spell_name: representativeSpell,
-                optimization_type: 'potency',
+                optimization_type: optType,
                 magic_burst: false,
                 include_weapons: false,
                 beam_width: beamWidth,
@@ -8002,6 +10247,7 @@ const LuaOptimizer = {
                 simulation_details: {
                     note: 'Maximized Enhancing Magic Skill',
                     spell: representativeSpell,
+                    optimization_mode: optType,
                 },
             };
         }
@@ -8011,9 +10257,10 @@ const LuaOptimizer = {
     async optimizeEnhancingDurationSet(set, options) {
         const { job, beamWidth } = options;
         
-        // Enhancing duration sets (Composure, etc.) - use magic API with potency optimization
-        // Use a representative spell that benefits from duration (Haste, Refresh, etc.)
-        const representativeSpell = set.representative_spell || 'Haste II';
+        // Use backend-provided spell and optimization_type.
+        // Backend provides the correct duration-focused spell (e.g. Haste for duration sets).
+        const representativeSpell = set.representative_spell || 'Haste';
+        const optType = set.optimization_type || 'potency';
         
         const response = await fetch('/api/optimize/magic', {
             method: 'POST',
@@ -8021,7 +10268,7 @@ const LuaOptimizer = {
             body: JSON.stringify({
                 job: job,
                 spell_name: representativeSpell,
-                optimization_type: 'potency',
+                optimization_type: optType,
                 magic_burst: false,
                 include_weapons: false,
                 beam_width: beamWidth,
@@ -8045,6 +10292,7 @@ const LuaOptimizer = {
                 simulation_details: {
                     note: 'Maximized Enhancing Duration %',
                     spell: representativeSpell,
+                    optimization_mode: optType,
                 },
             };
         }
@@ -8054,9 +10302,10 @@ const LuaOptimizer = {
     async optimizeHealingSet(set, options) {
         const { job, beamWidth } = options;
         
-        // Healing magic sets - use magic API with potency optimization
-        // Use a representative healing spell
+        // Use backend-provided spell and optimization_type.
+        // Healing sets always use potency, but we let the backend be authoritative.
         const representativeSpell = set.representative_spell || 'Cure IV';
+        const optType = set.optimization_type || 'potency';
         
         const response = await fetch('/api/optimize/magic', {
             method: 'POST',
@@ -8064,7 +10313,7 @@ const LuaOptimizer = {
             body: JSON.stringify({
                 job: job,
                 spell_name: representativeSpell,
-                optimization_type: 'potency',
+                optimization_type: optType,
                 magic_burst: false,
                 include_weapons: false,
                 beam_width: beamWidth,
@@ -8088,6 +10337,7 @@ const LuaOptimizer = {
                 simulation_details: {
                     note: 'Maximized Cure Potency and MND',
                     spell: representativeSpell,
+                    optimization_mode: optType,
                 },
             };
         }
@@ -8138,9 +10388,15 @@ const LuaOptimizer = {
         const slots = ['main', 'sub', 'range', 'ammo', 'head', 'neck', 'ear1', 'ear2',
                        'body', 'hands', 'ring1', 'ring2', 'back', 'waist', 'legs', 'feet'];
         
+        // The API returns the ranged slot as 'ranged' (wsdist convention),
+        // but GearSwap Lua uses 'range'. Map API keys to Lua slot names.
+        const apiKeyMap = { 'range': 'ranged' };
+        
         for (const slot of slots) {
-            if (gear && gear[slot]) {
-                const item = gear[slot];
+            // Check the slot name itself, then the API alias if one exists
+            const apiKey = apiKeyMap[slot];
+            const item = gear && (gear[slot] || (apiKey && gear[apiKey]));
+            if (item) {
                 const name = item.name || item.Name || 'Empty';
                 if (name !== 'Empty') {
                     // Store the full item object to preserve augments
@@ -8159,20 +10415,23 @@ const LuaOptimizer = {
             return;
         }
         
-        let content = this.originalContent;
+        // Fix any empyrean earrings that are in the wrong ear in non-placeholder
+        // sets — these are preserved verbatim from the original template, so we
+        // must correct them here before doing template replacement.
+        let content = fixEmpyreanEarsInContent(this.originalContent);
         
         // Replace each placeholder set in the original content
         for (const set of optimizedSets) {
-            content = this.replaceSetInContent(content, set.name, set.items);
+            content = this.replaceSetInContent(content, set.name, set.items, set.is_ranged_ws, set.base_set_name);
         }
         
         this.optimizedContent = content;
     },
     
     // Helper: Replace a single set's content in the Lua file
-    replaceSetInContent(content, setName, items) {
+    replaceSetInContent(content, setName, items, isRangedWS = false, baseSetName = null) {
         // Build the gear string for this set
-        const gearString = this.buildGearString(items);
+        const gearString = this.buildGearString(items, isRangedWS);
         
         // Find the set definition in the content
         // Set names can be like:
@@ -8210,6 +10469,7 @@ const LuaOptimizer = {
         
         // Find the opening brace of the GEAR TABLE (not the set_combine args)
         let gearTableStart = -1;
+        let isSetCombine = false;
         let pos = assignmentEnd;
         
         // Skip whitespace
@@ -8219,6 +10479,7 @@ const LuaOptimizer = {
             // Direct assignment: sets.x = { ... }
             gearTableStart = pos;
         } else if (content.substring(pos, pos + 11) === 'set_combine') {
+            isSetCombine = true;
             // set_combine pattern: sets.x = set_combine(base, { ... })
             // Find the opening '(' of set_combine
             pos = content.indexOf('(', pos);
@@ -8280,7 +10541,27 @@ const LuaOptimizer = {
             return content;
         }
         
-        // Replace the content between braces (exclusive of braces themselves)
+        // --- SIRD / set_combine output ---
+        // When baseSetName is provided, replace the entire right-hand side of the
+        // assignment with set_combine(baseSetName, { <gear> })
+        if (baseSetName) {
+            // Find the full statement end: after the gear table '}', skip optional ')' for existing set_combine
+            let stmtEnd = gearTableEnd + 1; // position after '}'
+            if (isSetCombine) {
+                // Skip whitespace and closing paren of the original set_combine(...)
+                let p = stmtEnd;
+                while (p < content.length && /\s/.test(content[p])) p++;
+                if (p < content.length && content[p] === ')') {
+                    stmtEnd = p + 1;
+                }
+            }
+            
+            const before = content.substring(0, assignmentEnd);
+            const after = content.substring(stmtEnd);
+            return before + `set_combine(${baseSetName}, {\n${gearString}\n    })` + after;
+        }
+        
+        // --- Standard replacement: swap content between braces ---
         const before = content.substring(0, gearTableStart + 1);
         const after = content.substring(gearTableEnd);
         
@@ -8341,7 +10622,7 @@ const LuaOptimizer = {
     },
     
     // Helper: Build the gear string from items (now accepts full item objects)
-    buildGearString(items) {
+    buildGearString(items, isRangedWS = false) {
         const slotOrder = ['main', 'sub', 'range', 'ammo', 'head', 'neck', 'ear1', 'ear2',
                           'body', 'hands', 'ring1', 'ring2', 'back', 'waist', 'legs', 'feet'];
         
@@ -8353,8 +10634,25 @@ const LuaOptimizer = {
             'ring2': 'right_ring'
         };
         
+        // Fix empyrean earring slot order: these are right-ear only items.
+        // If the optimizer placed one in ear1 (left), swap with ear2.
+        const ear1Name = items['ear1']?.name || items['ear1']?.Name || (typeof items['ear1'] === 'string' ? items['ear1'] : '');
+        if (isEmpyreanEarring(ear1Name)) {
+            const tmp = items['ear1'];
+            items['ear1'] = items['ear2'] || null;
+            items['ear2'] = tmp;
+        }
+        
         // Check if we should comment out weapons
         const commentWeapons = document.getElementById('lua-comment-weapons')?.checked ?? true;
+        
+        // Weapon slots to comment out:
+        // - main, sub, range are always commented (swapping loses TP)
+        // - ammo is also commented for ranged WS (it's the "ammo" consumed by the WS)
+        const weaponSlots = new Set(['main', 'sub', 'range']);
+        if (isRangedWS) {
+            weaponSlots.add('ammo');
+        }
         
         const lines = [];
         for (const slot of slotOrder) {
@@ -8362,8 +10660,8 @@ const LuaOptimizer = {
                 const luaSlot = slotMap[slot] || slot;
                 // Use formatLuaItem to properly handle augmented items
                 const itemStr = formatLuaItem(items[slot]);
-                // Comment out main/sub if option is checked
-                if (commentWeapons && (slot === 'main' || slot === 'sub')) {
+                // Comment out weapon slots if option is checked
+                if (commentWeapons && weaponSlots.has(slot)) {
                     lines.push(`        -- ${luaSlot}=${itemStr},`);
                 } else {
                     lines.push(`        ${luaSlot}=${itemStr},`);
@@ -8385,7 +10683,13 @@ const LuaOptimizer = {
         for (const set of optimizedSets) {
             lua += `-- ${set.name}\n`;
             lua += `-- Profile: ${set.profile_type}\n`;
-            lua += '{\n';
+            
+            // SIRD sets use set_combine with their base midcast set
+            if (set.base_set_name) {
+                lua += `${set.name} = set_combine(${set.base_set_name}, {\n`;
+            } else {
+                lua += '{\n';
+            }
             
             const slotOrder = ['main', 'sub', 'range', 'ammo', 'head', 'neck', 'ear1', 'ear2',
                                'body', 'hands', 'ring1', 'ring2', 'back', 'waist', 'legs', 'feet'];
@@ -8398,8 +10702,11 @@ const LuaOptimizer = {
                                    slot === 'ring2' ? 'right_ring' : slot;
                     // Use formatLuaItem to properly handle augmented items
                     const itemStr = formatLuaItem(set.items[slot]);
-                    // Comment out main/sub if option is checked
-                    if (commentWeapons && (slot === 'main' || slot === 'sub')) {
+                    // Comment out weapon slots if option is checked
+                    // main, sub, range are always weapon slots; ammo is also a weapon slot for ranged WS
+                    const isWeaponSlot = slot === 'main' || slot === 'sub' || slot === 'range'
+                        || (slot === 'ammo' && set.is_ranged_ws);
+                    if (commentWeapons && isWeaponSlot) {
                         lua += `    -- ${luaSlot}=${itemStr},\n`;
                     } else {
                         lua += `    ${luaSlot}=${itemStr},\n`;
@@ -8407,7 +10714,11 @@ const LuaOptimizer = {
                 }
             }
             
-            lua += '}\n\n';
+            if (set.base_set_name) {
+                lua += '})\n\n';
+            } else {
+                lua += '}\n\n';
+            }
         }
         
         this.optimizedContent = lua;
@@ -8503,6 +10814,7 @@ const LuaOptimizer = {
             'enhancing_skill': '<span class="text-xs bg-green-500/30 text-green-400 px-2 py-0.5 rounded">Enh Skill</span>',
             'enhancing_duration': '<span class="text-xs bg-green-500/30 text-green-400 px-2 py-0.5 rounded">Enh Dur</span>',
             'dt_capped': '<span class="text-xs bg-ffxi-green/30 text-ffxi-green px-2 py-0.5 rounded">DT Cap</span>',
+            'sird': '<span class="text-xs bg-teal-500/30 text-teal-400 px-2 py-0.5 rounded">SIRD</span>',
             'fc_capped': '<span class="text-xs bg-yellow-500/30 text-yellow-400 px-2 py-0.5 rounded">FC Cap</span>',
             'beam_only': '<span class="text-xs bg-ffxi-border text-ffxi-text-dim px-2 py-0.5 rounded">Beam</span>',
         };
@@ -8529,6 +10841,8 @@ const LuaOptimizer = {
             case 'dt_capped':
             case 'fc_capped':
                 return `${value.toFixed(1)}% eff`;
+            case 'sird':
+                return `${Math.round(value)}% SIRD`;
             default:
                 return `Score: ${Math.round(value)}`;
         }
@@ -8709,6 +11023,7 @@ window.showResultDetails = showResultDetails;
 window.showMagicResultDetails = showMagicResultDetails;
 window.removeMagicBuff = removeMagicBuff;
 window.removeMagicDebuff = removeMagicDebuff;
+window.handleWSModeToggle = handleWSModeToggle;
 window.InventoryBrowser = InventoryBrowser;
 window.LuaOptimizer = LuaOptimizer;
 window.SetBuilder = SetBuilder;
