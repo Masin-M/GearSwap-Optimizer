@@ -3091,18 +3091,50 @@ async def calculate_stats(request: StatsRequest):
         # JP accuracy (simplified)
         acc_from_jp = min(jp_spent // 100, 36) if jp_spent > 0 else 0
         
-        total_accuracy = player.stats.get("Accuracy1", 0)
-        
-        # Hit rate calculation
-        acc_diff = total_accuracy - target_evasion
-        if acc_diff >= 200:
-            hit_rate = 0.95
-        elif acc_diff <= -200:
-            hit_rate = 0.20
+        # Determine weapon category and hit rate caps
+        # Hit rate caps per weapon position:
+        #   Hand-to-Hand (both fists): 99%
+        #   One-handed main hand:      99%
+        #   One-handed off-hand:        95%
+        #   Two-handed:                 95%
+        two_handed_types = ["Great Sword", "Great Katana", "Great Axe", "Polearm", "Scythe", "Staff"]
+        is_h2h = main_skill == "Hand-to-Hand"
+        is_two_handed = main_skill in two_handed_types
+        is_dual_wield = (
+            wsdist_gearset.get("sub", {}).get("Type", "None") == "Weapon"
+            or is_h2h
+        )
+
+        if is_h2h:
+            main_hit_cap = 99
+            off_hit_cap = 99
+            weapon_category = "Hand-to-Hand"
+        elif is_two_handed:
+            main_hit_cap = 95
+            off_hit_cap = 0  # no off-hand
+            weapon_category = "Two-Handed"
         else:
-            hit_rate = 0.75 + (acc_diff * 0.001)
-            hit_rate = max(0.20, min(0.95, hit_rate))
-        
+            main_hit_cap = 99
+            off_hit_cap = 95 if is_dual_wield else 0
+            weapon_category = "One-Handed"
+
+        # Hit rate formula: Hit Rate (%) = 75 + floor((Accuracy - Evasion) / 2)
+        # Clamped between 20% and the weapon-position cap
+        main_acc = int(player.stats.get("Accuracy1", 0))
+        main_acc_diff = int(main_acc - target_evasion)
+        main_hit_pct = max(20, min(main_hit_cap, 75 + (main_acc_diff // 2)))
+        main_hit_rate = main_hit_pct / 100
+
+        off_acc = int(player.stats.get("Accuracy2", 0))
+        if is_dual_wield and off_acc > 0:
+            off_acc_diff = int(off_acc - target_evasion)
+            off_hit_pct = max(20, min(off_hit_cap, 75 + (off_acc_diff // 2)))
+            off_hit_rate = off_hit_pct / 100
+        else:
+            off_acc_diff = 0
+            off_hit_pct = 0
+            off_hit_rate = 0.0
+
         # Format stats for response
         # Note: Frontend expects percentage stats in basis points (1200 = 12%)
         # wsdist stores DA/TA/Crit as integers (12 = 12%), so multiply by 100
@@ -3182,7 +3214,7 @@ async def calculate_stats(request: StatsRequest):
                 "from_gear": acc_from_gear - acc_from_buffs,
                 "from_jp": acc_from_jp,
                 "from_buffs": acc_from_buffs,
-                "total": total_accuracy,
+                "total": main_acc,
             },
             
             "vs_target": {
@@ -3190,10 +3222,25 @@ async def calculate_stats(request: StatsRequest):
                 "target_level": target_data.get("Level", 0),
                 "target_defense": int(target_defense),
                 "target_evasion": int(target_evasion),
-                "acc_differential": int(total_accuracy - target_evasion),
-                "hit_rate": round(hit_rate * 100, 1),
-                "ws_hit_rate": round(min(hit_rate + 0.50, 0.99 if hit_rate < 0.95 else 0.95) * 100, 1),
-                "acc_capped": hit_rate >= 0.95,
+                "weapon_category": weapon_category,
+                "weapon_type": main_skill,
+                "is_dual_wield": is_dual_wield,
+                # Main hand
+                "main_accuracy": main_acc,
+                "main_acc_differential": main_acc_diff,
+                "main_hit_rate": round(main_hit_rate * 100, 1),
+                "main_hit_cap": main_hit_cap,
+                "main_acc_capped": main_hit_pct >= main_hit_cap,
+                # Off-hand (only meaningful when dual wielding / H2H)
+                "off_accuracy": off_acc if is_dual_wield else 0,
+                "off_acc_differential": off_acc_diff if is_dual_wield else 0,
+                "off_hit_rate": round(off_hit_rate * 100, 1) if is_dual_wield else 0,
+                "off_hit_cap": off_hit_cap,
+                "off_acc_capped": (off_hit_pct >= off_hit_cap) if is_dual_wield else False,
+                # Legacy fields for backward compatibility
+                "acc_differential": main_acc_diff,
+                "hit_rate": round(main_hit_rate * 100, 1),
+                "acc_capped": main_hit_pct >= main_hit_cap,
             },
         }
         
@@ -3650,15 +3697,11 @@ async def simulate_ws_comparison(request: WSSimulateRequest):
                             )
 
                 # Derive hit rate from player accuracy vs enemy evasion
+                # Formula: Hit Rate (%) = 75 + floor((Accuracy - Evasion) / 2), clamped 20-95
                 acc    = player.stats.get("Accuracy1", 0)
                 evasion = enemy.stats.get("Evasion", 1043) if hasattr(enemy, "stats") else 1043
-                acc_diff = acc - evasion
-                if acc_diff >= 200:
-                    hit_rate = 0.95
-                elif acc_diff <= -200:
-                    hit_rate = 0.20
-                else:
-                    hit_rate = max(0.20, min(0.95, 0.75 + acc_diff * 0.001))
+                acc_diff = int(acc - evasion)
+                hit_rate = max(0.20, min(0.95, (75 + (acc_diff // 2)) / 100))
 
                 return {"damage": round(float(damage), 1), "hit_rate": round(hit_rate, 4)}
 
