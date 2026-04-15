@@ -808,8 +808,18 @@ class ItemDatabase:
                     current = getattr(stats, stat_name)
                     setattr(stats, stat_name, current + value)
         
-        # Special handling for "All magic skills +X"
-        all_magic_match = re.search(r'All magic skills?\s*[+]?\s*(\d+)', text, re.IGNORECASE)
+        # Special handling for "All magic skills +X" or standalone "Magic skills +X"
+        # Items like Hoxne Torque use "Magic skills +30" (no "All" prefix).
+        # We try the explicit "All magic skills" form first, then fall back to
+        # standalone "Magic skills" guarded by a negative lookbehind so that
+        # individual-school phrases like "Healing magic skill +10" don't match.
+        all_magic_match = re.search(r'All\s+magic\s+skills?\s*[+]?\s*(\d+)', text, re.IGNORECASE)
+        if not all_magic_match:
+            # Match "Magic skills +X" only when NOT preceded by a school name.
+            # The lookbehind rejects any letter+space before "Magic" (e.g. the
+            # "g " in "Healing magic skill") while allowing digit+space, punct,
+            # or start-of-string (e.g. "30 Magic skills" or "^Magic skills").
+            all_magic_match = re.search(r'(?<![a-zA-Z] )Magic\s+skills?\s*[+]?\s*(\d+)', text, re.IGNORECASE)
         if all_magic_match:
             try:
                 value = int(all_magic_match.group(1))
@@ -819,6 +829,14 @@ class ItemDatabase:
                 stats.elemental_magic_skill += value
                 stats.divine_magic_skill += value
                 stats.dark_magic_skill += value
+                stats.singing_skill += value
+                stats.wind_instrument_skill += value
+                stats.string_instrument_skill += value
+                stats.ninjutsu_skill += value
+                stats.blue_magic_skill += value
+                stats.geomancy_skill += value
+                stats.handbell_skill += value
+                stats.summoning_magic_skill += value
             except ValueError:
                 pass
         
